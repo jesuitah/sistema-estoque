@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sistema de Estoque</title>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  <style>
+    body {
+      background: linear-gradient(to bottom right, #0f172a, #1e293b, #0f172a);
+    }
+  </style>
+</head>
+<body class="text-white">
+  <div id="root"></div>
+
+  <script>
+    const { useState, useEffect, useCallback } = React;
+    const { createClient } = window.supabase;
+
+    const supabaseUrl = 'https://pylkufhziohxvwbbaued.supabase.co';
+    const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB5bGt1ZmhaaW9oeHZ3YmJhdWVkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MTI4MTc0MjcsImV4cCI6MjAyODM5MzQyN30.pVH6tN0LQQl_K4gVj1N1N-Oq7sUbPC0J7NF0Q7oQvyQ';
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    function StatsCard({ numero, label, cor }) {
+      return (
+        <div className={`${cor} text-white px-6 py-3 rounded-lg font-bold text-center min-w-24`}>
+          <div className="text-2xl">{numero}</div>
+          <div className="text-xs uppercase opacity-90">{label}</div>
+        </div>
+      );
+    }
+
+    function SKUCard({ item, onDelete, onSaida, onEntrada }) {
+      const isZerado = item.unidades === 0;
+      const bgColor = isZerado ? 'border-red-300 bg-red-50' : 'border-green-300 bg-green-50';
+      const statusColor = isZerado ? 'bg-red-200 text-red-800' : 'bg-green-200 text-green-800';
+
+      return (
+        <div className={`border-l-4 ${bgColor} p-4 rounded-lg relative text-gray-800`}>
+          <button
+            onClick={() => onDelete(item.id)}
+            className="absolute top-2 right-2 p-2 hover:bg-red-300 rounded-lg transition text-red-600"
+          >
+            ✕
+          </button>
+
+          <div className="flex justify-between items-start mb-2">
+            <div>
+              <div className="text-xs text-gray-600 font-semibold">{item.marca}</div>
+              <div className="text-lg font-bold">{item.sku}</div>
+            </div>
+            <span className={`${statusColor} px-3 py-1 rounded-full text-sm font-bold`}>
+              {isZerado ? 'ZERADO' : `${item.unidades} un`}
+            </span>
+          </div>
+
+          <div className="flex gap-2">
+            <input
+              type="number"
+              placeholder="0"
+              min="0"
+              id={`qty-${item.id}`}
+              className="w-20 px-2 py-1 border rounded text-sm text-gray-800"
+            />
+            <button
+              onClick={() => {
+                const qty = parseInt(document.getElementById(`qty-${item.id}`).value) || 0;
+                if (qty > 0) onSaida(item, qty);
+              }}
+              className="flex-1 bg-red-500 text-white px-3 py-1 rounded font-bold text-sm hover:bg-red-600"
+            >
+              ✓ SAÍDA
+            </button>
+            <button
+              onClick={() => {
+                const qty = parseInt(document.getElementById(`qty-${item.id}`).value) || 0;
+                if (qty > 0) onEntrada(item, qty);
+              }}
+              className="flex-1 bg-green-500 text-white px-3 py-1 rounded font-bold text-sm hover:bg-green-600"
+            >
+              ✓ ENTRADA
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    function App() {
+      const [activeTab, setActiveTab] = useState('sku');
+      const [estoque, setEstoque] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [searchTerm, setSearchTerm] = useState('');
+      const [stats, setStats] = useState({ total: 0, unidades: 0, zerados: 0 });
+
+      const [novaMarca, setNovaMarca] = useState('');
+      const [novoSku, setNovoSku] = useState('');
+      const [novasUnidades, setNovasUnidades] = useState(0);
+
+      useEffect(() => {
+        carregarEstoque();
+
+        const subscription = supabase
+          .channel('estoque-changes')
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'estoque' }, () => {
+            carregarEstoque();
+          })
+          .subscribe();
+
+        return () => subscription.unsubscribe();
+      }, []);
+
+      const carregarEstoque = async () => {
+        try {
+          const { data, error } = await supabase
+            .from('estoque')
+            .select('*')
+            .order('marca', { ascending: true })
+            .order('sku', { ascending: true });
+
+          if (error) throw error;
+          setEstoque(data || []);
+          calcularStats(data || []);
+        } catch (error) {
+          console.error('Erro:', error);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      const calcularStats = (dados) => {
+        const total = dados.length;
+        const unidades = dados.reduce((sum, item) => sum + (item.unidades || 0), 0);
+        const zerados = dados.filter(item => item.unidades === 0).length;
+        setStats({ total, unidades, zerados });
+      };
+
+      const adicionarSKU = async () => {
+        if (!novaMarca.trim() || !novoSku.trim()) {
+          alert('Preencha marca e SKU');
+          return;
+        }
+
+        try {
+          const { error } = await supabase
+            .from('estoque')
+            .insert([{
+              marca: novaMarca.toUpperCase(),
+              sku: novoSku.toUpperCase(),
+              unidades: novasUnidades
+            }]);
+
+          if (error) throw error;
+          setNovaMarca('');
+          setNovoSku('');
+          setNovasUnidades(0);
+          await carregarEstoque();
+        } catch (error) {
+          alert('Erro: ' + error.message);
+        }
+      };
+
+      const deletarSKU = async (id) => {
+        if (!confirm('Deletar este SKU?')) return;
+
+        try {
+          const { error } = await supabase.from('estoque').delete().eq('id', id);
+          if (error) throw error;
+          await carregarEstoque();
+        } catch (error) {
+          alert('Erro: ' + error.message);
+        }
+      };
+
+      const fazerMovimento = async (item, quantidade, tipo) => {
+        try {
+          const novaUnidade = tipo === 'entrada'
+            ? item.unidades + quantidade
+            : Math.max(0, item.unidades - quantidade);
+
+          const { error } = await supabase
+            .from('estoque')
+            .update({ unidades: novaUnidade })
+            .eq('id', item.id);
+
+          if (error) throw error;
+          await carregarEstoque();
+        } catch (error) {
+          alert('Erro: ' + error.message);
+        }
+      };
+
+      const estoquesFiltrados = estoque.filter(item => {
+        const termo = searchTerm.toUpperCase();
+        return item.marca.includes(termo) || item.sku.includes(termo);
+      });
+
+      if (loading) {
+        return <div className="min-h-screen flex items-center justify-center text-xl">Carregando...</div>;
+      }
+
+      return (
+        <div className="min-h-screen">
+          {/* Header */}
+          <header className="bg-slate-950 border-b border-slate-700 sticky top-0 z-50">
+            <div className="max-w-7xl mx-auto px-6 py-4">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="bg-blue-600 p-2 rounded-lg">
+                  <span className="text-white font-bold">[E]</span>
+                </div>
+                <h1 className="text-2xl font-bold">Sistema de Estoque</h1>
+              </div>
+              <div className="flex gap-3">
+                <StatsCard numero={stats.total} label="SKUs" cor="bg-blue-600" />
+                <StatsCard numero={stats.unidades} label="Unidades" cor="bg-green-600" />
+                <StatsCard numero={stats.zerados} label="Zerados" cor="bg-red-600" />
+              </div>
+            </div>
+          </header>
+
+          {/* Tabs */}
+          <div className="bg-slate-800 border-b border-slate-700">
+            <div className="max-w-7xl mx-auto px-6 flex gap-8">
+              <button
+                onClick={() => setActiveTab('sku')}
+                className={`py-4 font-bold transition ${
+                  activeTab === 'sku'
+                    ? 'text-blue-400 border-b-2 border-blue-400'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                &gt; Busca por SKU / Marca
+              </button>
+              <button
+                onClick={() => setActiveTab('registro')}
+                className={`py-4 font-bold transition ${
+                  activeTab === 'registro'
+                    ? 'text-blue-400 border-b-2 border-blue-400'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                = Registro
+              </button>
+            </div>
+          </div>
+
+          {/* Content */}
+          <main className="max-w-7xl mx-auto px-6 py-8">
+            {activeTab === 'sku' && (
+              <div>
+                <div className="mb-6">
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="> Digite SKU (ex: GV7, MM30) ou marca (ex: JAMAICA)..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="w-full bg-slate-800 text-white pl-4 pr-4 py-3 rounded-lg border border-slate-700 focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
+                  <div className="text-sm text-slate-400 mt-2">
+                    Mostrando {estoquesFiltrados.length} de {stats.total} produtos
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {estoquesFiltrados.map(item => (
+                    <SKUCard
+                      key={item.id}
+                      item={item}
+                      onDelete={deletarSKU}
+                      onSaida={(item, qty) => fazerMovimento(item, qty, 'saida')}
+                      onEntrada={(item, qty) => fazerMovimento(item, qty, 'entrada')}
+                    />
+                  ))}
+                </div>
+
+                {estoquesFiltrados.length === 0 && (
+                  <div className="text-center py-12 text-slate-400">
+                    Nenhum produto encontrado
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeTab === 'registro' && (
+              <div className="space-y-6">
+                <div className="bg-slate-800 border border-slate-700 p-6 rounded-lg">
+                  <h2 className="text-xl font-bold mb-4">Adicionar / Editar SKU</h2>
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                    <input
+                      type="text"
+                      placeholder="ex: JAMAICA"
+                      value={novaMarca}
+                      onChange={(e) => setNovaMarca(e.target.value)}
+                      className="bg-slate-700 text-white px-4 py-2 rounded border border-slate-600 focus:border-blue-500 focus:outline-none"
+                    />
+                    <input
+                      type="text"
+                      placeholder="ex: MM3048"
+                      value={novoSku}
+                      onChange={(e) => setNovoSku(e.target.value)}
+                      className="bg-slate-700 text-white px-4 py-2 rounded border border-slate-600 focus:border-blue-500 focus:outline-none"
+                    />
+                    <input
+                      type="number"
+                      placeholder="Unidades"
+                      value={novasUnidades}
+                      onChange={(e) => setNovasUnidades(parseInt(e.target.value) || 0)}
+                      className="bg-slate-700 text-white px-4 py-2 rounded border border-slate-600 focus:border-blue-500 focus:outline-none"
+                    />
+                    <button
+                      onClick={adicionarSKU}
+                      className="bg-blue-600 text-white px-4 py-2 rounded font-bold hover:bg-blue-700 transition"
+                    >
+                      + Adicionar
+                    </button>
+                  </div>
+                </div>
+
+                <div className="bg-slate-800 border border-slate-700 p-6 rounded-lg">
+                  <h2 className="text-xl font-bold mb-4">Atualizar Estoque (Planilha)</h2>
+                  <p className="text-slate-400">Formato: Marca | SKU | Unidades</p>
+                </div>
+
+                <div className="bg-slate-800 border border-slate-700 p-6 rounded-lg">
+                  <h2 className="text-xl font-bold mb-4">Estoque FULL (Mercado Livre)</h2>
+                  <p className="text-slate-400">Envio para centro de distribuição (100+ unidades)</p>
+                </div>
+              </div>
+            )}
+          </main>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
