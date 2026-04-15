@@ -200,7 +200,7 @@
 
               rows.forEach(function(row, idx) {
                 if (idx < 1) return; // Pula header
-                if (!row[0] || !row[1]) return;
+                if (row[0] === null || row[0] === undefined || row[1] === null || row[1] === undefined) return;
 
                 var sku = String(row[0]).trim().toUpperCase();
                 var unidades = parseInt(row[1]) || 0;
