@@ -8,6 +8,7 @@
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <style>
     body { background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%); min-height: 100vh; }
   </style>
@@ -112,6 +113,10 @@
       var novasUnidades = unidadesState[0];
       var setNovasUnidades = unidadesState[1];
 
+      var importingState = useState(false);
+      var importing = importingState[0];
+      var setImporting = importingState[1];
+
       function carregarEstoque() {
         supabase.from('estoque').select('*')
           .order('marca', {ascending: true})
@@ -179,6 +184,142 @@
         });
       }
 
+      function importarSKUsExcel(file) {
+        setImporting(true);
+        var reader = new FileReader();
+        reader.onload = function(e) {
+          try {
+            var data = new Uint8Array(e.target.result);
+            var workbook = XLSX.read(data, {type: 'array'});
+            var toInsert = [];
+            var contador = 0;
+
+            workbook.SheetNames.forEach(function(sheetName) {
+              var sheet = workbook.Sheets[sheetName];
+              var rows = XLSX.utils.sheet_to_json(sheet, {header: 1});
+
+              rows.forEach(function(row, idx) {
+                if (idx < 1) return; // Pula header
+                if (!row[0] || !row[1]) return;
+
+                var sku = String(row[0]).trim().toUpperCase();
+                var unidades = parseInt(row[1]) || 0;
+
+                if (sku && sku !== 'SKU') {
+                  toInsert.push({
+                    marca: sheetName.trim().toUpperCase(),
+                    sku: sku,
+                    unidades: unidades
+                  });
+                  contador++;
+                }
+              });
+            });
+
+            if (toInsert.length === 0) {
+              alert('Nenhum SKU encontrado no arquivo');
+              setImporting(false);
+              return;
+            }
+
+            supabase.from('estoque').insert(toInsert).then(function(result) {
+              if (result.error) {
+                if (result.error.code === '23505') {
+                  alert('Alguns SKUs já existem. Atualizando quantidades...');
+                  supabase.from('estoque').select('marca, sku, id').then(function(existing) {
+                    var updates = [];
+                    toInsert.forEach(function(newItem) {
+                      var existingItem = (existing.data || []).find(function(ex) {
+                        return ex.marca === newItem.marca && ex.sku === newItem.sku;
+                      });
+                      if (existingItem) {
+                        updates.push(supabase.from('estoque').update({unidades: newItem.unidades}).eq('id', existingItem.id));
+                      }
+                    });
+                    Promise.all(updates).then(function() {
+                      alert('✓ SKUs importados e atualizados!');
+                      carregarEstoque();
+                      setImporting(false);
+                    });
+                  });
+                } else {
+                  alert('Erro: ' + result.error.message);
+                  setImporting(false);
+                }
+              } else {
+                alert('✓ ' + contador + ' SKUs importados com sucesso!');
+                carregarEstoque();
+                setImporting(false);
+              }
+            });
+          } catch (err) {
+            alert('Erro ao processar arquivo: ' + err.message);
+            setImporting(false);
+          }
+        };
+        reader.readAsArrayBuffer(file);
+      }
+
+      function processarEnviosFull(file) {
+        setImporting(true);
+        var reader = new FileReader();
+        reader.onload = function(e) {
+          try {
+            var data = new Uint8Array(e.target.result);
+            var workbook = XLSX.read(data, {type: 'array'});
+            var sheet = workbook.Sheets[workbook.SheetNames[0]];
+            var rows = XLSX.utils.sheet_to_json(sheet, {header: 1});
+            var updates = [];
+
+            rows.forEach(function(row, idx) {
+              if (idx < 1) return;
+              if (!row[0] || !row[1]) return;
+
+              var descricao = String(row[0]).trim().toUpperCase();
+              var quantidade = parseInt(row[1]) || 0;
+
+              if (quantidade <= 0) return;
+
+              if (descricao.startsWith('KIT:')) {
+                var skus = descricao.substring(4).split('+').map(function(s) { return s.trim(); });
+                skus.forEach(function(sku) {
+                  updates.push({type: 'saida', sku: sku, quantidade: quantidade});
+                });
+              } else {
+                updates.push({type: 'saida', sku: descricao, quantidade: quantidade});
+              }
+            });
+
+            if (updates.length === 0) {
+              alert('Nenhum item encontrado');
+              setImporting(false);
+              return;
+            }
+
+            supabase.from('estoque').select('id, sku, unidades').then(function(result) {
+              var promises = [];
+              updates.forEach(function(upd) {
+                var item = (result.data || []).find(function(x) { return x.sku === upd.sku; });
+                if (item) {
+                  var novaQtd = Math.max(0, item.unidades - upd.quantidade);
+                  promises.push(supabase.from('estoque').update({unidades: novaQtd}).eq('id', item.id));
+                }
+              });
+
+              Promise.all(promises).then(function() {
+                alert('✓ Envios Full processados!');
+                carregarEstoque();
+                setImporting(false);
+              });
+            });
+          } catch (err) {
+            alert('Erro: ' + err.message);
+            setImporting(false);
+          }
+        };
+        reader.readAsArrayBuffer(file);
+      }
+
       var estoquesFiltrados = estoque.filter(function(item) {
         var termo = searchTerm.toUpperCase();
         return item.marca.toUpperCase().includes(termo) || item.sku.toUpperCase().includes(termo);
@@ -192,7 +333,6 @@
       }
 
       return e('div', {className: 'min-h-screen'},
-        // Header
         e('header', {className: 'bg-slate-950 border-b border-slate-700 sticky top-0 z-50'},
           e('div', {className: 'max-w-7xl mx-auto px-4 py-4'},
             e('div', {className: 'flex items-center gap-3 mb-4'},
@@ -210,29 +350,33 @@
           )
         ),
 
-        // Tabs
         e('div', {className: 'bg-slate-800 border-b border-slate-700'},
-          e('div', {className: 'max-w-7xl mx-auto px-4 flex'},
+          e('div', {className: 'max-w-7xl mx-auto px-4 flex overflow-x-auto'},
             e('button', {
               onClick: function() { setActiveTab('sku'); },
-              className: 'py-4 px-6 font-bold text-sm transition-colors ' + (activeTab === 'sku' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
-            }, '> Busca SKU / Marca'),
+              className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'sku' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
+            }, '> Busca'),
             e('button', {
               onClick: function() { setActiveTab('registro'); },
-              className: 'py-4 px-6 font-bold text-sm transition-colors ' + (activeTab === 'registro' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
-            }, '= Registro')
+              className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'registro' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
+            }, '+ Registro'),
+            e('button', {
+              onClick: function() { setActiveTab('importar'); },
+              className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'importar' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
+            }, '📊 Importar SKUs'),
+            e('button', {
+              onClick: function() { setActiveTab('envios'); },
+              className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'envios' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
+            }, '🚚 Envios Full')
           )
         ),
 
-        // Content
         e('main', {className: 'max-w-7xl mx-auto px-4 py-6'},
-
-          // Tab Busca
           activeTab === 'sku' && e('div', null,
             e('div', {className: 'mb-5'},
               e('input', {
                 type: 'text',
-                placeholder: 'Digite o SKU (ex: GV7, MM30) ou marca (ex: JAMAICA, GAUSS)...',
+                placeholder: 'Digite o SKU ou marca...',
                 value: searchTerm,
                 onChange: function(ev) { setSearchTerm(ev.target.value); },
                 className: 'w-full bg-slate-800 text-white px-4 py-3 rounded-lg border border-slate-600 focus:border-blue-400 focus:outline-none text-sm'
@@ -244,7 +388,7 @@
             estoquesFiltrados.length === 0
               ? e('div', {className: 'text-center py-16 text-slate-500'},
                   e('div', {className: 'text-4xl mb-3'}, '[]'),
-                  e('div', null, searchTerm ? 'Nenhum produto encontrado' : 'Estoque vazio - adicione produtos na aba Registro')
+                  e('div', null, 'Nenhum produto encontrado')
                 )
               : e('div', {className: 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4'},
                   estoquesFiltrados.map(function(item) {
@@ -259,22 +403,20 @@
                 )
           ),
 
-          // Tab Registro
           activeTab === 'registro' && e('div', {className: 'space-y-5'},
             e('div', {className: 'bg-slate-800 border border-slate-700 p-6 rounded-lg'},
-              e('h2', {className: 'text-lg font-bold mb-1'}, 'Adicionar / Editar SKU'),
-              e('p', {className: 'text-slate-400 text-sm mb-4'}, 'Se o SKU ja existe, atualize a quantidade manualmente na busca. Para SKUs novos, preencha abaixo.'),
+              e('h2', {className: 'text-lg font-bold mb-4'}, 'Adicionar SKU Individual'),
               e('div', {className: 'grid grid-cols-1 md:grid-cols-4 gap-3'},
                 e('input', {
                   type: 'text',
-                  placeholder: 'MARCA (ex: JAMAICA)',
+                  placeholder: 'MARCA',
                   value: novaMarca,
                   onChange: function(ev) { setNovaMarca(ev.target.value); },
                   className: 'bg-slate-700 text-white px-4 py-2 rounded border border-slate-600 focus:border-blue-400 focus:outline-none text-sm'
                 }),
                 e('input', {
                   type: 'text',
-                  placeholder: 'SKU (ex: MM3048)',
+                  placeholder: 'SKU',
                   value: novoSku,
                   onChange: function(ev) { setNovoSku(ev.target.value); },
                   className: 'bg-slate-700 text-white px-4 py-2 rounded border border-slate-600 focus:border-blue-400 focus:outline-none text-sm'
@@ -289,8 +431,47 @@
                 e('button', {
                   onClick: adicionarSKU,
                   className: 'bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-bold text-sm transition'
-                }, '+ Adicionar SKU')
+                }, '+ Adicionar')
               )
+            )
+          ),
+
+          activeTab === 'importar' && e('div', {className: 'space-y-5'},
+            e('div', {className: 'bg-slate-800 border border-slate-700 p-6 rounded-lg'},
+              e('h2', {className: 'text-lg font-bold mb-2'}, 'Importar Planilha de SKUs'),
+              e('p', {className: 'text-slate-400 text-sm mb-4'}, 'Formato: Cada aba é uma marca. Coluna A = SKU, Coluna B = Quantidade'),
+              e('input', {
+                type: 'file',
+                accept: '.xlsx,.xls',
+                onChange: function(ev) {
+                  if (ev.target.files && ev.target.files[0]) {
+                    importarSKUsExcel(ev.target.files[0]);
+                  }
+                },
+                disabled: importing,
+                className: 'block w-full px-4 py-2 rounded border border-slate-600 text-sm'
+              }),
+              e('p', {className: 'text-slate-500 text-xs mt-2'}, importing ? '⏳ Processando...' : '✓ Pronto para importar')
+            )
+          ),
+
+          activeTab === 'envios' && e('div', {className: 'space-y-5'},
+            e('div', {className: 'bg-slate-800 border border-slate-700 p-6 rounded-lg'},
+              e('h2', {className: 'text-lg font-bold mb-2'}, 'Envios Full (Redução de Estoque)'),
+              e('p', {className: 'text-slate-400 text-sm mb-2'}, 'Coluna A: SKU ou "KIT: SKU1 + SKU2"'),
+              e('p', {className: 'text-slate-400 text-sm mb-4'}, 'Coluna B: Quantidade a reduzir'),
+              e('input', {
+                type: 'file',
+                accept: '.xlsx,.xls',
+                onChange: function(ev) {
+                  if (ev.target.files && ev.target.files[0]) {
+                    processarEnviosFull(ev.target.files[0]);
+                  }
+                },
+                disabled: importing,
+                className: 'block w-full px-4 py-2 rounded border border-slate-600 text-sm'
+              }),
+              e('p', {className: 'text-slate-500 text-xs mt-2'}, importing ? '⏳ Processando...' : '✓ Pronto para importar')
             )
           )
         )
