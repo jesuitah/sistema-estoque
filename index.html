@@ -9,6 +9,12 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>
+    if (typeof pdfjsLib !== 'undefined') {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+  </script>
   <style>
     body { background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%); min-height: 100vh; }
   </style>
@@ -243,84 +249,175 @@
 
       function processarEnviosFull(file) {
         setImporting(true);
-        var reader = new FileReader();
-        reader.onload = function(e) {
-          try {
-            var data = new Uint8Array(e.target.result);
-            var workbook = XLSX.read(data, {type: 'array'});
-            var sheet = workbook.Sheets[workbook.SheetNames[0]];
-            var rows = XLSX.utils.sheet_to_json(sheet, {header: 1});
 
-            // Extrai só o SKU de strings como "KQ: AT0515" → "AT0515"
-            function extrairSku(str) {
-              var pos = str.indexOf(':');
-              if (pos !== -1) return str.substring(pos + 1).trim();
-              return str.trim();
-            }
+        // Normaliza SKU: remove tudo que não é letra/número
+        function normSku(str) {
+          return String(str).toUpperCase().replace(/[^A-Z0-9]/g, '');
+        }
 
-            // Acumula quantidades por SKU (caso o mesmo SKU apareça mais de uma vez)
-            var skuMap = {};
+        // Extrai o SKU de "KQ: AT0515" → "AT0515", "MULTIQUALITA AT0515" → "AT0515"
+        function extrairSku(str) {
+          var s = str.trim();
+          if (s.indexOf(':') !== -1) {
+            s = s.substring(s.lastIndexOf(':') + 1).trim();
+          } else {
+            var partes = s.split(/\s+/);
+            s = partes[partes.length - 1];
+          }
+          return normSku(s);
+        }
 
-            rows.forEach(function(row, idx) {
-              if (idx < 1) return;
-              if (!row[0] || !row[1]) return;
+        // Aplica as baixas no banco a partir do skuMap {skuNormalizado: quantidade}
+        function aplicarBaixas(skuMap) {
+          if (Object.keys(skuMap).length === 0) {
+            alert('Nenhum SKU encontrado no arquivo.');
+            setImporting(false);
+            return;
+          }
+          supabase.from('estoque').select('id, sku, unidades').then(function(result) {
+            var promises = [];
+            var naoEncontrados = [];
+            var dbItems = (result.data || []).map(function(x) {
+              return { id: x.id, sku: x.sku, unidades: x.unidades, norm: normSku(x.sku) };
+            });
 
-              var descricao = String(row[0]).trim().toUpperCase();
-              var quantidade = parseInt(row[1]) || 0;
-              if (quantidade <= 0) return;
-
-              if (descricao.startsWith('KIT:')) {
-                // Formato: "KIT: MARCA: SKU1 + MARCA: SKU2"
-                var parteKit = descricao.substring(4).trim();
-                parteKit.split('+').forEach(function(parte) {
-                  var sku = extrairSku(parte.trim());
-                  if (sku) skuMap[sku] = (skuMap[sku] || 0) + quantidade;
-                });
+            Object.keys(skuMap).forEach(function(skuNorm) {
+              var item = dbItems.find(function(x) {
+                return x.norm === skuNorm || skuNorm.endsWith(x.norm) || x.norm.endsWith(skuNorm);
+              });
+              if (item) {
+                var novaQtd = Math.max(0, item.unidades - skuMap[skuNorm]);
+                promises.push(supabase.from('estoque').update({unidades: novaQtd}).eq('id', item.id));
               } else {
-                // Formato: "MARCA: SKU" ou só "SKU"
-                var sku = extrairSku(descricao);
-                if (sku) skuMap[sku] = (skuMap[sku] || 0) + quantidade;
+                naoEncontrados.push(skuNorm);
               }
             });
 
-            if (Object.keys(skuMap).length === 0) {
-              alert('Nenhum item encontrado no arquivo');
+            if (promises.length === 0) {
+              alert('⚠️ Nenhum SKU encontrado no estoque!\nSKUs lidos: ' + Object.keys(skuMap).join(', '));
               setImporting(false);
               return;
             }
 
-            supabase.from('estoque').select('id, sku, unidades').then(function(result) {
-              var promises = [];
-              var naoEncontrados = [];
-
-              Object.keys(skuMap).forEach(function(sku) {
-                var item = (result.data || []).find(function(x) { return x.sku === sku; });
-                if (item) {
-                  var novaQtd = Math.max(0, item.unidades - skuMap[sku]);
-                  promises.push(supabase.from('estoque').update({unidades: novaQtd}).eq('id', item.id));
-                } else {
-                  naoEncontrados.push(sku);
-                }
-              });
-
-              if (promises.length === 0) {
-                alert('Nenhum SKU encontrado no estoque!\nSKUs buscados: ' + Object.keys(skuMap).join(', '));
-                setImporting(false);
-                return;
+            Promise.all(promises).then(function() {
+              var msg = '✓ ' + promises.length + ' SKU(s) com baixa aplicada!';
+              if (naoEncontrados.length > 0) {
+                msg += '\n⚠️ Não encontrados: ' + naoEncontrados.join(', ');
               }
+              alert(msg);
+              carregarEstoque();
+              setImporting(false);
+            });
+          });
+        }
 
-              Promise.all(promises).then(function() {
-                var msg = '✓ ' + promises.length + ' SKU(s) atualizados com sucesso!';
-                if (naoEncontrados.length > 0) {
-                  msg += '\n⚠️ Não encontrados no estoque: ' + naoEncontrados.join(', ');
+        var reader = new FileReader();
+
+        if (file.name && file.name.toLowerCase().endsWith('.pdf')) {
+          // ── PARSER PDF MERCADO LIVRE ──────────────────────────────────────
+          // Padrão do PDF:  "SKU: KQ: AT0515" por produto
+          // Quantidades ficam como números isolados após o cabeçalho da tabela
+          reader.onload = function(e) {
+            try {
+              pdfjsLib.getDocument({data: e.target.result}).promise.then(function(pdf) {
+                var pagePromises = [];
+                for (var p = 1; p <= pdf.numPages; p++) {
+                  pagePromises.push(pdf.getPage(p).then(function(page) {
+                    return page.getTextContent();
+                  }));
                 }
-                alert(msg);
-                carregarEstoque();
+                return Promise.all(pagePromises);
+              }).then(function(pages) {
+                var skuMap = {};
+
+                pages.forEach(function(tc) {
+                  // Agrupa itens por linha (Y próximo) → texto legível
+                  var linhas = [];
+                  var grupoAtual = [];
+                  var ultimoY = null;
+                  tc.items.forEach(function(item) {
+                    var y = Math.round(item.transform[5]);
+                    if (ultimoY !== null && Math.abs(y - ultimoY) > 3) {
+                      if (grupoAtual.length) linhas.push(grupoAtual.join(' '));
+                      grupoAtual = [];
+                    }
+                    if (item.str.trim()) grupoAtual.push(item.str.trim());
+                    ultimoY = y;
+                  });
+                  if (grupoAtual.length) linhas.push(grupoAtual.join(' '));
+                  var texto = linhas.join('\n');
+
+                  // Extrai SKUs: procura padrão "SKU: ..." em cada linha
+                  var skus = [];
+                  var reSkus = /SKU:\s*([^\n]+)/g;
+                  var m;
+                  while ((m = reSkus.exec(texto)) !== null) {
+                    skus.push(extrairSku(m[1].trim()));
+                  }
+
+                  // Extrai quantidades: números isolados (1-4 dígitos) APÓS
+                  // o cabeçalho da tabela ("PRODUTO" ou "UNIDADES")
+                  var posHeader = texto.indexOf('PRODUTO');
+                  if (posHeader === -1) posHeader = texto.indexOf('UNIDADES');
+                  var textoAposHeader = posHeader !== -1 ? texto.substring(posHeader) : texto;
+                  var qtds = [];
+                  textoAposHeader.split('\n').forEach(function(linha) {
+                    var t = linha.trim();
+                    if (/^\d{1,4}$/.test(t)) {
+                      var n = parseInt(t);
+                      if (n > 0 && !(n >= 1900 && n <= 2099)) qtds.push(n); // exclui anos
+                    }
+                  });
+
+                  // Mapeia SKU[i] → quantidade[i]
+                  skus.forEach(function(sku, i) {
+                    var qty = qtds[i] || 0;
+                    if (qty > 0 && sku) skuMap[sku] = (skuMap[sku] || 0) + qty;
+                  });
+                });
+
+                aplicarBaixas(skuMap);
+              }).catch(function(err) {
+                alert('Erro ao ler PDF: ' + err.message);
                 setImporting(false);
               });
-            });
-          } catch (err) {
-            alert('Erro: ' + err.message);
+            } catch (err) {
+              alert('Erro: ' + err.message);
+              setImporting(false);
+            }
+          };
+          reader.readAsArrayBuffer(file);
+
+        } else {
+          // ── PARSER EXCEL ─────────────────────────────────────────────────
+          reader.onload = function(e) {
+            try {
+              var workbook = XLSX.read(new Uint8Array(e.target.result), {type: 'array'});
+              var sheet = workbook.Sheets[workbook.SheetNames[0]];
+              var rows = XLSX.utils.sheet_to_json(sheet, {header: 1});
+              var skuMap = {};
+
+              rows.forEach(function(row) {
+                if (!row[0] || !row[1]) return;
+                var desc = String(row[0]).trim().toUpperCase();
+                if (desc === 'SKU' || desc === 'DESCRIÇÃO' || desc === 'PRODUTO') return;
+                var qty = parseInt(row[1]) || 0;
+                if (qty <= 0) return;
+
+                if (desc.startsWith('KIT:')) {
+                  desc.substring(4).split('+').forEach(function(p) {
+                    var s = extrairSku(p.trim());
+                    if (s) skuMap[s] = (skuMap[s] || 0) + qty;
+                  });
+                } else {
+                  var s = extrairSku(desc);
+                  if (s) skuMap[s] = (skuMap[s] || 0) + qty;
+                }
+              });
+
+              aplicarBaixas(skuMap);
+            } catch (err) {
+              alert('Erro: ' + err.message);
             setImporting(false);
           }
         };
