@@ -250,7 +250,16 @@
             var workbook = XLSX.read(data, {type: 'array'});
             var sheet = workbook.Sheets[workbook.SheetNames[0]];
             var rows = XLSX.utils.sheet_to_json(sheet, {header: 1});
-            var updates = [];
+
+            // Extrai só o SKU de strings como "KQ: AT0515" → "AT0515"
+            function extrairSku(str) {
+              var pos = str.indexOf(':');
+              if (pos !== -1) return str.substring(pos + 1).trim();
+              return str.trim();
+            }
+
+            // Acumula quantidades por SKU (caso o mesmo SKU apareça mais de uma vez)
+            var skuMap = {};
 
             rows.forEach(function(row, idx) {
               if (idx < 1) return;
@@ -258,37 +267,54 @@
 
               var descricao = String(row[0]).trim().toUpperCase();
               var quantidade = parseInt(row[1]) || 0;
-
               if (quantidade <= 0) return;
 
               if (descricao.startsWith('KIT:')) {
-                var skus = descricao.substring(4).split('+').map(function(s) { return s.trim(); });
-                skus.forEach(function(sku) {
-                  updates.push({type: 'saida', sku: sku, quantidade: quantidade});
+                // Formato: "KIT: MARCA: SKU1 + MARCA: SKU2"
+                var parteKit = descricao.substring(4).trim();
+                parteKit.split('+').forEach(function(parte) {
+                  var sku = extrairSku(parte.trim());
+                  if (sku) skuMap[sku] = (skuMap[sku] || 0) + quantidade;
                 });
               } else {
-                updates.push({type: 'saida', sku: descricao, quantidade: quantidade});
+                // Formato: "MARCA: SKU" ou só "SKU"
+                var sku = extrairSku(descricao);
+                if (sku) skuMap[sku] = (skuMap[sku] || 0) + quantidade;
               }
             });
 
-            if (updates.length === 0) {
-              alert('Nenhum item encontrado');
+            if (Object.keys(skuMap).length === 0) {
+              alert('Nenhum item encontrado no arquivo');
               setImporting(false);
               return;
             }
 
             supabase.from('estoque').select('id, sku, unidades').then(function(result) {
               var promises = [];
-              updates.forEach(function(upd) {
-                var item = (result.data || []).find(function(x) { return x.sku === upd.sku; });
+              var naoEncontrados = [];
+
+              Object.keys(skuMap).forEach(function(sku) {
+                var item = (result.data || []).find(function(x) { return x.sku === sku; });
                 if (item) {
-                  var novaQtd = Math.max(0, item.unidades - upd.quantidade);
+                  var novaQtd = Math.max(0, item.unidades - skuMap[sku]);
                   promises.push(supabase.from('estoque').update({unidades: novaQtd}).eq('id', item.id));
+                } else {
+                  naoEncontrados.push(sku);
                 }
               });
 
+              if (promises.length === 0) {
+                alert('Nenhum SKU encontrado no estoque!\nSKUs buscados: ' + Object.keys(skuMap).join(', '));
+                setImporting(false);
+                return;
+              }
+
               Promise.all(promises).then(function() {
-                alert('✓ Envios Full processados!');
+                var msg = '✓ ' + promises.length + ' SKU(s) atualizados com sucesso!';
+                if (naoEncontrados.length > 0) {
+                  msg += '\n⚠️ Não encontrados no estoque: ' + naoEncontrados.join(', ');
+                }
+                alert(msg);
                 carregarEstoque();
                 setImporting(false);
               });
