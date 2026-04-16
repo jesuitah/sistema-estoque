@@ -319,7 +319,11 @@
           // Quantidades ficam como números isolados após o cabeçalho da tabela
           reader.onload = function(e) {
             try {
-              pdfjsLib.getDocument({data: e.target.result}).promise.then(function(pdf) {
+              pdfjsLib.getDocument({
+                data: e.target.result,
+                cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
+                cMapPacked: true
+              }).promise.then(function(pdf) {
                 var pagePromises = [];
                 for (var p = 1; p <= pdf.numPages; p++) {
                   pagePromises.push(pdf.getPage(p).then(function(page) {
