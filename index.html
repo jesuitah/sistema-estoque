@@ -191,9 +191,9 @@
           try {
             var data = new Uint8Array(e.target.result);
             var workbook = XLSX.read(data, {type: 'array'});
-            var toInsert = [];
-            var contador = 0;
+            var skusDaPlaniha = [];
 
+            // Coleta todos os SKUs do arquivo
             workbook.SheetNames.forEach(function(sheetName) {
               var sheet = workbook.Sheets[sheetName];
               var rows = XLSX.utils.sheet_to_json(sheet, {header: 1});
@@ -206,51 +206,87 @@
                 var unidades = parseInt(row[1]) || 0;
 
                 if (sku && sku !== 'SKU') {
-                  toInsert.push({
+                  skusDaPlaniha.push({
                     marca: sheetName.trim().toUpperCase(),
                     sku: sku,
                     unidades: unidades
                   });
-                  contador++;
                 }
               });
             });
 
-            if (toInsert.length === 0) {
+            if (skusDaPlaniha.length === 0) {
               alert('Nenhum SKU encontrado no arquivo');
               setImporting(false);
               return;
             }
 
-            supabase.from('estoque').insert(toInsert).then(function(result) {
-              if (result.error) {
-                if (result.error.code === '23505') {
-                  alert('Alguns SKUs já existem. Atualizando quantidades...');
-                  supabase.from('estoque').select('marca, sku, id').then(function(existing) {
-                    var updates = [];
-                    toInsert.forEach(function(newItem) {
-                      var existingItem = (existing.data || []).find(function(ex) {
-                        return ex.marca === newItem.marca && ex.sku === newItem.sku;
-                      });
-                      if (existingItem) {
-                        updates.push(supabase.from('estoque').update({unidades: newItem.unidades}).eq('id', existingItem.id));
-                      }
-                    });
-                    Promise.all(updates).then(function() {
-                      alert('✓ SKUs importados e atualizados!');
-                      carregarEstoque();
-                      setImporting(false);
-                    });
-                  });
-                } else {
-                  alert('Erro: ' + result.error.message);
-                  setImporting(false);
-                }
-              } else {
-                alert('✓ ' + contador + ' SKUs importados com sucesso!');
-                carregarEstoque();
+            // Busca SKUs existentes no banco
+            supabase.from('estoque').select('id, marca, sku').then(function(existingResult) {
+              if (existingResult.error) {
+                alert('Erro ao buscar SKUs existentes: ' + existingResult.error.message);
                 setImporting(false);
+                return;
               }
+
+              var existentes = existingResult.data || [];
+              var paraInserir = [];
+              var paraAtualizar = [];
+
+              // Separa SKUs novos de existentes
+              skusDaPlaniha.forEach(function(item) {
+                var existe = existentes.find(function(ex) {
+                  return ex.marca === item.marca && ex.sku === item.sku;
+                });
+
+                if (existe) {
+                  paraAtualizar.push({id: existe.id, unidades: item.unidades});
+                } else {
+                  paraInserir.push(item);
+                }
+              });
+
+              var promises = [];
+
+              // Insere SKUs novos
+              if (paraInserir.length > 0) {
+                promises.push(
+                  supabase.from('estoque').insert(paraInserir)
+                    .then(function(result) {
+                      if (result.error) {
+                        console.error('Erro ao inserir:', result.error);
+                        throw new Error('Erro ao inserir novos SKUs: ' + result.error.message);
+                      }
+                    })
+                );
+              }
+
+              // Atualiza SKUs existentes
+              paraAtualizar.forEach(function(item) {
+                promises.push(
+                  supabase.from('estoque').update({unidades: item.unidades}).eq('id', item.id)
+                    .then(function(result) {
+                      if (result.error) {
+                        console.error('Erro ao atualizar:', result.error);
+                        throw new Error('Erro ao atualizar SKU: ' + result.error.message);
+                      }
+                    })
+                );
+              });
+
+              Promise.all(promises)
+                .then(function() {
+                  var msg = '✓ Importação concluída!\n';
+                  msg += '→ ' + paraInserir.length + ' SKUs novos inseridos\n';
+                  msg += '→ ' + paraAtualizar.length + ' SKUs atualizados';
+                  alert(msg);
+                  carregarEstoque();
+                  setImporting(false);
+                })
+                .catch(function(err) {
+                  alert('Erro durante importação: ' + err.message);
+                  setImporting(false);
+                });
             });
           } catch (err) {
             alert('Erro ao processar arquivo: ' + err.message);
