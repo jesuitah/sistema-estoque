@@ -7,7 +7,7 @@
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script>
@@ -27,7 +27,7 @@
     var useEffect = React.useEffect;
 
     var supabaseUrl = 'https://pylkufhziohxvwbbaued.supabase.co';
-    var supabaseKey = 'sb_publishable_SsgYDJ-bSwQy05hAhvNEuQ_6rl_8mCA';
+    var supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB5bGt1Zmh6aW9oeHZ3YmJhdWVkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1OTIyNzMsImV4cCI6MjA5MTE2ODI3M30.S61OxgJa03KmfJZ_MdFL0ZKAzWdsrrYwnmzuqN6L0vQ';
     var supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
 
     function StatsCard(props) {
@@ -130,6 +130,7 @@
           .then(function(result) {
             if (result.error) {
               console.error('Erro Supabase:', result.error);
+              alert('Erro ao carregar estoque: ' + result.error.message);
               setLoading(false);
               return;
             }
