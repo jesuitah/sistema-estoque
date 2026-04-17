@@ -226,7 +226,6 @@
               return;
             }
 
-            // Upsert: insere SKUs novos e atualiza os existentes numa única operação
             supabase.from('estoque')
               .upsert(skusDaPlanilha, { onConflict: 'sku' })
               .then(function(result) {
@@ -255,7 +254,7 @@
           return String(str).toUpperCase().replace(/[^A-Z0-9]/g, '');
         }
 
-        // Extrai o SKU de "KQ: AT0515" → "AT0515", "MULTIQUALITA AT0515" → "AT0515"
+        // Extrai o código do SKU: "KQ: AT0515" → "AT0515", "MULTIQUALITA AT0515" → "AT0515"
         function extrairSku(str) {
           var s = str.trim();
           if (s.indexOf(':') !== -1) {
@@ -294,7 +293,7 @@
             });
 
             if (promises.length === 0) {
-              alert('⚠️ Nenhum SKU encontrado no estoque!\nSKUs lidos: ' + Object.keys(skuMap).join(', '));
+              alert('⚠️ Nenhum SKU encontrado no estoque!\nSKUs buscados: ' + Object.keys(skuMap).join(', '));
               setImporting(false);
               return;
             }
@@ -302,7 +301,7 @@
             Promise.all(promises).then(function() {
               var msg = '✓ ' + promises.length + ' SKU(s) com baixa aplicada!';
               if (naoEncontrados.length > 0) {
-                msg += '\n⚠️ Não encontrados: ' + naoEncontrados.join(', ');
+                msg += '\n⚠️ Não encontrados no estoque: ' + naoEncontrados.join(', ');
               }
               alert(msg);
               carregarEstoque();
@@ -315,13 +314,11 @@
 
         if (file.name && file.name.toLowerCase().endsWith('.pdf')) {
           // ── PARSER PDF MERCADO LIVRE ──────────────────────────────────────
-          // Padrão do PDF:  "SKU: KQ: AT0515" por produto
-          // Quantidades ficam como números isolados após o cabeçalho da tabela
           reader.onload = function(e) {
             try {
               pdfjsLib.getDocument({
                 data: e.target.result,
-                cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
+                cMapUrl: 'https://unpkg.com/pdfjs-dist@3.11.174/cmaps/',
                 cMapPacked: true
               }).promise.then(function(pdf) {
                 var pagePromises = [];
@@ -335,7 +332,7 @@
                 var skuMap = {};
 
                 pages.forEach(function(tc) {
-                  // Agrupa itens por linha (Y próximo) → texto legível
+                  // Junta todo o texto da página em ordem
                   var linhas = [];
                   var grupoAtual = [];
                   var ultimoY = null;
@@ -351,16 +348,16 @@
                   if (grupoAtual.length) linhas.push(grupoAtual.join(' '));
                   var texto = linhas.join('\n');
 
-                  // Extrai SKUs: procura padrão "SKU: ..." em cada linha
+                  // Extrai SKUs: padrão "SKU: ..." em cada linha
                   var skus = [];
                   var reSkus = /SKU:\s*([^\n]+)/g;
                   var m;
                   while ((m = reSkus.exec(texto)) !== null) {
-                    skus.push(extrairSku(m[1].trim()));
+                    var skuExtraido = extrairSku(m[1].trim());
+                    if (skuExtraido) skus.push(skuExtraido);
                   }
 
-                  // Extrai quantidades: números isolados (1-4 dígitos) APÓS
-                  // o cabeçalho da tabela ("PRODUTO" ou "UNIDADES")
+                  // Extrai quantidades: números isolados APÓS o cabeçalho "PRODUTO"
                   var posHeader = texto.indexOf('PRODUTO');
                   if (posHeader === -1) posHeader = texto.indexOf('UNIDADES');
                   var textoAposHeader = posHeader !== -1 ? texto.substring(posHeader) : texto;
@@ -369,14 +366,17 @@
                     var t = linha.trim();
                     if (/^\d{1,4}$/.test(t)) {
                       var n = parseInt(t);
-                      if (n > 0 && !(n >= 1900 && n <= 2099)) qtds.push(n); // exclui anos
+                      // Exclui anos e zeros
+                      if (n > 0 && !(n >= 1900 && n <= 2099)) qtds.push(n);
                     }
                   });
 
-                  // Mapeia SKU[i] → quantidade[i]
+                  // Mapeia SKU[i] → quantidade[i], acumulando duplicatas
                   skus.forEach(function(sku, i) {
                     var qty = qtds[i] || 0;
-                    if (qty > 0 && sku) skuMap[sku] = (skuMap[sku] || 0) + qty;
+                    if (qty > 0 && sku) {
+                      skuMap[sku] = (skuMap[sku] || 0) + qty;
+                    }
                   });
                 });
 
@@ -386,7 +386,7 @@
                 setImporting(false);
               });
             } catch (err) {
-              alert('Erro: ' + err.message);
+              alert('Erro ao processar PDF: ' + err.message);
               setImporting(false);
             }
           };
@@ -421,12 +421,13 @@
 
               aplicarBaixas(skuMap);
             } catch (err) {
-              alert('Erro: ' + err.message);
-            setImporting(false);
-          }
-        };
-        reader.readAsArrayBuffer(file);
-      }
+              alert('Erro ao processar Excel: ' + err.message);
+              setImporting(false);
+            }
+          };
+          reader.readAsArrayBuffer(file);
+        }
+      } // ← fecha processarEnviosFull
 
       var estoquesFiltrados = estoque.filter(function(item) {
         var termo = searchTerm.toUpperCase();
@@ -566,11 +567,10 @@
           activeTab === 'envios' && e('div', {className: 'space-y-5'},
             e('div', {className: 'bg-slate-800 border border-slate-700 p-6 rounded-lg'},
               e('h2', {className: 'text-lg font-bold mb-2'}, 'Envios Full (Redução de Estoque)'),
-              e('p', {className: 'text-slate-400 text-sm mb-2'}, 'Coluna A: SKU ou "KIT: SKU1 + SKU2"'),
-              e('p', {className: 'text-slate-400 text-sm mb-4'}, 'Coluna B: Quantidade a reduzir'),
+              e('p', {className: 'text-slate-400 text-sm mb-4'}, 'Selecione o PDF de preparação do Mercado Livre Full para aplicar as baixas automaticamente.'),
               e('input', {
                 type: 'file',
-                accept: '.xlsx,.xls',
+                accept: '.pdf,.xlsx,.xls',
                 onChange: function(ev) {
                   if (ev.target.files && ev.target.files[0]) {
                     processarEnviosFull(ev.target.files[0]);
@@ -584,7 +584,7 @@
           )
         )
       );
-    }
+    } // ← fecha App
 
     ReactDOM.createRoot(document.getElementById('root')).render(e(App, null));
   </script>
