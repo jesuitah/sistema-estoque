@@ -130,7 +130,6 @@
           .then(function(result) {
             if (result.error) {
               console.error('Erro Supabase:', result.error);
-              alert('Erro ao carregar estoque: ' + result.error.message);
               setLoading(false);
               return;
             }
@@ -140,6 +139,10 @@
             var totalUnidades = data.reduce(function(sum, item) { return sum + (item.unidades || 0); }, 0);
             var zerados = data.filter(function(item) { return item.unidades === 0; }).length;
             setStats({total: total, unidades: totalUnidades, zerados: zerados});
+            setLoading(false);
+          })
+          .catch(function(err) {
+            console.error('Erro de conexão:', err);
             setLoading(false);
           });
       }
