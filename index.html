@@ -253,27 +253,26 @@
       function processarEnviosFull(file) {
         setImporting(true);
 
-        // Normaliza SKU: remove tudo que não é letra/número
         function normSku(str) {
           return String(str).toUpperCase().replace(/[^A-Z0-9]/g, '');
         }
 
-        // Extrai o código do SKU: "KQ: AT0515" → "AT0515", "MULTIQUALITA AT0515" → "AT0515"
         function extrairSku(str) {
           var s = str.trim();
           if (s.indexOf(':') !== -1) {
             s = s.substring(s.lastIndexOf(':') + 1).trim();
           }
-          // Remove sufixo de quantidade de kit ao final: "- 2UN", "–3UN", " 2UN", etc.
-          s = s.replace(/[^A-Z0-9\s]\s*\d+\s*UN\s*$/i, '').trim();
           var partes = s.split(/\s+/).filter(function(p) { return p.length > 0; });
-          // Prefere partes com letras E números (padrão típico de SKU como "030103483K")
           for (var i = partes.length - 1; i >= 0; i--) {
             if (/[A-Za-z]/.test(partes[i]) && /[0-9]/.test(partes[i])) {
               return normSku(partes[i]);
             }
           }
-          // Fallback: última parte não puramente numérica
+          for (var i = partes.length - 1; i >= 0; i--) {
+            if (/^\d{5,}$/.test(partes[i])) {
+              return normSku(partes[i]);
+            }
+          }
           for (var i = partes.length - 1; i >= 0; i--) {
             if (!/^\d+$/.test(partes[i])) {
               return normSku(partes[i]);
@@ -282,7 +281,6 @@
           return partes.length > 0 ? normSku(partes[partes.length - 1]) : '';
         }
 
-        // Aplica as baixas no banco a partir do skuMap {skuNormalizado: quantidade}
         function aplicarBaixas(skuMap) {
           if (Object.keys(skuMap).length === 0) {
             alert('Nenhum SKU encontrado no arquivo.');
@@ -329,7 +327,6 @@
         var reader = new FileReader();
 
         if (file.name && file.name.toLowerCase().endsWith('.pdf')) {
-          // ── PARSER PDF MERCADO LIVRE ──────────────────────────────────────
           reader.onload = function(e) {
             try {
               pdfjsLib.getDocument({
@@ -348,7 +345,6 @@
                 var skuMap = {};
 
                 pages.forEach(function(tc) {
-                  // Junta texto da página agrupando por coordenada Y (mesma linha física)
                   var linhas = [];
                   var grupoAtual = [];
                   var ultimoY = null;
@@ -363,7 +359,6 @@
                   });
                   if (grupoAtual.length) linhas.push(grupoAtual.join(' '));
 
-                  // Para cada linha com "SKU:", busca a quantidade por proximidade
                   linhas.forEach(function(linha, idx) {
                     var skuMatch = /SKU:\s*(.+)/i.exec(linha);
                     if (!skuMatch) return;
@@ -371,14 +366,12 @@
 
                     var qty = 0;
 
-                    // 1. Tenta quantidade inline (número isolado no final da linha = coluna UNIDADES)
                     var inlineMatch = /\b(\d{1,4})\s*$/.exec(linha);
                     if (inlineMatch) {
                       var n = parseInt(inlineMatch[1]);
                       if (n > 0 && !(n >= 1900 && n <= 2099)) qty = n;
                     }
 
-                    // 2. Se não achou, procura número isolado nas próximas 6 linhas
                     if (!qty) {
                       for (var wi = idx + 1; wi < Math.min(linhas.length, idx + 7); wi++) {
                         var t = linhas[wi].trim();
@@ -392,7 +385,6 @@
                     if (!qty) return;
 
                     if (/^KIT:/i.test(skuContent)) {
-                      // Remove "KIT:" e o número de kits que pode aparecer colado no final
                       var kitStr = skuContent.replace(/^KIT:\s*/i, '').replace(/\s+\d{1,4}\s*$/, '').trim();
                       kitStr.split('+').forEach(function(parte) {
                         parte = parte.trim();
@@ -425,7 +417,6 @@
           reader.readAsArrayBuffer(file);
 
         } else {
-          // ── PARSER EXCEL ─────────────────────────────────────────────────
           reader.onload = function(e) {
             try {
               var workbook = XLSX.read(new Uint8Array(e.target.result), {type: 'array'});
@@ -445,7 +436,7 @@
                   kitStr.split('+').forEach(function(p) {
                     p = p.trim();
                     var qtdPorKit = 1;
-                    var matchUN = /[-–]\s*(\d+)\s*UN\s*$/i.exec(p);
+                    var matchUN = /[^A-Z0-9]\s*(\d+)\s*UN\s*$/i.exec(p);
                     if (matchUN) {
                       qtdPorKit = parseInt(matchUN[1]);
                       p = p.substring(0, matchUN.index).trim();
@@ -467,7 +458,7 @@
           };
           reader.readAsArrayBuffer(file);
         }
-      } // ← fecha processarEnviosFull
+      }
 
       var estoquesFiltrados = estoque.filter(function(item) {
         var termo = searchTerm.toUpperCase();
@@ -624,7 +615,7 @@
           )
         )
       );
-    } // ← fecha App
+    }
 
     ReactDOM.createRoot(document.getElementById('root')).render(e(App, null));
   </script>
