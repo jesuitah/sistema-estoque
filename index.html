@@ -264,6 +264,8 @@
           if (s.indexOf(':') !== -1) {
             s = s.substring(s.lastIndexOf(':') + 1).trim();
           }
+          // Remove sufixo de quantidade de kit ao final: "- 2UN", "–3UN", " 2UN", etc.
+          s = s.replace(/[^A-Z0-9\s]\s*\d+\s*UN\s*$/i, '').trim();
           var partes = s.split(/\s+/).filter(function(p) { return p.length > 0; });
           // Prefere partes com letras E números (padrão típico de SKU como "030103483K")
           for (var i = partes.length - 1; i >= 0; i--) {
@@ -395,7 +397,7 @@
                       kitStr.split('+').forEach(function(parte) {
                         parte = parte.trim();
                         var qtdPorKit = 1;
-                        var matchUN = /[-–]\s*(\d+)\s*UN\s*$/i.exec(parte);
+                        var matchUN = /[^A-Z0-9]\s*(\d+)\s*UN\s*$/i.exec(parte);
                         if (matchUN) {
                           qtdPorKit = parseInt(matchUN[1]);
                           parte = parte.substring(0, matchUN.index).trim();
