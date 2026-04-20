@@ -365,12 +365,11 @@
                   linhas.forEach(function(linha, idx) {
                     var skuMatch = /SKU:\s*(.+)/i.exec(linha);
                     if (!skuMatch) return;
-                    var skuExtraido = extrairSku(skuMatch[1].trim());
-                    if (!skuExtraido) return;
+                    var skuContent = skuMatch[1].trim();
 
                     var qty = 0;
 
-                    // 1. Tenta quantidade inline (número no final da mesma linha)
+                    // 1. Tenta quantidade inline (número isolado no final da linha = coluna UNIDADES)
                     var inlineMatch = /\b(\d{1,4})\s*$/.exec(linha);
                     if (inlineMatch) {
                       var n = parseInt(inlineMatch[1]);
@@ -388,7 +387,26 @@
                       }
                     }
 
-                    if (qty > 0) skuMap[skuExtraido] = (skuMap[skuExtraido] || 0) + qty;
+                    if (!qty) return;
+
+                    if (/^KIT:/i.test(skuContent)) {
+                      // Remove "KIT:" e o número de kits que pode aparecer colado no final
+                      var kitStr = skuContent.replace(/^KIT:\s*/i, '').replace(/\s+\d{1,4}\s*$/, '').trim();
+                      kitStr.split('+').forEach(function(parte) {
+                        parte = parte.trim();
+                        var qtdPorKit = 1;
+                        var matchUN = /[-–]\s*(\d+)\s*UN\s*$/i.exec(parte);
+                        if (matchUN) {
+                          qtdPorKit = parseInt(matchUN[1]);
+                          parte = parte.substring(0, matchUN.index).trim();
+                        }
+                        var sku = extrairSku(parte);
+                        if (sku) skuMap[sku] = (skuMap[sku] || 0) + (qtdPorKit * qty);
+                      });
+                    } else {
+                      var skuExtraido = extrairSku(skuContent);
+                      if (skuExtraido) skuMap[skuExtraido] = (skuMap[skuExtraido] || 0) + qty;
+                    }
                   });
                 });
 
@@ -421,9 +439,17 @@
                 if (qty <= 0) return;
 
                 if (desc.startsWith('KIT:')) {
-                  desc.substring(4).split('+').forEach(function(p) {
-                    var s = extrairSku(p.trim());
-                    if (s) skuMap[s] = (skuMap[s] || 0) + qty;
+                  var kitStr = desc.substring(4).trim();
+                  kitStr.split('+').forEach(function(p) {
+                    p = p.trim();
+                    var qtdPorKit = 1;
+                    var matchUN = /[-–]\s*(\d+)\s*UN\s*$/i.exec(p);
+                    if (matchUN) {
+                      qtdPorKit = parseInt(matchUN[1]);
+                      p = p.substring(0, matchUN.index).trim();
+                    }
+                    var s = extrairSku(p);
+                    if (s) skuMap[s] = (skuMap[s] || 0) + (qtdPorKit * qty);
                   });
                 } else {
                   var s = extrairSku(desc);
