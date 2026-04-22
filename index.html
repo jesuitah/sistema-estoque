@@ -359,10 +359,15 @@
                   });
                   if (grupoAtual.length) linhas.push(grupoAtual.join(' '));
 
+                  console.log('=== LINHAS EXTRAÍDAS DO PDF ===');
+                  linhas.forEach(function(l, i) { console.log(i + ': ' + l); });
+                  console.log('=== FIM DAS LINHAS ===');
+
                   linhas.forEach(function(linha, idx) {
                     var skuMatch = /SKU:\s*(.+)/i.exec(linha);
                     if (!skuMatch) return;
                     var skuContent = skuMatch[1].trim();
+                    console.log('SKU encontrado na linha ' + idx + ': [' + skuContent + ']');
 
                     var qty = 0;
 
@@ -373,10 +378,15 @@
                     }
 
                     if (!qty) {
-                      for (var wi = idx + 1; wi < Math.min(linhas.length, idx + 7); wi++) {
+                      for (var wi = idx + 1; wi < Math.min(linhas.length, idx + 11); wi++) {
                         var t = linhas[wi].trim();
                         if (/^\d{1,4}$/.test(t)) {
                           var n = parseInt(t);
+                          if (n > 0 && !(n >= 1900 && n <= 2099)) { qty = n; break; }
+                        }
+                        var mInicio = /^(\d{1,4})\s/.exec(t);
+                        if (mInicio) {
+                          var n = parseInt(mInicio[1]);
                           if (n > 0 && !(n >= 1900 && n <= 2099)) { qty = n; break; }
                         }
                       }
