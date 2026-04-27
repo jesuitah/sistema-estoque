@@ -127,6 +127,7 @@
         supabase.from('estoque').select('*')
           .order('marca', {ascending: true})
           .order('sku', {ascending: true})
+          .limit(10000)
           .then(function(result) {
             if (result.error) {
               console.error('Erro Supabase:', result.error);
@@ -230,18 +231,24 @@
               return;
             }
 
-            supabase.from('estoque')
-              .upsert(skusDaPlanilha, { onConflict: 'sku' })
-              .then(function(result) {
-                if (result.error) {
-                  alert('Erro na importação: ' + result.error.message);
-                  setImporting(false);
-                  return;
-                }
-                alert('✓ ' + skusDaPlanilha.length + ' SKUs importados/atualizados com sucesso!');
-                carregarEstoque();
+            var chunkSize = 500;
+            var chunks = [];
+            for (var ci = 0; ci < skusDaPlanilha.length; ci += chunkSize) {
+              chunks.push(skusDaPlanilha.slice(ci, ci + chunkSize));
+            }
+            Promise.all(chunks.map(function(chunk) {
+              return supabase.from('estoque').upsert(chunk, { onConflict: 'sku' });
+            })).then(function(results) {
+              var err = results.find(function(r) { return r.error; });
+              if (err) {
+                alert('Erro na importação: ' + err.error.message);
                 setImporting(false);
-              });
+                return;
+              }
+              alert('✓ ' + skusDaPlanilha.length + ' SKUs importados/atualizados com sucesso!');
+              carregarEstoque();
+              setImporting(false);
+            });
           } catch (err) {
             alert('Erro ao processar arquivo: ' + err.message);
             setImporting(false);
@@ -287,7 +294,7 @@
             setImporting(false);
             return;
           }
-          supabase.from('estoque').select('id, sku, unidades').then(function(result) {
+          supabase.from('estoque').select('id, sku, unidades').limit(10000).then(function(result) {
             var promises = [];
             var naoEncontrados = [];
             var dbItems = (result.data || []).map(function(x) {
@@ -363,41 +370,50 @@
                   linhas.forEach(function(l, i) { console.log(i + ': ' + l); });
                   console.log('=== FIM DAS LINHAS ===');
 
+                  var skuEntries = [];
                   linhas.forEach(function(linha, idx) {
-                    var skuMatch = /SKU:\s*(.+)/i.exec(linha);
-                    if (!skuMatch) return;
-                    var skuContent = skuMatch[1].trim();
-                    console.log('SKU encontrado na linha ' + idx + ': [' + skuContent + ']');
-
-                    var qty = 0;
-
-                    var inlineMatch = /\b(\d{1,4})\s*$/.exec(linha);
-                    if (inlineMatch) {
-                      var n = parseInt(inlineMatch[1]);
-                      if (n > 0 && !(n >= 1900 && n <= 2099)) qty = n;
+                    var m = /SKU:\s*(.+)/i.exec(linha);
+                    if (!m) return;
+                    var content = m[1].trim();
+                    for (var ni = idx + 1; ni < Math.min(linhas.length, idx + 4); ni++) {
+                      if (!/[:+]\s*$/.test(content)) break;
+                      var next = linhas[ni].trim();
+                      if (/^(Código|SKU:|Etiquetagem|PRODUTO)/i.test(next)) break;
+                      content += ' ' + next;
                     }
+                    skuEntries.push(content);
+                    console.log('SKU #' + skuEntries.length + ': [' + content + ']');
+                  });
 
-                    if (!qty) {
-                      for (var wi = idx + 1; wi < Math.min(linhas.length, idx + 11); wi++) {
-                        var t = linhas[wi].trim();
-                        if (/^\d{1,4}$/.test(t)) {
-                          var n = parseInt(t);
-                          if (n > 0 && !(n >= 1900 && n <= 2099)) { qty = n; break; }
-                        }
-                        var mInicio = /^(\d{1,4})\s/.exec(t);
-                        if (mInicio) {
-                          var n = parseInt(mInicio[1]);
-                          if (n > 0 && !(n >= 1900 && n <= 2099)) { qty = n; break; }
-                        }
+                  var tableIdx = -1;
+                  for (var ti = 0; ti < linhas.length; ti++) {
+                    if (/PRODUTO.*UNIDADES/i.test(linhas[ti])) { tableIdx = ti; break; }
+                  }
+                  var qtys = [];
+                  if (tableIdx >= 0) {
+                    for (var ti = tableIdx + 1; ti < linhas.length; ti++) {
+                      var t = linhas[ti].trim();
+                      var n = 0;
+                      if (/^\d{1,4}$/.test(t)) {
+                        n = parseInt(t);
+                      } else {
+                        var mm = /^(\d{1,4})\s/.exec(t);
+                        if (mm) n = parseInt(mm[1]);
                       }
+                      if (n > 0 && !(n >= 1900 && n <= 2099)) qtys.push(n);
                     }
+                  }
+                  console.log('Quantidades da tabela:', qtys);
 
-                    if (!qty) return;
+                  skuEntries.forEach(function(skuContent, i) {
+                    var qty = qtys[i] || 0;
+                    if (!qty) { console.log('SKU #' + (i+1) + ' sem quantidade, pulando'); return; }
 
                     if (/^KIT:/i.test(skuContent)) {
-                      var kitStr = skuContent.replace(/^KIT:\s*/i, '').replace(/\s+\d{1,4}\s*$/, '').trim();
-                      kitStr.split('+').forEach(function(parte) {
+                      var kitStr = skuContent.replace(/^KIT:\s*/i, '').trim();
+                      kitStr.split(/\s*\+\s*(?!\d)/).forEach(function(parte) {
                         parte = parte.trim();
+                        if (!parte) return;
                         var qtdPorKit = 1;
                         var matchUN = /[^A-Z0-9]\s*(\d+)\s*UN\s*$/i.exec(parte);
                         if (matchUN) {
@@ -443,7 +459,7 @@
 
                 if (desc.startsWith('KIT:')) {
                   var kitStr = desc.substring(4).trim();
-                  kitStr.split('+').forEach(function(p) {
+                  kitStr.split(/\s*\+\s*(?!\d)/).forEach(function(p) {
                     p = p.trim();
                     var qtdPorKit = 1;
                     var matchUN = /[^A-Z0-9]\s*(\d+)\s*UN\s*$/i.exec(p);
