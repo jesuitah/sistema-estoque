@@ -124,28 +124,34 @@
       var setImporting = importingState[1];
 
       function carregarEstoque() {
-        supabase.from('estoque').select('*')
-          .order('marca', {ascending: true})
-          .order('sku', {ascending: true})
-          .limit(10000)
-          .then(function(result) {
-            if (result.error) {
-              console.error('Erro Supabase:', result.error);
-              setLoading(false);
-              return;
-            }
-            var data = result.data || [];
-            setEstoque(data);
-            var total = data.length;
-            var totalUnidades = data.reduce(function(sum, item) { return sum + (item.unidades || 0); }, 0);
-            var zerados = data.filter(function(item) { return item.unidades === 0; }).length;
-            setStats({total: total, unidades: totalUnidades, zerados: zerados});
-            setLoading(false);
-          })
-          .catch(function(err) {
-            console.error('Erro de conexão:', err);
-            setLoading(false);
-          });
+        var batchSize = 1000;
+        var allData = [];
+
+        function fetchBatch(from) {
+          return supabase.from('estoque').select('*')
+            .order('marca', {ascending: true})
+            .order('sku', {ascending: true})
+            .range(from, from + batchSize - 1)
+            .then(function(result) {
+              if (result.error) throw result.error;
+              var data = result.data || [];
+              allData = allData.concat(data);
+              if (data.length === batchSize) return fetchBatch(from + batchSize);
+              return allData;
+            });
+        }
+
+        fetchBatch(0).then(function(data) {
+          setEstoque(data);
+          var total = data.length;
+          var totalUnidades = data.reduce(function(sum, item) { return sum + (item.unidades || 0); }, 0);
+          var zerados = data.filter(function(item) { return item.unidades === 0; }).length;
+          setStats({total: total, unidades: totalUnidades, zerados: zerados});
+          setLoading(false);
+        }).catch(function(err) {
+          console.error('Erro de conexão:', err);
+          setLoading(false);
+        });
       }
 
       useEffect(function() {
@@ -530,10 +536,6 @@
               onClick: function() { setActiveTab('importar'); },
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'importar' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
             }, '📊 Importar SKUs'),
-            e('button', {
-              onClick: function() { setActiveTab('envios'); },
-              className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'envios' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
-            }, '🚚 Envios Full')
           )
         ),
 
@@ -621,24 +623,6 @@
             )
           ),
 
-          activeTab === 'envios' && e('div', {className: 'space-y-5'},
-            e('div', {className: 'bg-slate-800 border border-slate-700 p-6 rounded-lg'},
-              e('h2', {className: 'text-lg font-bold mb-2'}, 'Envios Full (Redução de Estoque)'),
-              e('p', {className: 'text-slate-400 text-sm mb-4'}, 'Selecione o PDF de preparação do Mercado Livre Full para aplicar as baixas automaticamente.'),
-              e('input', {
-                type: 'file',
-                accept: '.pdf,.xlsx,.xls',
-                onChange: function(ev) {
-                  if (ev.target.files && ev.target.files[0]) {
-                    processarEnviosFull(ev.target.files[0]);
-                  }
-                },
-                disabled: importing,
-                className: 'block w-full px-4 py-2 rounded border border-slate-600 text-sm'
-              }),
-              e('p', {className: 'text-slate-500 text-xs mt-2'}, importing ? '⏳ Processando...' : '✓ Pronto para importar')
-            )
-          )
         )
       );
     }
