@@ -555,11 +555,11 @@
               });
               var fullText = lineTexts.join('\n');
 
-              var sections = fullText.split(/C[oó]digo\s*ML\s*:/i).slice(1);
-              sections.forEach(function(section) {
-                var skuMatch = /SKU\s*:\s*(.+?)(?=\n[A-Z][a-z]|\n{2}|$)/i.exec(section);
-                if (!skuMatch) return;
-                var skuFull = skuMatch[1].trim().replace(/\n/g, ' ').replace(/\s+/g, ' ');
+              var skuRegex = /\bSKU\s*:\s*(.+?)(?=\bSKU\s*:|C[oó]digo\s*ML|$)/gi;
+              var skuMatch;
+              while ((skuMatch = skuRegex.exec(fullText)) !== null) {
+                var skuFull = skuMatch[1].trim().replace(/\n[A-Z\d][\s\S]*$/m, '').replace(/\n/g, ' ').replace(/\s+/g, ' ');
+                if (!skuFull) continue;
 
                 if (/^KIT\s*:/i.test(skuFull)) {
                   var inner = skuFull.replace(/^KIT\s*:\s*/i, '');
@@ -579,7 +579,7 @@
                     productEntries.push({ isKit: false, items: [{ marca: normStr(sM[1]), sku: normStr(sM[2]) }] });
                   }
                 }
-              });
+              }
 
               items.forEach(function(item) {
                 if (item.y >= headerY) return;
