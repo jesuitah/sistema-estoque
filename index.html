@@ -541,6 +541,7 @@
 
             var lineMap = {};
             allItems.forEach(function(item) {
+              if (item.x >= unidX) return; // ignorar colunas direitas (UNIDADES, INSTRUÇÕES)
               var key = Math.round(item.y / 2) * 2;
               if (!lineMap[key]) lineMap[key] = [];
               lineMap[key].push(item);
