@@ -123,6 +123,10 @@
       var importing = importingState[0];
       var setImporting = importingState[1];
 
+      var pendingState = useState(null);
+      var pendingChanges = pendingState[0];
+      var setPendingChanges = pendingState[1];
+
       function carregarEstoque() {
         var batchSize = 1000;
         var allData = [];
@@ -492,6 +496,162 @@
         }
       }
 
+      function processarEnviosFull(file) {
+        setImporting(true);
+        setPendingChanges(null);
+
+        function normStr(s) {
+          return String(s).toUpperCase().replace(/\s+/g, '').replace(/[^A-Z0-9]/g, '');
+        }
+
+        var reader = new FileReader();
+        reader.onload = function(evt) {
+          pdfjsLib.getDocument({
+            data: evt.target.result,
+            cMapUrl: 'https://unpkg.com/pdfjs-dist@3.11.174/cmaps/',
+            cMapPacked: true
+          }).promise.then(function(pdf) {
+            var pagePromises = [];
+            for (var p = 1; p <= pdf.numPages; p++) {
+              pagePromises.push(
+                pdf.getPage(p).then(function(page) {
+                  return page.getTextContent().then(function(tc) {
+                    return tc.items.map(function(item) {
+                      return { str: item.str, x: Math.round(item.transform[4]), y: Math.round(item.transform[5]) };
+                    });
+                  });
+                })
+              );
+            }
+            return Promise.all(pagePromises);
+          }).then(function(pagesItems) {
+            var allItems = [];
+            pagesItems.forEach(function(items) {
+              items.forEach(function(item) { if (item.str.trim()) allItems.push(item); });
+            });
+
+            allItems.sort(function(a, b) {
+              if (Math.abs(a.y - b.y) > 3) return b.y - a.y;
+              return a.x - b.x;
+            });
+
+            var unidItem = allItems.find(function(i) { return /^UNID/i.test(i.str); });
+            var unidX = unidItem ? unidItem.x : 228;
+            var headerY = unidItem ? unidItem.y : 9999;
+
+            var lineMap = {};
+            allItems.forEach(function(item) {
+              var key = Math.round(item.y / 2) * 2;
+              if (!lineMap[key]) lineMap[key] = [];
+              lineMap[key].push(item);
+            });
+
+            var sortedYs = Object.keys(lineMap).map(Number).sort(function(a, b) { return b - a; });
+            var lineTexts = sortedYs.map(function(key) {
+              return lineMap[key].sort(function(a, b) { return a.x - b.x; }).map(function(i) { return i.str; }).join('');
+            });
+            var fullText = lineTexts.join('\n');
+
+            var sections = fullText.split(/C[oó]digo\s*ML\s*:/i).slice(1);
+            var productEntries = [];
+
+            sections.forEach(function(section) {
+              var skuMatch = /SKU\s*:\s*(.+?)(?=\n[A-Z][a-z]|\n{2}|$)/i.exec(section);
+              if (!skuMatch) return;
+              var skuFull = skuMatch[1].trim().replace(/\n/g, ' ').replace(/\s+/g, ' ');
+
+              if (/^KIT\s*:/i.test(skuFull)) {
+                var inner = skuFull.replace(/^KIT\s*:\s*/i, '');
+                var mM = /^([A-Z0-9]+)\s*:\s*/i.exec(inner);
+                if (mM) {
+                  var kitMarca = normStr(mM[1]);
+                  var parts = inner.substring(mM[0].length).split(/\s*\+\s*/);
+                  productEntries.push({
+                    isKit: true,
+                    items: parts.map(function(p) { return p.replace(/\s*\d+\s*UN\s*$/i, '').trim(); })
+                      .filter(Boolean).map(function(p) { return { marca: kitMarca, sku: normStr(p) }; })
+                  });
+                }
+              } else {
+                var sM = /^([A-Z0-9]+)\s*:\s*(.+)$/i.exec(skuFull);
+                if (sM) {
+                  productEntries.push({ isKit: false, items: [{ marca: normStr(sM[1]), sku: normStr(sM[2]) }] });
+                }
+              }
+            });
+
+            var quantities = [];
+            allItems.forEach(function(item) {
+              if (item.y >= headerY) return;
+              if (Math.abs(item.x - unidX) > 40) return;
+              if (/^\d{1,4}$/.test(item.str.trim())) {
+                quantities.push(parseInt(item.str));
+              }
+            });
+
+            console.log('Produtos extraídos:', productEntries.length, JSON.stringify(productEntries));
+            console.log('Quantidades extraídas:', quantities);
+
+            if (productEntries.length === 0) {
+              alert('Nenhum SKU encontrado no PDF.');
+              setImporting(false);
+              return;
+            }
+
+            var dbItems = estoque.map(function(x) {
+              return { id: x.id, marca: normStr(x.marca), sku: normStr(x.sku), marcaOrig: x.marca, skuOrig: x.sku, unidades: x.unidades };
+            });
+
+            var changeMap = {};
+            var naoEncontrados = [];
+
+            productEntries.forEach(function(product, idx) {
+              var qty = quantities[idx] || 0;
+              product.items.forEach(function(pi) {
+                var dbItem = dbItems.find(function(d) { return d.marca === pi.marca && d.sku === pi.sku; });
+                if (!dbItem) dbItem = dbItems.find(function(d) { return d.sku === pi.sku; });
+                if (!dbItem) dbItem = dbItems.find(function(d) { return d.sku.endsWith(pi.sku) || pi.sku.endsWith(d.sku); });
+
+                if (dbItem) {
+                  if (changeMap[dbItem.id]) {
+                    changeMap[dbItem.id].baixa += qty;
+                    changeMap[dbItem.id].novoEstoque = Math.max(0, changeMap[dbItem.id].estoqueAtual - changeMap[dbItem.id].baixa);
+                  } else {
+                    changeMap[dbItem.id] = { id: dbItem.id, marca: dbItem.marcaOrig, sku: dbItem.skuOrig, estoqueAtual: dbItem.unidades, baixa: qty, novoEstoque: Math.max(0, dbItem.unidades - qty) };
+                  }
+                } else {
+                  naoEncontrados.push(pi.marca + ': ' + pi.sku + (qty > 0 ? ' (qty: ' + qty + ')' : ''));
+                }
+              });
+            });
+
+            var changes = Object.keys(changeMap).map(function(k) { return changeMap[k]; });
+            setPendingChanges({ changes: changes, naoEncontrados: naoEncontrados });
+            setImporting(false);
+          }).catch(function(err) {
+            alert('Erro ao ler PDF: ' + err.message);
+            setImporting(false);
+          });
+        };
+        reader.readAsArrayBuffer(file);
+      }
+
+      function confirmarBaixas() {
+        if (!pendingChanges) return;
+        setImporting(true);
+        Promise.all(pendingChanges.changes.map(function(c) {
+          return supabase.from('estoque').update({ unidades: c.novoEstoque }).eq('id', c.id);
+        })).then(function() {
+          setPendingChanges(null);
+          carregarEstoque();
+          setImporting(false);
+          alert('✓ Baixas confirmadas e aplicadas com sucesso!');
+        }).catch(function(err) {
+          alert('Erro: ' + err.message);
+          setImporting(false);
+        });
+      }
+
       var estoquesFiltrados = estoque.filter(function(item) {
         var termo = searchTerm.toUpperCase();
         return item.marca.toUpperCase().includes(termo) || item.sku.toUpperCase().includes(termo);
@@ -536,6 +696,10 @@
               onClick: function() { setActiveTab('importar'); },
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'importar' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
             }, '📊 Importar SKUs'),
+            e('button', {
+              onClick: function() { setActiveTab('envios'); },
+              className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'envios' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
+            }, '🚚 Envios Full')
           )
         ),
 
@@ -621,6 +785,74 @@
               }),
               e('p', {className: 'text-slate-500 text-xs mt-2'}, importing ? '⏳ Processando...' : '✓ Pronto para importar')
             )
+          ),
+
+          activeTab === 'envios' && e('div', {className: 'space-y-4'},
+            !pendingChanges
+              ? e('div', {className: 'bg-slate-800 border border-slate-700 p-6 rounded-lg'},
+                  e('h2', {className: 'text-lg font-bold mb-2'}, '🚚 Envios Full — Baixa Automática'),
+                  e('p', {className: 'text-slate-400 text-sm mb-4'}, 'Selecione o PDF de preparação do Mercado Livre Full. O sistema mostrará todas as alterações para você revisar antes de confirmar.'),
+                  e('input', {
+                    type: 'file',
+                    accept: '.pdf',
+                    onChange: function(ev) {
+                      if (ev.target.files && ev.target.files[0]) processarEnviosFull(ev.target.files[0]);
+                    },
+                    disabled: importing,
+                    className: 'block w-full px-4 py-2 rounded border border-slate-600 text-sm'
+                  }),
+                  e('p', {className: 'text-slate-500 text-xs mt-2'}, importing ? '⏳ Lendo PDF...' : '✓ Pronto para importar')
+                )
+              : e('div', {className: 'space-y-4'},
+                  e('div', {className: 'bg-slate-800 border border-slate-700 p-4 rounded-lg flex justify-between items-center'},
+                    e('div', null,
+                      e('div', {className: 'font-bold text-lg'}, '📋 Confirmar Baixas'),
+                      e('div', {className: 'text-slate-400 text-sm mt-1'},
+                        pendingChanges.changes.length + ' SKU(s) serão atualizados' +
+                        (pendingChanges.naoEncontrados.length > 0 ? ' · ⚠️ ' + pendingChanges.naoEncontrados.length + ' não encontrado(s)' : ' · ✓ Todos os SKUs encontrados')
+                      )
+                    ),
+                    e('div', {className: 'flex gap-3'},
+                      e('button', {
+                        onClick: function() { setPendingChanges(null); },
+                        className: 'bg-slate-600 hover:bg-slate-500 text-white px-4 py-2 rounded font-bold text-sm transition'
+                      }, 'Cancelar'),
+                      e('button', {
+                        onClick: confirmarBaixas,
+                        disabled: importing,
+                        className: 'bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded font-bold text-sm transition'
+                      }, importing ? '⏳ Aplicando...' : '✓ Confirmar Baixas')
+                    )
+                  ),
+                  e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg overflow-hidden'},
+                    e('table', {className: 'w-full text-sm'},
+                      e('thead', null,
+                        e('tr', {className: 'bg-slate-700 text-slate-300 text-xs uppercase'},
+                          e('th', {className: 'text-left px-4 py-3'}, 'Marca'),
+                          e('th', {className: 'text-left px-4 py-3'}, 'SKU'),
+                          e('th', {className: 'text-center px-4 py-3'}, 'Estoque Atual'),
+                          e('th', {className: 'text-center px-4 py-3 text-red-400'}, '− Baixa'),
+                          e('th', {className: 'text-center px-4 py-3 text-green-400'}, 'Novo Estoque')
+                        )
+                      ),
+                      e('tbody', null,
+                        pendingChanges.changes.map(function(c, i) {
+                          return e('tr', {key: i, className: i % 2 === 0 ? 'border-t border-slate-700' : 'border-t border-slate-700 bg-slate-900'},
+                            e('td', {className: 'px-4 py-2 text-slate-400 text-xs'}, c.marca),
+                            e('td', {className: 'px-4 py-2 font-bold'}, c.sku),
+                            e('td', {className: 'px-4 py-2 text-center text-slate-300'}, c.estoqueAtual),
+                            e('td', {className: 'px-4 py-2 text-center text-red-400 font-bold'}, '−' + c.baixa),
+                            e('td', {className: 'px-4 py-2 text-center font-bold ' + (c.novoEstoque === 0 ? 'text-red-400' : 'text-green-400')}, c.novoEstoque)
+                          );
+                        })
+                      )
+                    )
+                  ),
+                  pendingChanges.naoEncontrados.length > 0 && e('div', {className: 'bg-yellow-900 border border-yellow-600 p-4 rounded-lg'},
+                    e('div', {className: 'font-bold text-yellow-400 mb-2'}, '⚠️ Não encontrados no estoque (' + pendingChanges.naoEncontrados.length + '):'),
+                    e('div', {className: 'text-yellow-300 text-sm font-mono'}, pendingChanges.naoEncontrados.join(' · '))
+                  )
+                )
           ),
 
         )
