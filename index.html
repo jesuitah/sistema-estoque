@@ -851,9 +851,34 @@
                       )
                     )
                   ),
-                  pendingChanges.naoEncontrados.length > 0 && e('div', {className: 'bg-yellow-900 border border-yellow-600 p-4 rounded-lg'},
-                    e('div', {className: 'font-bold text-yellow-400 mb-2'}, '⚠️ Não encontrados no estoque (' + pendingChanges.naoEncontrados.length + '):'),
-                    e('div', {className: 'text-yellow-300 text-sm font-mono'}, pendingChanges.naoEncontrados.join(' · '))
+                  pendingChanges.naoEncontrados.length > 0 && e('div', {className: 'space-y-2'},
+                    e('div', {className: 'text-yellow-400 font-bold text-sm px-1'},
+                      '⚠️ Não cadastrados no estoque — precisam ser registrados (' + pendingChanges.naoEncontrados.length + '):'
+                    ),
+                    e('div', {className: 'bg-slate-800 border border-yellow-600 rounded-lg overflow-hidden'},
+                      e('table', {className: 'w-full text-sm'},
+                        e('thead', null,
+                          e('tr', {className: 'bg-yellow-900 bg-opacity-60 text-yellow-300 text-xs uppercase'},
+                            e('th', {className: 'text-left px-4 py-3'}, 'Marca'),
+                            e('th', {className: 'text-left px-4 py-3'}, 'SKU'),
+                            e('th', {className: 'text-center px-4 py-3'}, 'Qtd no Envio')
+                          )
+                        ),
+                        e('tbody', null,
+                          pendingChanges.naoEncontrados.map(function(item, i) {
+                            var partes = item.match(/^([^:]+):\s*([^(]+)\s*\(qty:\s*(\d+)\)/);
+                            var marca = partes ? partes[1].trim() : '?';
+                            var sku = partes ? partes[2].trim() : item;
+                            var qty = partes ? partes[3] : '?';
+                            return e('tr', {key: i, className: 'border-t border-slate-700'},
+                              e('td', {className: 'px-4 py-2 text-yellow-300 text-xs'}, marca),
+                              e('td', {className: 'px-4 py-2 font-bold text-yellow-200'}, sku),
+                              e('td', {className: 'px-4 py-2 text-center text-yellow-300 font-bold'}, qty)
+                            );
+                          })
+                        )
+                      )
+                    )
                   )
                 )
           ),
