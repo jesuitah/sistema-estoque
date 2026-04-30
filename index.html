@@ -623,7 +623,9 @@
                     changeMap[dbItem.id] = { id: dbItem.id, marca: dbItem.marcaOrig, sku: dbItem.skuOrig, estoqueAtual: dbItem.unidades, baixa: qty, novoEstoque: Math.max(0, dbItem.unidades - qty) };
                   }
                 } else {
-                  naoEncontrados.push(pi.marca + ': ' + pi.sku + (qty > 0 ? ' (qty: ' + qty + ')' : ''));
+                  var existing = naoEncontrados.find(function(n) { return n.marca === pi.marca && n.sku === pi.sku; });
+                  if (existing) { existing.qty += qty; }
+                  else { naoEncontrados.push({ marca: pi.marca, sku: pi.sku, qty: qty, estoque: 0 }); }
                 }
               });
             });
@@ -642,13 +644,19 @@
       function confirmarBaixas() {
         if (!pendingChanges) return;
         setImporting(true);
-        Promise.all(pendingChanges.changes.map(function(c) {
+        var updates = pendingChanges.changes.map(function(c) {
           return supabase.from('estoque').update({ unidades: c.novoEstoque }).eq('id', c.id);
-        })).then(function() {
+        });
+        var inserts = (pendingChanges.naoEncontrados || []).map(function(n) {
+          var estoqueAtual = parseInt(n.estoque) || 0;
+          var estoqueResultante = Math.max(0, estoqueAtual - n.qty);
+          return supabase.from('estoque').insert([{ marca: n.marca, sku: n.sku, unidades: estoqueResultante }]);
+        });
+        Promise.all(updates.concat(inserts)).then(function() {
           setPendingChanges(null);
           carregarEstoque();
           setImporting(false);
-          alert('✓ Baixas confirmadas e aplicadas com sucesso!');
+          alert('✓ Baixas confirmadas! ' + (inserts.length > 0 ? inserts.length + ' SKU(s) novo(s) cadastrado(s).' : ''));
         }).catch(function(err) {
           alert('Erro: ' + err.message);
           setImporting(false);
@@ -861,19 +869,33 @@
                           e('tr', {className: 'bg-yellow-900 bg-opacity-60 text-yellow-300 text-xs uppercase'},
                             e('th', {className: 'text-left px-4 py-3'}, 'Marca'),
                             e('th', {className: 'text-left px-4 py-3'}, 'SKU'),
-                            e('th', {className: 'text-center px-4 py-3'}, 'Qtd no Envio')
+                            e('th', {className: 'text-center px-4 py-3'}, 'Qtd no Envio'),
+                            e('th', {className: 'text-center px-4 py-3'}, 'Estoque Atual')
                           )
                         ),
                         e('tbody', null,
                           pendingChanges.naoEncontrados.map(function(item, i) {
-                            var partes = item.match(/^([^:]+):\s*([^(]+)\s*\(qty:\s*(\d+)\)/);
-                            var marca = partes ? partes[1].trim() : '?';
-                            var sku = partes ? partes[2].trim() : item;
-                            var qty = partes ? partes[3] : '?';
                             return e('tr', {key: i, className: 'border-t border-slate-700'},
-                              e('td', {className: 'px-4 py-2 text-yellow-300 text-xs'}, marca),
-                              e('td', {className: 'px-4 py-2 font-bold text-yellow-200'}, sku),
-                              e('td', {className: 'px-4 py-2 text-center text-yellow-300 font-bold'}, qty)
+                              e('td', {className: 'px-4 py-2 text-yellow-300 text-xs'}, item.marca),
+                              e('td', {className: 'px-4 py-2 font-bold text-yellow-200'}, item.sku),
+                              e('td', {className: 'px-4 py-2 text-center text-yellow-300 font-bold'}, item.qty),
+                              e('td', {className: 'px-4 py-2 text-center'},
+                                e('input', {
+                                  type: 'number',
+                                  min: '0',
+                                  value: item.estoque,
+                                  onChange: function(ev) {
+                                    var val = parseInt(ev.target.value) || 0;
+                                    setPendingChanges(function(prev) {
+                                      var updated = prev.naoEncontrados.map(function(n, j) {
+                                        return j === i ? Object.assign({}, n, { estoque: val }) : n;
+                                      });
+                                      return Object.assign({}, prev, { naoEncontrados: updated });
+                                    });
+                                  },
+                                  className: 'w-20 text-center bg-slate-700 border border-yellow-600 rounded px-2 py-1 text-white text-sm'
+                                })
+                              )
                             );
                           })
                         )
