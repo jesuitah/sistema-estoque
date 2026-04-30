@@ -525,70 +525,72 @@
             }
             return Promise.all(pagePromises);
           }).then(function(pagesItems) {
-            var allItems = [];
-            pagesItems.forEach(function(items) {
-              items.forEach(function(item) { if (item.str.trim()) allItems.push(item); });
-            });
-
-            allItems.sort(function(a, b) {
-              if (Math.abs(a.y - b.y) > 3) return b.y - a.y;
-              return a.x - b.x;
-            });
-
-            var unidItem = allItems.find(function(i) { return /^UNID/i.test(i.str); });
-            var unidX = unidItem ? unidItem.x : 228;
-            var headerY = unidItem ? unidItem.y : 9999;
-
-            var lineMap = {};
-            allItems.forEach(function(item) {
-              if (item.x >= unidX) return; // ignorar colunas direitas (UNIDADES, INSTRUÇÕES)
-              var key = Math.round(item.y / 2) * 2;
-              if (!lineMap[key]) lineMap[key] = [];
-              lineMap[key].push(item);
-            });
-
-            var sortedYs = Object.keys(lineMap).map(Number).sort(function(a, b) { return b - a; });
-            var lineTexts = sortedYs.map(function(key) {
-              return lineMap[key].sort(function(a, b) { return a.x - b.x; }).map(function(i) { return i.str; }).join('');
-            });
-            var fullText = lineTexts.join('\n');
-
-            var sections = fullText.split(/C[oó]digo\s*ML\s*:/i).slice(1);
             var productEntries = [];
-
-            sections.forEach(function(section) {
-              var skuMatch = /SKU\s*:\s*(.+?)(?=\n[A-Z][a-z]|\n{2}|$)/i.exec(section);
-              if (!skuMatch) return;
-              var skuFull = skuMatch[1].trim().replace(/\n/g, ' ').replace(/\s+/g, ' ');
-
-              if (/^KIT\s*:/i.test(skuFull)) {
-                var inner = skuFull.replace(/^KIT\s*:\s*/i, '');
-                var mM = /^([A-Z0-9]+)\s*:\s*/i.exec(inner);
-                if (mM) {
-                  var kitMarca = normStr(mM[1]);
-                  var parts = inner.substring(mM[0].length).split(/\s*\+\s*/);
-                  productEntries.push({
-                    isKit: true,
-                    items: parts.map(function(p) { return p.replace(/\s*\d+\s*UN\s*$/i, '').trim(); })
-                      .filter(Boolean).map(function(p) { return { marca: kitMarca, sku: normStr(p) }; })
-                  });
-                }
-              } else {
-                var sM = /^([A-Z0-9]+)\s*:\s*(.+)$/i.exec(skuFull);
-                if (sM) {
-                  productEntries.push({ isKit: false, items: [{ marca: normStr(sM[1]), sku: normStr(sM[2]) }] });
-                }
-              }
-            });
-
             var quantities = [];
-            allItems.forEach(function(item) {
-              if (item.y >= headerY) return;
-              if (Math.abs(item.x - unidX) > 40) return;
-              if (/^\d{1,4}$/.test(item.str.trim())) {
-                quantities.push(parseInt(item.str));
-              }
-            });
+
+            function parsePage(pageItems) {
+              var items = pageItems.filter(function(i) { return i.str.trim(); });
+              if (!items.length) return;
+
+              items.sort(function(a, b) {
+                if (Math.abs(a.y - b.y) > 3) return b.y - a.y;
+                return a.x - b.x;
+              });
+
+              var unidItem = items.find(function(i) { return /^UNID/i.test(i.str); });
+              var unidX = unidItem ? unidItem.x : 228;
+              var headerY = unidItem ? unidItem.y : 9999;
+
+              var lineMap = {};
+              items.forEach(function(item) {
+                if (item.x >= unidX) return;
+                var key = Math.round(item.y / 2) * 2;
+                if (!lineMap[key]) lineMap[key] = [];
+                lineMap[key].push(item);
+              });
+
+              var sortedYs = Object.keys(lineMap).map(Number).sort(function(a, b) { return b - a; });
+              var lineTexts = sortedYs.map(function(key) {
+                return lineMap[key].sort(function(a, b) { return a.x - b.x; }).map(function(i) { return i.str; }).join('');
+              });
+              var fullText = lineTexts.join('\n');
+
+              var sections = fullText.split(/C[oó]digo\s*ML\s*:/i).slice(1);
+              sections.forEach(function(section) {
+                var skuMatch = /SKU\s*:\s*(.+?)(?=\n[A-Z][a-z]|\n{2}|$)/i.exec(section);
+                if (!skuMatch) return;
+                var skuFull = skuMatch[1].trim().replace(/\n/g, ' ').replace(/\s+/g, ' ');
+
+                if (/^KIT\s*:/i.test(skuFull)) {
+                  var inner = skuFull.replace(/^KIT\s*:\s*/i, '');
+                  var mM = /^([A-Z0-9]+)\s*:\s*/i.exec(inner);
+                  if (mM) {
+                    var kitMarca = normStr(mM[1]);
+                    var parts = inner.substring(mM[0].length).split(/\s*\+\s*/);
+                    productEntries.push({
+                      isKit: true,
+                      items: parts.map(function(p) { return p.replace(/\s*\d+\s*UN\s*$/i, '').trim(); })
+                        .filter(Boolean).map(function(p) { return { marca: kitMarca, sku: normStr(p) }; })
+                    });
+                  }
+                } else {
+                  var sM = /^([A-Z0-9]+)\s*:\s*(.+)$/i.exec(skuFull);
+                  if (sM) {
+                    productEntries.push({ isKit: false, items: [{ marca: normStr(sM[1]), sku: normStr(sM[2]) }] });
+                  }
+                }
+              });
+
+              items.forEach(function(item) {
+                if (item.y >= headerY) return;
+                if (Math.abs(item.x - unidX) > 40) return;
+                if (/^\d{1,4}$/.test(item.str.trim())) {
+                  quantities.push(parseInt(item.str));
+                }
+              });
+            }
+
+            pagesItems.forEach(function(pageItems) { parsePage(pageItems); });
 
             console.log('Produtos extraídos:', productEntries.length, JSON.stringify(productEntries));
             console.log('Quantidades extraídas:', quantities);
