@@ -551,11 +551,11 @@
 
               var sortedYs = Object.keys(lineMap).map(Number).sort(function(a, b) { return b - a; });
               var lineTexts = sortedYs.map(function(key) {
-                return lineMap[key].sort(function(a, b) { return a.x - b.x; }).map(function(i) { return i.str; }).join('');
+                return lineMap[key].sort(function(a, b) { return a.x - b.x; }).map(function(i) { return i.str; }).join(' ');
               });
               var fullText = lineTexts.join('\n');
 
-              var skuRegex = /\bSKU\s*:\s*(.+?)(?=\bSKU\s*:|C[oó]digo\s*ML|$)/gi;
+              var skuRegex = /SKU\s*:\s*(.+?)(?=SKU\s*:|C[oó]digo\s*ML|$)/gi;
               var skuMatch;
               while ((skuMatch = skuRegex.exec(fullText)) !== null) {
                 var skuFull = skuMatch[1].trim().replace(/\n[A-Z\d][\s\S]*$/m, '').replace(/\n/g, ' ').replace(/\s+/g, ' ');
