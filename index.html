@@ -555,7 +555,7 @@
               });
               var fullText = lineTexts.join('\n');
 
-              var skuRegex = /SKU\s*:\s*(.+?)(?=SKU\s*:|C[oó]digo\s*ML|$)/gi;
+              var skuRegex = /SKU\s*:\s*(.+?)(?=SKU\s*:|C[oó]digo\s*ML|$)/gim;
               var skuMatch;
               while ((skuMatch = skuRegex.exec(fullText)) !== null) {
                 var skuFull = skuMatch[1].trim().replace(/\n[A-Z\d][\s\S]*$/m, '').replace(/\n/g, ' ').replace(/\s+/g, ' ');
