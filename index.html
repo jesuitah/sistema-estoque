@@ -506,97 +506,25 @@
 
         var reader = new FileReader();
         reader.onload = function(evt) {
-          pdfjsLib.getDocument({
-            data: evt.target.result,
-            cMapUrl: 'https://unpkg.com/pdfjs-dist@3.11.174/cmaps/',
-            cMapPacked: true
-          }).promise.then(function(pdf) {
-            var pagePromises = [];
-            for (var p = 1; p <= pdf.numPages; p++) {
-              pagePromises.push(
-                pdf.getPage(p).then(function(page) {
-                  return page.getTextContent().then(function(tc) {
-                    return tc.items.map(function(item) {
-                      return { str: item.str, x: Math.round(item.transform[4]), y: Math.round(item.transform[5]) };
-                    });
-                  });
-                })
-              );
-            }
-            return Promise.all(pagePromises);
-          }).then(function(pagesItems) {
-            var productEntries = [];
-            var quantities = [];
+          try {
+            var wb = XLSX.read(evt.target.result, { type: 'array' });
+            var ws = wb.Sheets[wb.SheetNames[0]];
+            var rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
 
-            function parsePage(pageItems) {
-              var items = pageItems.filter(function(i) { return i.str.trim(); });
-              if (!items.length) return;
-
-              items.sort(function(a, b) {
-                if (Math.abs(a.y - b.y) > 3) return b.y - a.y;
-                return a.x - b.x;
-              });
-
-              var unidItem = items.find(function(i) { return /^UNID/i.test(i.str); });
-              var unidX = unidItem ? unidItem.x : 228;
-              var headerY = unidItem ? unidItem.y : 9999;
-
-              var lineMap = {};
-              items.forEach(function(item) {
-                if (item.x >= unidX) return;
-                var key = Math.round(item.y / 2) * 2;
-                if (!lineMap[key]) lineMap[key] = [];
-                lineMap[key].push(item);
-              });
-
-              var sortedYs = Object.keys(lineMap).map(Number).sort(function(a, b) { return b - a; });
-              var lineTexts = sortedYs.map(function(key) {
-                return lineMap[key].sort(function(a, b) { return a.x - b.x; }).map(function(i) { return i.str; }).join(' ');
-              });
-              var fullText = lineTexts.join('\n');
-
-              var skuRegex = /SKU\s*:\s*(.+?)(?=SKU\s*:|C[oó]digo\s*ML|$)/gim;
-              var skuMatch;
-              while ((skuMatch = skuRegex.exec(fullText)) !== null) {
-                var skuFull = skuMatch[1].trim().replace(/\n[A-Z\d][\s\S]*$/m, '').replace(/\n/g, ' ').replace(/\s+/g, ' ');
-                if (!skuFull) continue;
-
-                if (/^KIT\s*:/i.test(skuFull)) {
-                  var inner = skuFull.replace(/^KIT\s*:\s*/i, '');
-                  var mM = /^([A-Z0-9]+)\s*:\s*/i.exec(inner);
-                  if (mM) {
-                    var kitMarca = normStr(mM[1]);
-                    var parts = inner.substring(mM[0].length).split(/\s*\+\s*/);
-                    productEntries.push({
-                      isKit: true,
-                      items: parts.map(function(p) { return p.replace(/\s*\d+\s*UN\s*$/i, '').trim(); })
-                        .filter(Boolean).map(function(p) { return { marca: kitMarca, sku: normStr(p) }; })
-                    });
-                  }
-                } else {
-                  var sM = /^([A-Z0-9]+)\s*:\s*(.+)$/i.exec(skuFull);
-                  if (sM) {
-                    productEntries.push({ isKit: false, items: [{ marca: normStr(sM[1]), sku: normStr(sM[2]) }] });
-                  }
-                }
+            // Pula cabeçalho (linha 0) e lê as demais
+            var entries = [];
+            for (var i = 1; i < rows.length; i++) {
+              var row = rows[i];
+              var marca = normStr(String(row[0] || ''));
+              var sku   = normStr(String(row[1] || ''));
+              var qty   = parseInt(row[2]) || 0;
+              if (marca && sku && qty > 0) {
+                entries.push({ marca: marca, sku: sku, qty: qty });
               }
-
-              items.forEach(function(item) {
-                if (item.y >= headerY) return;
-                if (Math.abs(item.x - unidX) > 40) return;
-                if (/^\d{1,4}$/.test(item.str.trim())) {
-                  quantities.push(parseInt(item.str));
-                }
-              });
             }
 
-            pagesItems.forEach(function(pageItems) { parsePage(pageItems); });
-
-            console.log('Produtos extraídos:', productEntries.length, JSON.stringify(productEntries));
-            console.log('Quantidades extraídas:', quantities);
-
-            if (productEntries.length === 0) {
-              alert('Nenhum SKU encontrado no PDF.');
+            if (entries.length === 0) {
+              alert('Nenhum item encontrado na planilha.');
               setImporting(false);
               return;
             }
@@ -608,33 +536,29 @@
             var changeMap = {};
             var naoEncontrados = [];
 
-            productEntries.forEach(function(product, idx) {
-              var qty = quantities[idx] || 0;
-              product.items.forEach(function(pi) {
-                var dbItem = dbItems.find(function(d) { return d.marca === pi.marca && d.sku === pi.sku; });
-                if (!dbItem) dbItem = dbItems.find(function(d) { return d.sku === pi.sku; });
-                if (!dbItem) dbItem = dbItems.find(function(d) { return d.sku.endsWith(pi.sku) || pi.sku.endsWith(d.sku); });
+            entries.forEach(function(entry) {
+              var dbItem = dbItems.find(function(d) { return d.marca === entry.marca && d.sku === entry.sku; });
+              if (!dbItem) dbItem = dbItems.find(function(d) { return d.sku === entry.sku; });
 
-                if (dbItem) {
-                  if (changeMap[dbItem.id]) {
-                    changeMap[dbItem.id].baixa += qty;
-                    changeMap[dbItem.id].novoEstoque = Math.max(0, changeMap[dbItem.id].estoqueAtual - changeMap[dbItem.id].baixa);
-                  } else {
-                    changeMap[dbItem.id] = { id: dbItem.id, marca: dbItem.marcaOrig, sku: dbItem.skuOrig, estoqueAtual: dbItem.unidades, baixa: qty, novoEstoque: Math.max(0, dbItem.unidades - qty) };
-                  }
+              if (dbItem) {
+                if (changeMap[dbItem.id]) {
+                  changeMap[dbItem.id].baixa += entry.qty;
+                  changeMap[dbItem.id].novoEstoque = Math.max(0, changeMap[dbItem.id].estoqueAtual - changeMap[dbItem.id].baixa);
                 } else {
-                  naoEncontrados.push(pi.marca + ': ' + pi.sku + (qty > 0 ? ' (qty: ' + qty + ')' : ''));
+                  changeMap[dbItem.id] = { id: dbItem.id, marca: dbItem.marcaOrig, sku: dbItem.skuOrig, estoqueAtual: dbItem.unidades, baixa: entry.qty, novoEstoque: Math.max(0, dbItem.unidades - entry.qty) };
                 }
-              });
+              } else {
+                naoEncontrados.push(entry.marca + ': ' + entry.sku + ' (qty: ' + entry.qty + ')');
+              }
             });
 
             var changes = Object.keys(changeMap).map(function(k) { return changeMap[k]; });
             setPendingChanges({ changes: changes, naoEncontrados: naoEncontrados });
             setImporting(false);
-          }).catch(function(err) {
-            alert('Erro ao ler PDF: ' + err.message);
+          } catch(err) {
+            alert('Erro ao ler planilha: ' + err.message);
             setImporting(false);
-          });
+          }
         };
         reader.readAsArrayBuffer(file);
       }
@@ -794,17 +718,17 @@
             !pendingChanges
               ? e('div', {className: 'bg-slate-800 border border-slate-700 p-6 rounded-lg'},
                   e('h2', {className: 'text-lg font-bold mb-2'}, '🚚 Envios Full — Baixa Automática'),
-                  e('p', {className: 'text-slate-400 text-sm mb-4'}, 'Selecione o PDF de preparação do Mercado Livre Full. O sistema mostrará todas as alterações para você revisar antes de confirmar.'),
+                  e('p', {className: 'text-slate-400 text-sm mb-4'}, 'Selecione a planilha Excel com as colunas MARCA, SKU e BAIXAS. O sistema mostrará todas as alterações para você revisar antes de confirmar.'),
                   e('input', {
                     type: 'file',
-                    accept: '.pdf',
+                    accept: '.xlsx,.xls',
                     onChange: function(ev) {
                       if (ev.target.files && ev.target.files[0]) processarEnviosFull(ev.target.files[0]);
                     },
                     disabled: importing,
                     className: 'block w-full px-4 py-2 rounded border border-slate-600 text-sm'
                   }),
-                  e('p', {className: 'text-slate-500 text-xs mt-2'}, importing ? '⏳ Lendo PDF...' : '✓ Pronto para importar')
+                  e('p', {className: 'text-slate-500 text-xs mt-2'}, importing ? '⏳ Lendo planilha...' : '✓ Pronto para importar')
                 )
               : e('div', {className: 'space-y-4'},
                   e('div', {className: 'bg-slate-800 border border-slate-700 p-4 rounded-lg flex justify-between items-center'},
