@@ -242,13 +242,20 @@
               return;
             }
 
+            // Remove duplicatas: mantém o último registro para cada SKU
+            var skuMap = {};
+            skusDaPlanilha.forEach(function(item) {
+              skuMap[item.marca + '|' + item.sku] = item;
+            });
+            var skusUnicos = Object.keys(skuMap).map(function(k) { return skuMap[k]; });
+
             var chunkSize = 500;
             var chunks = [];
-            for (var ci = 0; ci < skusDaPlanilha.length; ci += chunkSize) {
-              chunks.push(skusDaPlanilha.slice(ci, ci + chunkSize));
+            for (var ci = 0; ci < skusUnicos.length; ci += chunkSize) {
+              chunks.push(skusUnicos.slice(ci, ci + chunkSize));
             }
             Promise.all(chunks.map(function(chunk) {
-              return supabase.from('estoque').upsert(chunk, { onConflict: 'sku' });
+              return supabase.from('estoque').upsert(chunk, { onConflict: 'marca,sku' });
             })).then(function(results) {
               var err = results.find(function(r) { return r.error; });
               if (err) {
@@ -256,7 +263,7 @@
                 setImporting(false);
                 return;
               }
-              alert('✓ ' + skusDaPlanilha.length + ' SKUs importados/atualizados com sucesso!');
+              alert('✓ ' + skusUnicos.length + ' SKUs importados/atualizados com sucesso!');
               carregarEstoque();
               setImporting(false);
             });
