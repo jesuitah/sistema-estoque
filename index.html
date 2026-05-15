@@ -245,7 +245,7 @@
             // Remove duplicatas: mantém o último registro para cada SKU
             var skuMap = {};
             skusDaPlanilha.forEach(function(item) {
-              skuMap[item.marca + '|' + item.sku] = item;
+              skuMap[item.sku] = item;
             });
             var skusUnicos = Object.keys(skuMap).map(function(k) { return skuMap[k]; });
 
@@ -255,7 +255,7 @@
               chunks.push(skusUnicos.slice(ci, ci + chunkSize));
             }
             Promise.all(chunks.map(function(chunk) {
-              return supabase.from('estoque').upsert(chunk, { onConflict: 'marca,sku' });
+              return supabase.from('estoque').upsert(chunk, { onConflict: 'sku' });
             })).then(function(results) {
               var err = results.find(function(r) { return r.error; });
               if (err) {
