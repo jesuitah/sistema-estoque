@@ -128,6 +128,10 @@
       var pendingChanges = pendingState[0];
       var setPendingChanges = pendingState[1];
 
+      var sortState = useState('az');
+      var sortOrder = sortState[0];
+      var setSortOrder = sortState[1];
+
       function carregarEstoque() {
         var batchSize = 1000;
         var allData = [];
@@ -389,6 +393,13 @@
       var estoquesFiltrados = estoque.filter(function(item) {
         var termo = searchTerm.toUpperCase();
         return item.marca.toUpperCase().includes(termo) || item.sku.toUpperCase().includes(termo);
+      }).slice().sort(function(a, b) {
+        if (sortOrder === 'maior') return (b.unidades || 0) - (a.unidades || 0);
+        if (sortOrder === 'menor') return (a.unidades || 0) - (b.unidades || 0);
+        // az: ordena por marca + sku
+        var ma = (a.marca || '').toUpperCase(), mb = (b.marca || '').toUpperCase();
+        if (ma !== mb) return ma < mb ? -1 : 1;
+        return (a.sku || '').toUpperCase() < (b.sku || '').toUpperCase() ? -1 : 1;
       });
 
       if (loading) {
@@ -440,14 +451,25 @@
         e('main', {className: 'max-w-7xl mx-auto px-4 py-6'},
           activeTab === 'sku' && e('div', null,
             e('div', {className: 'mb-5'},
-              e('input', {
-                type: 'text',
-                placeholder: 'Digite o SKU ou marca...',
-                value: searchTerm,
-                onChange: function(ev) { setSearchTerm(ev.target.value); },
-                className: 'w-full bg-slate-800 text-white px-4 py-3 rounded-lg border border-slate-600 focus:border-blue-400 focus:outline-none text-sm'
-              }),
-              e('div', {className: 'text-sm text-slate-400 mt-2'},
+              e('div', {className: 'flex gap-3 mb-3'},
+                e('input', {
+                  type: 'text',
+                  placeholder: 'Digite o SKU ou marca...',
+                  value: searchTerm,
+                  onChange: function(ev) { setSearchTerm(ev.target.value); },
+                  className: 'flex-1 bg-slate-800 text-white px-4 py-3 rounded-lg border border-slate-600 focus:border-blue-400 focus:outline-none text-sm'
+                }),
+                e('select', {
+                  value: sortOrder,
+                  onChange: function(ev) { setSortOrder(ev.target.value); },
+                  className: 'bg-slate-800 text-white px-3 py-3 rounded-lg border border-slate-600 focus:border-blue-400 focus:outline-none text-sm cursor-pointer'
+                },
+                  e('option', {value: 'az'}, 'A → Z'),
+                  e('option', {value: 'maior'}, '↓ Maior estoque'),
+                  e('option', {value: 'menor'}, '↑ Menor estoque')
+                )
+              ),
+              e('div', {className: 'text-sm text-slate-400'},
                 'Exibindo ' + estoquesFiltrados.length + ' de ' + stats.total + ' produtos'
               )
             ),
