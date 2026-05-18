@@ -851,6 +851,9 @@
                 if (mlFiltroTipo === 'todas') return faltaEm.length === lojasAtivas.length;
                 return faltaEm.length > 0;
               }).slice().sort(function(a, b) {
+                // Maior estoque primeiro; empate → A→Z
+                var diff = (b.unidades || 0) - (a.unidades || 0);
+                if (diff !== 0) return diff;
                 var ma = (a.marca||'').toUpperCase(), mb = (b.marca||'').toUpperCase();
                 if (ma !== mb) return ma < mb ? -1 : 1;
                 return (a.sku||'').toUpperCase() < (b.sku||'').toUpperCase() ? -1 : 1;
