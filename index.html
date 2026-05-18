@@ -132,17 +132,21 @@
       var sortOrder = sortState[0];
       var setSortOrder = sortState[1];
 
-      var mlSKUsState = useState(null);
-      var mlSKUs = mlSKUsState[0];
-      var setMlSKUs = mlSKUsState[1];
+      var mlLojasState = useState([]);
+      var mlLojas = mlLojasState[0];
+      var setMlLojas = mlLojasState[1];
 
-      var mlFileNameState = useState('');
-      var mlFileName = mlFileNameState[0];
-      var setMlFileName = mlFileNameState[1];
+      var mlNovaLojaState = useState('');
+      var mlNovaLoja = mlNovaLojaState[0];
+      var setMlNovaLoja = mlNovaLojaState[1];
 
       var mlFiltroZeradosState = useState(true);
       var mlFiltroZerados = mlFiltroZeradosState[0];
       var setMlFiltroZerados = mlFiltroZeradosState[1];
+
+      var mlFiltroTipoState = useState('qualquer');
+      var mlFiltroTipo = mlFiltroTipoState[0];
+      var setMlFiltroTipo = mlFiltroTipoState[1];
 
       function carregarEstoque() {
         var batchSize = 1000;
@@ -353,36 +357,40 @@
         return result;
       }
 
-      function processarMLExcel(file) {
-        setMlFileName(file.name);
+      function lerSKUsDoArquivoML(file, nomeLoja) {
         var reader = new FileReader();
         reader.onload = function(evt) {
           try {
             var wb = XLSX.read(evt.target.result, { type: 'array' });
-            // Find the sheet named "Anúncios" or first sheet
             var sheetName = wb.SheetNames.find(function(n) {
               return n.toLowerCase().indexOf('an') !== -1;
             }) || wb.SheetNames[0];
             var ws = wb.Sheets[sheetName];
             var rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-            // Find column index for SKU (header row 1 has IDs)
             var headerRow = rows[0] || [];
             var skuColIdx = -1;
             for (var ci = 0; ci < headerRow.length; ci++) {
               if (String(headerRow[ci]).toUpperCase() === 'SKU') { skuColIdx = ci; break; }
             }
-            if (skuColIdx === -1) skuColIdx = 4; // fallback to column 4
+            if (skuColIdx === -1) skuColIdx = 4;
             var skuSet = {};
-            // Data starts at row 5 (index 4)
             for (var ri = 4; ri < rows.length; ri++) {
               var skuCell = rows[ri][skuColIdx];
               if (!skuCell) continue;
               var parsed = parseSKUsML(String(skuCell));
-              parsed.forEach(function(p) {
-                skuSet[p.marca + '|' + p.sku] = true;
-              });
+              parsed.forEach(function(p) { skuSet[p.marca + '|' + p.sku] = true; });
             }
-            setMlSKUs(skuSet);
+            var novaLoja = { nome: nomeLoja, skuSet: skuSet, arquivo: file.name };
+            setMlLojas(function(prev) {
+              // Substitui se já existe loja com mesmo nome, senão adiciona
+              var existe = prev.findIndex(function(l) { return l.nome.toUpperCase() === nomeLoja.toUpperCase(); });
+              if (existe !== -1) {
+                var nova = prev.slice();
+                nova[existe] = novaLoja;
+                return nova;
+              }
+              return prev.concat([novaLoja]);
+            });
           } catch(err) {
             alert('Erro ao ler planilha do ML: ' + err.message);
           }
@@ -390,12 +398,29 @@
         reader.readAsArrayBuffer(file);
       }
 
-      function exportarNaoAnunciados(lista) {
-        var dados = [['MARCA', 'SKU', 'UNIDADES']].concat(
-          lista.map(function(item) { return [item.marca, item.sku, item.unidades || 0]; })
+      function removerLoja(nome) {
+        setMlLojas(function(prev) {
+          return prev.filter(function(l) { return l.nome !== nome; });
+        });
+      }
+
+      function exportarNaoAnunciados(lista, lojas) {
+        var header = ['MARCA', 'SKU', 'UNIDADES'].concat(lojas.map(function(l) { return l.nome; }));
+        var dados = [header].concat(
+          lista.map(function(item) {
+            var mk = normStr(item.marca || '');
+            var sk = normStr(item.sku || '');
+            var colunas = [item.marca, item.sku, item.unidades || 0];
+            lojas.forEach(function(loja) {
+              colunas.push(loja.skuSet[mk + '|' + sk] ? 'SIM' : 'NÃO');
+            });
+            return colunas;
+          })
         );
         var ws = XLSX.utils.aoa_to_sheet(dados);
-        ws['!cols'] = [{wch: 20}, {wch: 20}, {wch: 12}];
+        var cols = [{wch: 20}, {wch: 20}, {wch: 12}];
+        lojas.forEach(function() { cols.push({wch: 14}); });
+        ws['!cols'] = cols;
         var wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, 'Não Anunciados');
         XLSX.writeFile(wb, 'nao_anunciados_ml.xlsx');
@@ -758,90 +783,164 @@
           ),
 
           activeTab === 'naoAnunciados' && e('div', {className: 'space-y-4'},
-            e('div', {className: 'bg-slate-800 border border-slate-700 p-6 rounded-lg'},
+
+            // Painel de lojas
+            e('div', {className: 'bg-slate-800 border border-slate-700 p-5 rounded-lg'},
               e('h2', {className: 'text-lg font-bold mb-1'}, '🔍 Não Anunciados no Mercado Livre'),
-              e('p', {className: 'text-slate-400 text-sm mb-4'}, 'Suba a planilha exportada do ML (Meus Anúncios → Modificar em massa → Baixar planilha). O sistema cruza com o seu estoque e mostra o que não está anunciado.'),
-              e('input', {
-                type: 'file',
-                accept: '.xlsx,.xls',
-                onChange: function(ev) {
-                  if (ev.target.files && ev.target.files[0]) processarMLExcel(ev.target.files[0]);
+              e('p', {className: 'text-slate-400 text-sm mb-4'}, 'Adicione as planilhas de cada loja (Meus Anúncios → Modificar em massa → Baixar planilha). O sistema cruza e mostra o que falta em cada uma.'),
+              e('div', {className: 'flex gap-2 mb-4'},
+                e('input', {
+                  type: 'text',
+                  placeholder: 'Nome da loja (ex: KARMAPEC)',
+                  value: mlNovaLoja,
+                  onChange: function(ev) { setMlNovaLoja(ev.target.value.toUpperCase()); },
+                  className: 'flex-1 bg-slate-700 text-white px-3 py-2 rounded border border-slate-600 text-sm focus:border-blue-400 focus:outline-none'
+                }),
+                e('label', {
+                  className: 'flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded font-bold text-sm cursor-pointer transition-colors ' + (!mlNovaLoja.trim() ? 'opacity-50 pointer-events-none' : '')
                 },
-                className: 'block w-full px-4 py-2 rounded border border-slate-600 text-sm'
-              }),
-              mlFileName && e('p', {className: 'text-slate-500 text-xs mt-2'}, '📄 ' + mlFileName)
+                  '+ Carregar planilha',
+                  e('input', {
+                    type: 'file', accept: '.xlsx,.xls',
+                    style: {display: 'none'},
+                    onChange: function(ev) {
+                      if (ev.target.files && ev.target.files[0] && mlNovaLoja.trim()) {
+                        lerSKUsDoArquivoML(ev.target.files[0], mlNovaLoja.trim());
+                        setMlNovaLoja('');
+                        ev.target.value = '';
+                      }
+                    }
+                  })
+                )
+              ),
+              mlLojas.length === 0
+                ? e('p', {className: 'text-slate-500 text-sm'}, 'Nenhuma loja adicionada ainda.')
+                : e('div', {className: 'flex flex-wrap gap-2'},
+                    mlLojas.map(function(loja) {
+                      return e('div', {key: loja.nome, className: 'flex items-center gap-2 bg-slate-700 border border-slate-600 rounded-lg px-3 py-2'},
+                        e('span', {className: 'text-green-400 font-bold text-sm'}, '✅'),
+                        e('div', null,
+                          e('div', {className: 'text-white font-bold text-sm'}, loja.nome),
+                          e('div', {className: 'text-slate-400 text-xs'}, loja.arquivo)
+                        ),
+                        e('button', {
+                          onClick: function() { removerLoja(loja.nome); },
+                          className: 'ml-2 text-slate-500 hover:text-red-400 font-bold text-lg leading-none'
+                        }, '×')
+                      );
+                    })
+                  )
             ),
 
-            mlSKUs && (function() {
-              var naoAnunciadosTodos = estoque.filter(function(item) {
+            // Resultados (só aparece se tiver pelo menos 1 loja)
+            mlLojas.length > 0 && (function() {
+              // Calcula presença em cada loja para cada item
+              var itens = estoque.filter(function(item) {
+                if (mlFiltroZerados && (item.unidades || 0) === 0) return false;
                 var mk = normStr(item.marca || '');
                 var sk = normStr(item.sku || '');
-                return !mlSKUs[mk + '|' + sk];
-              });
-              var naoAnunciados = mlFiltroZerados
-                ? naoAnunciadosTodos.filter(function(x) { return (x.unidades || 0) > 0; })
-                : naoAnunciadosTodos;
-              naoAnunciados = naoAnunciados.slice().sort(function(a, b) {
+                var faltaEm = mlLojas.filter(function(l) { return !l.skuSet[mk + '|' + sk]; });
+                if (mlFiltroTipo === 'todas') return faltaEm.length === mlLojas.length;
+                return faltaEm.length > 0;
+              }).slice().sort(function(a, b) {
                 var ma = (a.marca||'').toUpperCase(), mb = (b.marca||'').toUpperCase();
                 if (ma !== mb) return ma < mb ? -1 : 1;
                 return (a.sku||'').toUpperCase() < (b.sku||'').toUpperCase() ? -1 : 1;
               });
-              var totalAnunciados = estoque.length - naoAnunciadosTodos.length;
+
+              var totalComLoja = estoque.filter(function(item) {
+                var mk = normStr(item.marca || '');
+                var sk = normStr(item.sku || '');
+                return mlLojas.every(function(l) { return l.skuSet[mk + '|' + sk]; });
+              }).length;
 
               return e('div', {className: 'space-y-4'},
-                e('div', {className: 'grid grid-cols-3 gap-3'},
+                // Cards de resumo
+                e('div', {className: 'grid gap-3', style: {gridTemplateColumns: 'repeat(' + (mlLojas.length + 2) + ', 1fr)'}},
                   e('div', {className: 'bg-blue-900 border border-blue-700 rounded-lg p-4 text-center'},
                     e('div', {className: 'text-2xl font-bold text-blue-300'}, estoque.length),
-                    e('div', {className: 'text-xs text-blue-400 uppercase mt-1'}, 'SKUs no Estoque')
+                    e('div', {className: 'text-xs text-blue-400 uppercase mt-1'}, 'Total no Estoque')
                   ),
                   e('div', {className: 'bg-green-900 border border-green-700 rounded-lg p-4 text-center'},
-                    e('div', {className: 'text-2xl font-bold text-green-300'}, totalAnunciados),
-                    e('div', {className: 'text-xs text-green-400 uppercase mt-1'}, 'Encontrados no ML')
+                    e('div', {className: 'text-2xl font-bold text-green-300'}, totalComLoja),
+                    e('div', {className: 'text-xs text-green-400 uppercase mt-1'}, 'Em todas as lojas')
                   ),
-                  e('div', {className: 'bg-yellow-900 border border-yellow-700 rounded-lg p-4 text-center'},
-                    e('div', {className: 'text-2xl font-bold text-yellow-300'}, naoAnunciadosTodos.length),
-                    e('div', {className: 'text-xs text-yellow-400 uppercase mt-1'}, 'Não Anunciados')
-                  )
+                  mlLojas.map(function(loja) {
+                    var mk_total = estoque.filter(function(item) {
+                      var mk = normStr(item.marca || '');
+                      var sk = normStr(item.sku || '');
+                      return !loja.skuSet[mk + '|' + sk];
+                    }).length;
+                    return e('div', {key: loja.nome, className: 'bg-yellow-900 border border-yellow-700 rounded-lg p-4 text-center'},
+                      e('div', {className: 'text-2xl font-bold text-yellow-300'}, mk_total),
+                      e('div', {className: 'text-xs text-yellow-400 uppercase mt-1'}, 'Falta ' + loja.nome)
+                    );
+                  })
                 ),
 
+                // Filtros
                 e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg p-4 flex flex-wrap gap-4 items-center justify-between'},
-                  e('label', {className: 'flex items-center gap-2 text-sm text-slate-300 cursor-pointer'},
-                    e('input', {
-                      type: 'checkbox',
-                      checked: mlFiltroZerados,
-                      onChange: function(ev) { setMlFiltroZerados(ev.target.checked); },
-                      className: 'w-4 h-4 rounded'
-                    }),
-                    'Ocultar zerados (mostrar apenas quem tem estoque)'
+                  e('div', {className: 'flex flex-wrap gap-4'},
+                    e('label', {className: 'flex items-center gap-2 text-sm text-slate-300 cursor-pointer'},
+                      e('input', {
+                        type: 'checkbox', checked: mlFiltroZerados,
+                        onChange: function(ev) { setMlFiltroZerados(ev.target.checked); },
+                        className: 'w-4 h-4 rounded'
+                      }),
+                      'Ocultar zerados'
+                    ),
+                    e('div', {className: 'flex items-center gap-2'},
+                      e('span', {className: 'text-sm text-slate-400'}, 'Mostrar falta em:'),
+                      e('select', {
+                        value: mlFiltroTipo,
+                        onChange: function(ev) { setMlFiltroTipo(ev.target.value); },
+                        className: 'bg-slate-700 text-white px-2 py-1 rounded border border-slate-600 text-sm'
+                      },
+                        e('option', {value: 'qualquer'}, 'Pelo menos 1 loja'),
+                        e('option', {value: 'todas'}, 'Todas as lojas')
+                      )
+                    )
                   ),
-                  naoAnunciados.length > 0 && e('button', {
-                    onClick: function() { exportarNaoAnunciados(naoAnunciados); },
+                  itens.length > 0 && e('button', {
+                    onClick: function() { exportarNaoAnunciados(itens, mlLojas); },
                     className: 'flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors'
-                  }, '⬇ Exportar lista (' + naoAnunciados.length + ')')
+                  }, '⬇ Exportar (' + itens.length + ')')
                 ),
 
-                naoAnunciados.length === 0
+                // Tabela
+                itens.length === 0
                   ? e('div', {className: 'bg-green-900 border border-green-700 rounded-lg p-6 text-center'},
                       e('div', {className: 'text-green-300 text-lg font-bold'}, '✅ Tudo anunciado!'),
-                      e('div', {className: 'text-green-400 text-sm mt-1'}, 'Todos os SKUs com estoque já têm anúncio ativo no ML.')
+                      e('div', {className: 'text-green-400 text-sm mt-1'}, 'Nenhum SKU pendente com o filtro atual.')
                     )
-                  : e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg overflow-hidden'},
+                  : e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg overflow-x-auto'},
                       e('table', {className: 'w-full text-sm'},
                         e('thead', null,
                           e('tr', {className: 'bg-slate-700 text-slate-300 text-xs uppercase'},
                             e('th', {className: 'text-left px-4 py-3'}, 'Marca'),
                             e('th', {className: 'text-left px-4 py-3'}, 'SKU'),
-                            e('th', {className: 'text-center px-4 py-3'}, 'Unidades')
+                            e('th', {className: 'text-center px-4 py-3'}, 'Unidades'),
+                            mlLojas.map(function(loja) {
+                              return e('th', {key: loja.nome, className: 'text-center px-4 py-3'}, loja.nome);
+                            })
                           )
                         ),
                         e('tbody', null,
-                          naoAnunciados.map(function(item, i) {
+                          itens.map(function(item, i) {
+                            var mk = normStr(item.marca || '');
+                            var sk = normStr(item.sku || '');
                             return e('tr', {key: item.id, className: 'border-t border-slate-700 ' + (i % 2 === 0 ? '' : 'bg-slate-900')},
                               e('td', {className: 'px-4 py-2 text-slate-400 text-xs'}, item.marca),
                               e('td', {className: 'px-4 py-2 font-bold'}, item.sku),
                               e('td', {className: 'px-4 py-2 text-center font-bold ' + ((item.unidades||0) === 0 ? 'text-red-400' : 'text-green-400')},
                                 (item.unidades||0) === 0 ? 'ZERADO' : item.unidades + ' un'
-                              )
+                              ),
+                              mlLojas.map(function(loja) {
+                                var temAnuncio = loja.skuSet[mk + '|' + sk];
+                                return e('td', {key: loja.nome, className: 'px-4 py-2 text-center text-lg'},
+                                  temAnuncio ? '✅' : '❌'
+                                );
+                              })
                             );
                           })
                         )
