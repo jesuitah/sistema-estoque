@@ -38,13 +38,24 @@
       );
     }
 
-    var LOJA_CORES = [
+    var LOJA_CORES_FALLBACK = [
       {bg: 'bg-blue-500',   text: 'text-white'},
       {bg: 'bg-orange-500', text: 'text-white'},
       {bg: 'bg-yellow-400', text: 'text-gray-900'},
       {bg: 'bg-purple-500', text: 'text-white'},
       {bg: 'bg-teal-500',   text: 'text-white'}
     ];
+
+    function getCorLoja(nome, idx) {
+      var n = (nome || '').toUpperCase();
+      if (n.indexOf('KMP') !== -1 || n.indexOf('KARMA') !== -1)
+        return {bg: 'bg-blue-500', text: 'text-white'};
+      if (n.indexOf('ERP') !== -1 || n.indexOf('ERUP') !== -1)
+        return {bg: 'bg-orange-500', text: 'text-white'};
+      if (n.indexOf('LOT') !== -1)
+        return {bg: 'bg-yellow-400', text: 'text-gray-900'};
+      return LOJA_CORES_FALLBACK[idx % LOJA_CORES_FALLBACK.length];
+    }
 
     function SKUCard(props) {
       var item = props.item;
@@ -59,26 +70,31 @@
       var sk = item.sku   ? item.sku.toUpperCase().replace(/\s+/g, '').replace(/[^A-Z0-9]/g, '')   : '';
       var lojasAnunciadas = lojas.filter(function(l) { return l.skuSet && l.skuSet[mk + '|' + sk]; });
 
-      return e('div', {className: borderColor + ' p-4 rounded-lg relative text-gray-800 shadow'},
-        e('button', {
-          onClick: function() { props.onDelete(item.id); },
-          className: 'absolute top-2 right-2 w-7 h-7 flex items-center justify-center hover:bg-red-200 rounded-full text-red-600 font-bold text-sm'
-        }, 'x'),
-        e('div', {className: 'mb-1'},
-          e('div', {className: 'text-xs text-gray-500 font-semibold uppercase'}, item.marca),
-          e('div', {className: 'text-lg font-bold text-gray-900'}, item.sku)
+      return e('div', {className: borderColor + ' p-4 rounded-lg text-gray-800 shadow'},
+        // Linha superior: marca/SKU à esquerda, badges + x à direita
+        e('div', {className: 'flex justify-between items-start mb-2'},
+          e('div', null,
+            e('div', {className: 'text-xs text-gray-500 font-semibold uppercase'}, item.marca),
+            e('div', {className: 'text-lg font-bold text-gray-900'}, item.sku)
+          ),
+          e('div', {className: 'flex items-center gap-1 ml-2 flex-shrink-0'},
+            lojasAnunciadas.map(function(loja) {
+              var cor = getCorLoja(loja.nome, loja.idx);
+              return e('span', {
+                key: loja.nome,
+                className: cor.bg + ' ' + cor.text + ' px-2 py-0.5 rounded text-xs font-bold'
+              }, loja.nome);
+            }),
+            e('button', {
+              onClick: function() { props.onDelete(item.id); },
+              className: 'w-6 h-6 flex items-center justify-center hover:bg-red-200 rounded-full text-red-600 font-bold text-sm ml-1'
+            }, 'x')
+          )
         ),
-        e('div', {className: 'flex flex-wrap items-center gap-1 mb-2'},
+        e('div', {className: 'mb-3'},
           e('span', {className: badgeColor + ' px-3 py-1 rounded-full text-sm font-bold'},
             isZerado ? 'ZERADO' : item.unidades + ' un'
-          ),
-          lojasAnunciadas.map(function(loja) {
-            var cor = LOJA_CORES[loja.idx] || LOJA_CORES[0];
-            return e('span', {
-              key: loja.nome,
-              className: cor.bg + ' ' + cor.text + ' px-2 py-0.5 rounded text-xs font-bold'
-            }, loja.nome);
-          })
+          )
         ),
         e('div', {className: 'flex gap-2'},
           e('input', {
@@ -850,7 +866,7 @@
                 e('div', {className: 'text-xs font-bold text-slate-400 uppercase mb-2'}, 'Lojas carregadas:'),
                 e('div', {className: 'flex flex-wrap gap-2'},
                   mlLojas.map(function(loja) {
-                    var cor = LOJA_CORES[loja.idx] || LOJA_CORES[0];
+                    var cor = getCorLoja(loja.nome, loja.idx);
                     return e('div', {key: loja.nome, className: 'flex items-center gap-2 bg-slate-700 border border-slate-600 rounded-lg px-3 py-2'},
                       e('span', {className: cor.bg + ' ' + cor.text + ' px-2 py-0.5 rounded text-xs font-bold'}, loja.nome),
                       e('span', {className: 'text-green-400 text-xs'}, '✓ carregada'),
