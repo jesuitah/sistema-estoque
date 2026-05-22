@@ -52,7 +52,7 @@
         return {bg: 'bg-blue-500', text: 'text-white'};
       if (n.indexOf('ERP') !== -1 || n.indexOf('ERUP') !== -1)
         return {bg: 'bg-orange-500', text: 'text-white'};
-      if (n.indexOf('LOT') !== -1)
+      if (n.indexOf('LOT') !== -1 || n.indexOf('LTS') !== -1)
         return {bg: 'bg-yellow-400', text: 'text-gray-900'};
       return LOJA_CORES_FALLBACK[idx % LOJA_CORES_FALLBACK.length];
     }
