@@ -196,8 +196,18 @@
         });
       }
 
+      function carregarLojasML() {
+        supabase.from('ml_lojas').select('*').order('idx').then(function(result) {
+          if (result.error || !result.data) return;
+          setMlLojas(result.data.map(function(row) {
+            return { nome: row.nome, skuSet: row.sku_set, idx: row.idx };
+          }));
+        });
+      }
+
       useEffect(function() {
         carregarEstoque();
+        carregarLojasML();
         var subscription = supabase
           .channel('estoque-realtime')
           .on('postgres_changes', {event: '*', schema: 'public', table: 'estoque'}, function() {
@@ -400,20 +410,22 @@
               parsed.forEach(function(p) { skuSet[p.marca + '|' + p.sku] = true; });
             }
             setMlLojas(function(prev) {
-              // Substitui se já existe loja com mesmo nome, senão insere na posição idx
               var nova = prev.slice();
               var existe = nova.findIndex(function(l) { return l.nome === nomeLoja; });
+              var actualIdx = existe !== -1 ? existe : Math.min(idx, nova.length);
               if (existe !== -1) {
-                nova[existe] = { nome: nomeLoja, skuSet: skuSet, idx: existe };
+                nova[existe] = { nome: nomeLoja, skuSet: skuSet, idx: actualIdx };
               } else {
-                // Garante que a posição idx existe
-                while (nova.length <= idx) nova.push(null);
-                nova[idx] = { nome: nomeLoja, skuSet: skuSet, idx: idx };
+                nova.push({ nome: nomeLoja, skuSet: skuSet, idx: actualIdx });
+                // Reatribui índices sequenciais
+                nova = nova.map(function(l, i) { return { nome: l.nome, skuSet: l.skuSet, idx: i }; });
+                actualIdx = nova.findIndex(function(l) { return l.nome === nomeLoja; });
               }
-              // Remove nulos e reatribui índices
-              nova = nova.filter(Boolean).map(function(l, i) {
-                return { nome: l.nome, skuSet: l.skuSet, idx: i };
-              });
+              // Salva no Supabase
+              supabase.from('ml_lojas').upsert(
+                { nome: nomeLoja, sku_set: skuSet, idx: actualIdx, updated_at: new Date().toISOString() },
+                { onConflict: 'nome' }
+              );
               return nova;
             });
           } catch(err) {
@@ -424,6 +436,7 @@
       }
 
       function removerLojaML(nome) {
+        supabase.from('ml_lojas').delete().eq('nome', nome);
         setMlLojas(function(prev) {
           return prev.filter(function(l) { return l.nome !== nome; })
                      .map(function(l, i) { return { nome: l.nome, skuSet: l.skuSet, idx: i }; });
@@ -616,7 +629,7 @@
             e('button', {
               onClick: function() { setActiveTab('naoAnunciados'); },
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'naoAnunciados' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
-            }, '🔍 Não Anunciados ML')
+            }, '🏪 Lojas ML')
           )
         ),
 
