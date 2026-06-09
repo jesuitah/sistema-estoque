@@ -201,9 +201,33 @@
       var showMarkupEditor = showMarkupEditorState[0];
       var setShowMarkupEditor = showMarkupEditorState[1];
 
-      var editandoPrecoState = useState(null); // {marca, sku, custo, precoMecanico}
+      var editandoPrecoState = useState(null);
       var editandoPreco = editandoPrecoState[0];
       var setEditandoPreco = editandoPrecoState[1];
+
+      var activePrecoTabState = useState('ml');
+      var activePrecoTab = activePrecoTabState[0];
+      var setActivePrecoTab = activePrecoTabState[1];
+
+      var markupsMLState = useState({});
+      var markupsML = markupsMLState[0];
+      var setMarkupsML = markupsMLState[1];
+
+      var markupEditMLState = useState({});
+      var markupEditML = markupEditMLState[0];
+      var setMarkupEditML = markupEditMLState[1];
+
+      var showMarkupEditorMLState = useState(false);
+      var showMarkupEditorML = showMarkupEditorMLState[0];
+      var setShowMarkupEditorML = showMarkupEditorMLState[1];
+
+      var editandoPrecoMLState = useState(null);
+      var editandoPrecoML = editandoPrecoMLState[0];
+      var setEditandoPrecoML = editandoPrecoMLState[1];
+
+      var precosSearchMLState = useState('');
+      var precosSearchML = precosSearchMLState[0];
+      var setPrecosSearchML = precosSearchMLState[1];
 
       function carregarEstoque() {
         var batchSize = 1000;
@@ -250,6 +274,7 @@
         carregarLojasML();
         carregarPrecos();
         carregarMarkups();
+        carregarMarkupsML();
         var subscription = supabase
           .channel('estoque-realtime')
           .on('postgres_changes', {event: '*', schema: 'public', table: 'estoque'}, function() {
@@ -522,6 +547,102 @@
           if (res.error) { alert('Erro ao salvar: ' + res.error.message); return; }
           setMarkups(function(prev) { var n = Object.assign({}, prev); n[marca] = num; return n; });
         });
+      }
+
+      function carregarMarkupsML() {
+        supabase.from('markup_marcas').select('marca,markup_ml,frete_ml,taxa_ml').then(function(result) {
+          if (result.error || !result.data) return;
+          var obj = {};
+          result.data.forEach(function(row) {
+            obj[row.marca] = {
+              markup: row.markup_ml !== null ? Number(row.markup_ml) : 60,
+              frete:  row.frete_ml  !== null ? Number(row.frete_ml)  : 30,
+              taxa:   row.taxa_ml   !== null ? Number(row.taxa_ml)   : 23
+            };
+          });
+          setMarkupsML(obj);
+          setMarkupEditML(function(prev) {
+            var n = Object.assign({}, prev);
+            Object.keys(obj).forEach(function(m) {
+              n[m] = { markup: String(obj[m].markup), frete: String(obj[m].frete), taxa: String(obj[m].taxa) };
+            });
+            return n;
+          });
+        });
+      }
+
+      function salvarMarkupMarcaML(marca) {
+        var edit = markupEditML[marca] || {};
+        var markup = parseFloat(String(edit.markup || '60').replace(',', '.'));
+        var frete  = parseFloat(String(edit.frete  || '30').replace(',', '.'));
+        var taxa   = parseFloat(String(edit.taxa   || '23').replace(',', '.'));
+        if (isNaN(markup) || markup < 0) { alert('Markup inválido'); return; }
+        if (isNaN(frete)  || frete  < 0) { alert('Frete inválido');  return; }
+        if (isNaN(taxa)   || taxa   < 0) { alert('Taxa inválida');   return; }
+        if (!confirm('Alterar configuração ML de ' + marca + '?')) return;
+        supabase.from('markup_marcas').upsert(
+          { marca: marca, markup_ml: markup, frete_ml: frete, taxa_ml: taxa },
+          { onConflict: 'marca' }
+        ).then(function(res) {
+          if (res.error) { alert('Erro ao salvar: ' + res.error.message); return; }
+          setMarkupsML(function(prev) {
+            var n = Object.assign({}, prev);
+            n[marca] = { markup: markup, frete: frete, taxa: taxa };
+            return n;
+          });
+        });
+      }
+
+      function salvarPrecoMLUnitario() {
+        var ed = editandoPrecoML;
+        if (!ed) return;
+        var novoPreco = parseFloat(String(ed.precoML || '').replace(',', '.'));
+        var update = { preco_ml: isNaN(novoPreco) || novoPreco <= 0 ? null : novoPreco };
+        supabase.from('precos').update(update).eq('marca', ed.marca).eq('sku', ed.sku).then(function(res) {
+          if (res.error) { alert('Erro ao salvar: ' + res.error.message); return; }
+          setPrecos(function(prev) {
+            return prev.map(function(p) {
+              if (p.marca === ed.marca && p.sku === ed.sku) return Object.assign({}, p, { preco_ml: update.preco_ml });
+              return p;
+            });
+          });
+          setEditandoPrecoML(null);
+        });
+      }
+
+      function importarPlanilhaPrecoML(file) {
+        var reader = new FileReader();
+        reader.onload = function(evt) {
+          try {
+            var wb = XLSX.read(evt.target.result, { type: 'array' });
+            var todasLinhas = [];
+            wb.SheetNames.forEach(function(sheetName) {
+              var ws = wb.Sheets[sheetName];
+              var rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+              if (!rows || rows.length < 4) return;
+              var marca = String(rows[0][0] || sheetName).toUpperCase().trim();
+              for (var ri = 3; ri < rows.length; ri++) {
+                var sku = String(rows[ri][0] || '').trim().toUpperCase();
+                if (!sku) continue;
+                var preco = parseFloat(String(rows[ri][1]).replace(',', '.').replace(/[^0-9.]/g, ''));
+                if (isNaN(preco) || preco <= 0) continue;
+                var ex = precos.find(function(p) { return p.marca === marca && p.sku === sku; });
+                todasLinhas.push({ marca: marca, sku: sku, custo: ex ? ex.custo : 0, preco_ml: preco });
+              }
+            });
+            if (todasLinhas.length === 0) { alert('Nenhum dado encontrado.'); return; }
+            var promises = [];
+            for (var i = 0; i < todasLinhas.length; i += 500)
+              promises.push(supabase.from('precos').upsert(todasLinhas.slice(i, i+500), { onConflict: 'marca,sku' }));
+            Promise.all(promises).then(function(results) {
+              var err = results.find(function(r) { return r.error; });
+              if (err) { alert('Erro: ' + err.error.message); return; }
+              alert('✓ ' + todasLinhas.length + ' preços ML importados!');
+              carregarPrecos();
+            });
+          } catch(e) { alert('Erro ao ler planilha: ' + e.message); }
+        };
+        reader.readAsArrayBuffer(file);
       }
 
       function salvarPrecoUnitario() {
@@ -847,7 +968,7 @@
             e('button', {
               onClick: function() { setActiveTab('precos'); },
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'precos' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
-            }, '💰 Preço Mecânico'),
+            }, '💰 Preços'),
             e('button', {
               onClick: function() { setActiveTab('registro'); },
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'registro' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
@@ -1002,7 +1123,164 @@
             )
           ),
 
-          activeTab === 'precos' && e('div', {className: 'space-y-5'},
+          activeTab === 'precos' && e('div', {className: 'space-y-4'},
+
+            // Sub-abas
+            e('div', {className: 'flex gap-1 bg-slate-800 border border-slate-700 rounded-lg p-1 w-fit'},
+              e('button', {
+                onClick: function() { setActivePrecoTab('ml'); },
+                className: 'px-5 py-2 rounded-md text-sm font-bold transition-colors ' + (activePrecoTab === 'ml' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white')
+              }, '🛒 Preço ML'),
+              e('button', {
+                onClick: function() { setActivePrecoTab('mecanico'); },
+                className: 'px-5 py-2 rounded-md text-sm font-bold transition-colors ' + (activePrecoTab === 'mecanico' ? 'bg-green-600 text-white' : 'text-slate-400 hover:text-white')
+              }, '🔧 Preço Mecânico')
+            ),
+
+            // ── SUB-ABA ML ──
+            activePrecoTab === 'ml' && e('div', {className: 'space-y-5'},
+              e('div', {className: 'flex items-center gap-3 flex-wrap'},
+                e('label', {className: 'flex items-center gap-2 bg-blue-700 hover:bg-blue-600 text-white px-4 py-2 rounded-lg font-bold text-sm cursor-pointer transition-colors'},
+                  '📂 Importar Preços ML',
+                  e('input', {type: 'file', accept: '.xlsx,.xls', style: {display:'none'},
+                    onChange: function(ev) { var f=ev.target.files&&ev.target.files[0]; if(f) importarPlanilhaPrecoML(f); ev.target.value=''; }
+                  })
+                ),
+                precos.length > 0 && e('span', {className: 'text-slate-400 text-sm'}, precos.length + ' produtos')
+              ),
+              // Editor ML markup
+              e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg overflow-hidden'},
+                e('button', {
+                  onClick: function() { setShowMarkupEditorML(function(v){return !v;}); },
+                  className: 'w-full flex items-center justify-between px-5 py-3 hover:bg-slate-700 transition-colors'
+                },
+                  e('span', {className: 'font-bold text-sm text-slate-200'}, '⚙️ Configuração ML por Marca'),
+                  e('span', {className: 'text-slate-400 text-sm'}, showMarkupEditorML ? '▲ Fechar' : '▼ Editar')
+                ),
+                showMarkupEditorML && e('div', {className: 'px-5 pb-5'},
+                  e('p', {className: 'text-slate-400 text-xs mb-3'}, 'Padrão: Markup 60% · Frete R$30 · Taxa 23%. Clique ✓ para salvar.'),
+                  precos.length === 0
+                    ? e('p', {className: 'text-slate-500 text-sm'}, 'Importe a planilha de custos primeiro.')
+                    : e('div', {className: 'space-y-2'},
+                        (function() {
+                          var marcas = [];
+                          precos.forEach(function(p) { if (marcas.indexOf(p.marca) === -1) marcas.push(p.marca); });
+                          marcas.sort();
+                          return marcas.map(function(marca) {
+                            var cfg = markupEditML[marca] || {};
+                            var vMarkup = cfg.markup !== undefined ? cfg.markup : String((markupsML[marca]||{}).markup||60);
+                            var vFrete  = cfg.frete  !== undefined ? cfg.frete  : String((markupsML[marca]||{}).frete||30);
+                            var vTaxa   = cfg.taxa   !== undefined ? cfg.taxa   : String((markupsML[marca]||{}).taxa||23);
+                            var inp = function(lbl, val, key) {
+                              return e('div', {className: 'flex flex-col items-center'},
+                                e('span', {className: 'text-xs text-slate-400 mb-1'}, lbl),
+                                e('input', {
+                                  type: 'text', inputMode: 'numeric', value: val,
+                                  onChange: function(ev) {
+                                    var v = ev.target.value;
+                                    setMarkupEditML(function(prev) {
+                                      var n = Object.assign({}, prev);
+                                      n[marca] = Object.assign({}, n[marca]||{});
+                                      n[marca][key] = v;
+                                      return n;
+                                    });
+                                  },
+                                  onKeyDown: function(ev) { if(ev.key==='Enter') salvarMarkupMarcaML(marca); },
+                                  className: 'w-16 bg-slate-600 border border-slate-500 text-white text-sm px-2 py-1 rounded outline-none text-center'
+                                })
+                              );
+                            };
+                            return e('div', {key: marca, className: 'bg-slate-700 rounded-lg px-4 py-3 flex items-center gap-4'},
+                              e('span', {className: 'text-xs font-bold text-slate-300 w-28 flex-shrink-0'}, marca),
+                              inp('Markup%', vMarkup, 'markup'),
+                              inp('Frete R$', vFrete, 'frete'),
+                              inp('Taxa%', vTaxa, 'taxa'),
+                              e('button', {
+                                onMouseDown: function(ev) { ev.preventDefault(); salvarMarkupMarcaML(marca); },
+                                className: 'ml-2 bg-blue-600 hover:bg-blue-500 text-white text-xs px-3 py-1.5 rounded font-bold transition-colors'
+                              }, '✓')
+                            );
+                          });
+                        })()
+                      )
+                )
+              ),
+              // Busca ML
+              e('div', null,
+                e('input', {
+                  type: 'text', placeholder: 'Digite o SKU ou marca...',
+                  value: precosSearchML,
+                  onChange: function(ev) { setPrecosSearchML(ev.target.value); },
+                  className: 'w-full bg-slate-800 border border-slate-700 text-white px-4 py-3 rounded-lg text-sm outline-none focus:border-blue-500 transition-colors mb-3'
+                }),
+                (function() {
+                  var term = precosSearchML.trim().toUpperCase();
+                  var filtrados = precos.filter(function(p) {
+                    if (p.custo <= 0 && !p.preco_ml) return false;
+                    if (!term) return true;
+                    return p.marca.toUpperCase().indexOf(term) !== -1 || p.sku.toUpperCase().indexOf(term) !== -1;
+                  });
+                  if (precos.length === 0) return e('p', {className: 'text-slate-500 text-sm text-center py-10'}, 'Nenhum custo cadastrado. Importe a planilha para começar.');
+                  var fmt = function(n) { return 'R$ ' + Number(n).toFixed(2).replace('.', ','); };
+                  return e('div', null,
+                    e('p', {className: 'text-slate-500 text-xs mb-4'}, 'Exibindo ' + filtrados.length + ' de ' + precos.length + ' produtos'),
+                    e('div', {className: 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4'},
+                      filtrados.map(function(p) {
+                        var cfg = markupsML[p.marca] || { markup: 60, frete: 30, taxa: 23 };
+                        var precoCalc = (p.custo * (1 + cfg.markup/100) + cfg.frete) * (1 + cfg.taxa/100);
+                        var precoFinal = p.preco_ml ? Number(p.preco_ml) : precoCalc;
+                        var chave = 'ml|' + p.marca + '|' + p.sku;
+                        var editando = editandoPrecoML && editandoPrecoML.marca === p.marca && editandoPrecoML.sku === p.sku;
+                        if (editando) {
+                          return e('div', {key: chave, className: 'bg-slate-800 border border-blue-500 rounded-lg p-4'},
+                            e('div', {className: 'text-xs text-slate-500 font-bold uppercase mb-2'}, p.marca),
+                            e('div', {className: 'text-base font-bold text-white mb-3'}, p.sku),
+                            e('div', {className: 'flex items-center gap-2 mb-3'},
+                              e('span', {className: 'text-xs text-slate-400 w-32'}, 'Preço ML (R$)'),
+                              e('input', {
+                                type: 'number', step: '0.01', min: '0',
+                                placeholder: 'calculado auto',
+                                value: editandoPrecoML.precoML,
+                                onChange: function(ev) { setEditandoPrecoML(function(prev) { return Object.assign({}, prev, {precoML: ev.target.value}); }); },
+                                className: 'flex-1 bg-slate-700 border border-slate-600 text-white text-sm px-3 py-1.5 rounded outline-none focus:border-blue-400'
+                              })
+                            ),
+                            e('div', {className: 'flex gap-2'},
+                              e('button', {onClick: salvarPrecoMLUnitario, className: 'flex-1 bg-blue-600 hover:bg-blue-500 text-white text-sm py-1.5 rounded font-bold'}, '✓ Salvar'),
+                              e('button', {onClick: function() { setEditandoPrecoML(null); }, className: 'px-3 bg-slate-700 text-slate-300 text-sm py-1.5 rounded'}, '✗')
+                            )
+                          );
+                        }
+                        return e('div', {key: chave, className: 'group bg-slate-800 border border-slate-700 rounded-lg p-4 hover:border-slate-500 transition-colors'},
+                          e('div', {className: 'flex items-start justify-between mb-2'},
+                            e('div', {className: 'text-xs text-slate-500 font-bold uppercase tracking-wider'}, p.marca),
+                            e('button', {
+                              onClick: function() { setEditandoPrecoML({marca: p.marca, sku: p.sku, precoML: p.preco_ml || ''}); },
+                              className: 'opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-blue-400 text-sm',
+                              title: 'Editar'
+                            }, '✏️')
+                          ),
+                          e('div', {className: 'flex items-center justify-between mb-3'},
+                            e('span', {className: 'bg-slate-700 text-white text-base font-bold px-3 py-1.5 rounded-lg'}, p.sku),
+                            e('div', {className: 'flex flex-col items-end bg-blue-600 px-3 py-1.5 rounded-lg'},
+                              e('span', {className: 'text-xs text-white font-semibold mb-0.5 opacity-90'}, 'Preço ML'),
+                              e('span', {className: 'text-base font-black text-white'}, fmt(precoFinal))
+                            )
+                          ),
+                          e('div', {className: 'border-t border-slate-700 pt-2 flex items-center justify-between'},
+                            e('span', {className: 'text-xs text-slate-400'}, 'Custo'),
+                            e('span', {className: 'text-sm text-slate-300'}, fmt(p.custo))
+                          )
+                        );
+                      })
+                    )
+                  );
+                })()
+              )
+            ),
+
+            // ── SUB-ABA MECÂNICO ──
+            activePrecoTab === 'mecanico' && e('div', {className: 'space-y-5'},
 
             // Linha de import
             e('div', {className: 'flex items-center gap-3 flex-wrap'},
@@ -1169,6 +1447,7 @@
                 );
               })()
             )
+            ) // fecha sub-aba mecanico
           ),
 
         )
