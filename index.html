@@ -559,6 +559,53 @@
         });
       }
 
+      function importarPlanilhaPrecosMecanicos(file) {
+        var reader = new FileReader();
+        reader.onload = function(evt) {
+          try {
+            var wb = XLSX.read(evt.target.result, { type: 'array' });
+            var todasLinhas = [];
+            wb.SheetNames.forEach(function(sheetName) {
+              var ws = wb.Sheets[sheetName];
+              var rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+              if (!rows || rows.length < 4) return;
+              // Linha 1 = nome da marca (célula A1), linha 3 = cabeçalho, linha 4+ = dados
+              var marca = String(rows[0][0] || sheetName).toUpperCase().trim();
+              // Linha 3 (índice 2) = cabeçalho — dados começam na linha 4 (índice 3)
+              for (var ri = 3; ri < rows.length; ri++) {
+                var sku = String(rows[ri][0] || '').trim().toUpperCase();
+                var precoRaw = rows[ri][1];
+                if (!sku || sku === '') continue;
+                var preco = parseFloat(String(precoRaw).replace(',', '.').replace(/[^0-9.]/g, ''));
+                if (isNaN(preco) || preco <= 0) continue;
+                // Preserva custo existente se já tiver cadastrado
+                var existente = precos.find(function(p) { return p.marca === marca && p.sku === sku; });
+                todasLinhas.push({
+                  marca: marca,
+                  sku: sku,
+                  custo: existente ? existente.custo : 0,
+                  preco_mecanico: preco
+                });
+              }
+            });
+            if (todasLinhas.length === 0) { alert('Nenhum dado encontrado na planilha.'); return; }
+            var promises = [];
+            for (var i = 0; i < todasLinhas.length; i += 500) {
+              promises.push(supabase.from('precos').upsert(todasLinhas.slice(i, i + 500), { onConflict: 'marca,sku' }));
+            }
+            Promise.all(promises).then(function(results) {
+              var hasError = results.find(function(r) { return r.error; });
+              if (hasError) { alert('Erro ao importar: ' + hasError.error.message); return; }
+              alert('✓ ' + todasLinhas.length + ' preços mecânicos importados!');
+              carregarPrecos();
+            });
+          } catch(err) {
+            alert('Erro ao ler planilha: ' + err.message);
+          }
+        };
+        reader.readAsArrayBuffer(file);
+      }
+
       function limparTodosPrecos() {
         if (!confirm('Tem certeza? Todos os custos cadastrados serão apagados.')) return;
         supabase.from('precos').delete().neq('id', 0).then(function(res) {
@@ -969,7 +1016,17 @@
                   }
                 })
               ),
-              precos.length > 0 && e('span', {className: 'text-slate-400 text-sm'}, precos.length + ' custos cadastrados'),
+              e('label', {className: 'flex items-center gap-2 bg-blue-700 hover:bg-blue-600 text-white px-4 py-2 rounded-lg font-bold text-sm cursor-pointer transition-colors'},
+                '📂 Importar Preços Mecânicos',
+                e('input', {type: 'file', accept: '.xlsx,.xls', style: {display: 'none'},
+                  onChange: function(ev) {
+                    var f = ev.target.files && ev.target.files[0];
+                    if (f) importarPlanilhaPrecosMecanicos(f);
+                    ev.target.value = '';
+                  }
+                })
+              ),
+              precos.length > 0 && e('span', {className: 'text-slate-400 text-sm'}, precos.length + ' cadastrados'),
               precos.length > 0 && e('button', {
                 onClick: limparTodosPrecos,
                 className: 'ml-auto bg-red-800 hover:bg-red-700 text-white px-3 py-2 rounded-lg font-bold text-sm transition-colors'
