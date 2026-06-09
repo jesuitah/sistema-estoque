@@ -976,7 +976,7 @@
                             e('div', {className: 'text-xs font-bold text-slate-300 mb-2 truncate'}, marca),
                             e('div', {className: 'flex items-center gap-1'},
                               e('input', {
-                                type: 'number', min: '1', max: '999',
+                                type: 'text', inputMode: 'numeric',
                                 value: val,
                                 onChange: function(ev) {
                                   var v = ev.target.value;
