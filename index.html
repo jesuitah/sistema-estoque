@@ -564,7 +564,11 @@
           setMarkupEditML(function(prev) {
             var n = Object.assign({}, prev);
             Object.keys(obj).forEach(function(m) {
-              n[m] = { markup: String(obj[m].markup), frete: String(obj[m].frete), taxa: String(obj[m].taxa) };
+              n[m] = {
+                markup: String(obj[m].markup),
+                frete: obj[m].frete !== null && obj[m].frete !== undefined ? String(obj[m].frete) : '',
+                taxa: String(obj[m].taxa)
+              };
             });
             return n;
           });
@@ -1210,7 +1214,7 @@
                   e('span', {className: 'text-slate-400 text-sm'}, showMarkupEditorML ? '▲ Fechar' : '▼ Editar')
                 ),
                 showMarkupEditorML && e('div', {className: 'px-5 pb-5'},
-                  e('p', {className: 'text-slate-400 text-xs mb-3'}, 'Padrão: Markup 60% · Frete R$30 · Taxa 23%. Clique ✓ para salvar.'),
+                  e('p', {className: 'text-slate-400 text-xs mb-3'}, 'Markup padrão: 60% · Taxa padrão: 23% · Frete: deixe em branco para automático (custo ≤ R$32,64 → R$12 / custo ≥ R$32,65 → R$30), ou coloque um valor fixo para a marca inteira.'),
                   precos.length === 0
                     ? e('p', {className: 'text-slate-500 text-sm'}, 'Importe a planilha de custos primeiro.')
                     : e('div', {className: 'space-y-2'},
