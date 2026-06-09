@@ -1129,7 +1129,7 @@
             e('div', {className: 'flex gap-1 bg-slate-800 border border-slate-700 rounded-lg p-1 w-fit'},
               e('button', {
                 onClick: function() { setActivePrecoTab('ml'); },
-                className: 'px-5 py-2 rounded-md text-sm font-bold transition-colors ' + (activePrecoTab === 'ml' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white')
+                className: 'px-5 py-2 rounded-md text-sm font-bold transition-colors ' + (activePrecoTab === 'ml' ? 'bg-yellow-400 text-slate-900' : 'text-slate-400 hover:text-white')
               }, '🛒 Preço ML'),
               e('button', {
                 onClick: function() { setActivePrecoTab('mecanico'); },
@@ -1140,7 +1140,7 @@
             // ── SUB-ABA ML ──
             activePrecoTab === 'ml' && e('div', {className: 'space-y-5'},
               e('div', {className: 'flex items-center gap-3 flex-wrap'},
-                e('label', {className: 'flex items-center gap-2 bg-blue-700 hover:bg-blue-600 text-white px-4 py-2 rounded-lg font-bold text-sm cursor-pointer transition-colors'},
+                e('label', {className: 'flex items-center gap-2 bg-yellow-400 hover:bg-yellow-300 text-slate-900 px-4 py-2 rounded-lg font-bold text-sm cursor-pointer transition-colors'},
                   '📂 Importar Preços ML',
                   e('input', {type: 'file', accept: '.xlsx,.xls', style: {display:'none'},
                     onChange: function(ev) { var f=ev.target.files&&ev.target.files[0]; if(f) importarPlanilhaPrecoML(f); ev.target.value=''; }
@@ -1197,7 +1197,7 @@
                               inp('Taxa%', vTaxa, 'taxa'),
                               e('button', {
                                 onMouseDown: function(ev) { ev.preventDefault(); salvarMarkupMarcaML(marca); },
-                                className: 'ml-2 bg-blue-600 hover:bg-blue-500 text-white text-xs px-3 py-1.5 rounded font-bold transition-colors'
+                                className: 'ml-2 bg-yellow-400 hover:bg-yellow-300 text-slate-900 text-xs px-3 py-1.5 rounded font-bold transition-colors'
                               }, '✓')
                             );
                           });
@@ -1211,7 +1211,7 @@
                   type: 'text', placeholder: 'Digite o SKU ou marca...',
                   value: precosSearchML,
                   onChange: function(ev) { setPrecosSearchML(ev.target.value); },
-                  className: 'w-full bg-slate-800 border border-slate-700 text-white px-4 py-3 rounded-lg text-sm outline-none focus:border-blue-500 transition-colors mb-3'
+                  className: 'w-full bg-slate-800 border border-slate-700 text-white px-4 py-3 rounded-lg text-sm outline-none focus:border-yellow-400 transition-colors mb-3'
                 }),
                 (function() {
                   var term = precosSearchML.trim().toUpperCase();
@@ -1232,7 +1232,7 @@
                         var chave = 'ml|' + p.marca + '|' + p.sku;
                         var editando = editandoPrecoML && editandoPrecoML.marca === p.marca && editandoPrecoML.sku === p.sku;
                         if (editando) {
-                          return e('div', {key: chave, className: 'bg-slate-800 border border-blue-500 rounded-lg p-4'},
+                          return e('div', {key: chave, className: 'bg-slate-800 border border-yellow-400 rounded-lg p-4'},
                             e('div', {className: 'text-xs text-slate-500 font-bold uppercase mb-2'}, p.marca),
                             e('div', {className: 'text-base font-bold text-white mb-3'}, p.sku),
                             e('div', {className: 'flex items-center gap-2 mb-3'},
@@ -1246,7 +1246,7 @@
                               })
                             ),
                             e('div', {className: 'flex gap-2'},
-                              e('button', {onClick: salvarPrecoMLUnitario, className: 'flex-1 bg-blue-600 hover:bg-blue-500 text-white text-sm py-1.5 rounded font-bold'}, '✓ Salvar'),
+                              e('button', {onClick: salvarPrecoMLUnitario, className: 'flex-1 bg-yellow-400 hover:bg-yellow-300 text-slate-900 text-sm py-1.5 rounded font-bold'}, '✓ Salvar'),
                               e('button', {onClick: function() { setEditandoPrecoML(null); }, className: 'px-3 bg-slate-700 text-slate-300 text-sm py-1.5 rounded'}, '✗')
                             )
                           );
@@ -1256,15 +1256,15 @@
                             e('div', {className: 'text-xs text-slate-500 font-bold uppercase tracking-wider'}, p.marca),
                             e('button', {
                               onClick: function() { setEditandoPrecoML({marca: p.marca, sku: p.sku, precoML: p.preco_ml || ''}); },
-                              className: 'opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-blue-400 text-sm',
+                              className: 'opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-yellow-400 text-sm',
                               title: 'Editar'
                             }, '✏️')
                           ),
                           e('div', {className: 'flex items-center justify-between mb-3'},
                             e('span', {className: 'bg-slate-700 text-white text-base font-bold px-3 py-1.5 rounded-lg'}, p.sku),
-                            e('div', {className: 'flex flex-col items-end bg-blue-600 px-3 py-1.5 rounded-lg'},
-                              e('span', {className: 'text-xs text-white font-semibold mb-0.5 opacity-90'}, 'Preço ML'),
-                              e('span', {className: 'text-base font-black text-white'}, fmt(precoFinal))
+                            e('div', {className: 'flex flex-col items-end bg-yellow-400 px-3 py-1.5 rounded-lg'},
+                              e('span', {className: 'text-xs text-slate-900 font-semibold mb-0.5 opacity-80'}, 'Preço ML'),
+                              e('span', {className: 'text-base font-black text-slate-900'}, fmt(precoFinal))
                             )
                           ),
                           e('div', {className: 'border-t border-slate-700 pt-2 flex items-center justify-between'},
