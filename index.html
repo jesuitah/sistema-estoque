@@ -480,10 +480,20 @@
       }
 
       function carregarPrecos() {
-        supabase.from('precos').select('*').order('marca').order('sku').then(function(result) {
-          if (result.error || !result.data) return;
-          setPrecos(result.data);
-        });
+        var batchSize = 1000;
+        var allData = [];
+        function fetchBatch(from) {
+          supabase.from('precos').select('*').order('marca').order('sku').range(from, from + batchSize - 1).then(function(result) {
+            if (result.error || !result.data) return;
+            allData = allData.concat(result.data);
+            if (result.data.length === batchSize) {
+              fetchBatch(from + batchSize);
+            } else {
+              setPrecos(allData);
+            }
+          });
+        }
+        fetchBatch(0);
       }
 
       function carregarMarkups() {
