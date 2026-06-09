@@ -556,7 +556,7 @@
           result.data.forEach(function(row) {
             obj[row.marca] = {
               markup: row.markup_ml !== null ? Number(row.markup_ml) : 60,
-              frete:  row.frete_ml  !== null ? Number(row.frete_ml)  : 30,
+              frete:  row.frete_ml  !== null ? Number(row.frete_ml)  : null,
               taxa:   row.taxa_ml   !== null ? Number(row.taxa_ml)   : 23
             };
           });
@@ -574,10 +574,11 @@
       function salvarMarkupMarcaML(marca) {
         var edit = markupEditML[marca] || {};
         var markup = parseFloat(String(edit.markup || '60').replace(',', '.'));
-        var frete  = parseFloat(String(edit.frete  || '30').replace(',', '.'));
+        var freteStr = String(edit.frete || '').trim();
+        var frete  = freteStr === '' ? null : parseFloat(freteStr.replace(',', '.'));
         var taxa   = parseFloat(String(edit.taxa   || '23').replace(',', '.'));
         if (isNaN(markup) || markup < 0) { alert('Markup inválido'); return; }
-        if (isNaN(frete)  || frete  < 0) { alert('Frete inválido');  return; }
+        if (frete !== null && (isNaN(frete) || frete < 0)) { alert('Frete inválido'); return; }
         if (isNaN(taxa)   || taxa   < 0) { alert('Taxa inválida');   return; }
         if (!confirm('Alterar configuração ML de ' + marca + '?')) return;
         supabase.from('markup_marcas').upsert(
@@ -1220,13 +1221,14 @@
                           return marcas.map(function(marca) {
                             var cfg = markupEditML[marca] || {};
                             var vMarkup = cfg.markup !== undefined ? cfg.markup : String((markupsML[marca]||{}).markup||60);
-                            var vFrete  = cfg.frete  !== undefined ? cfg.frete  : String((markupsML[marca]||{}).frete||30);
+                            var freteAtual = (markupsML[marca]||{}).frete;
+                            var vFrete = cfg.frete !== undefined ? cfg.frete : (freteAtual !== null && freteAtual !== undefined ? String(freteAtual) : '');
                             var vTaxa   = cfg.taxa   !== undefined ? cfg.taxa   : String((markupsML[marca]||{}).taxa||23);
-                            var inp = function(lbl, val, key) {
+                            var inp = function(lbl, val, key, ph) {
                               return e('div', {className: 'flex flex-col items-center'},
                                 e('span', {className: 'text-xs text-slate-400 mb-1'}, lbl),
                                 e('input', {
-                                  type: 'text', inputMode: 'numeric', value: val,
+                                  type: 'text', inputMode: 'numeric', value: val, placeholder: ph || '',
                                   onChange: function(ev) {
                                     var v = ev.target.value;
                                     setMarkupEditML(function(prev) {
@@ -1244,7 +1246,7 @@
                             return e('div', {key: marca, className: 'bg-slate-700 rounded-lg px-4 py-3 flex items-center gap-4'},
                               e('span', {className: 'text-xs font-bold text-slate-300 w-28 flex-shrink-0'}, marca),
                               inp('Markup%', vMarkup, 'markup'),
-                              inp('Frete R$', vFrete, 'frete'),
+                              inp('Frete R$', vFrete, 'frete', 'Auto'),
                               inp('Taxa%', vTaxa, 'taxa'),
                               e('button', {
                                 onMouseDown: function(ev) { ev.preventDefault(); salvarMarkupMarcaML(marca); },
@@ -1278,9 +1280,13 @@
                     e('p', {className: 'text-slate-500 text-xs mb-4'}, 'Exibindo ' + filtrados.length + ' de ' + precos.length + ' produtos'),
                     e('div', {className: 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4'},
                       filtrados.map(function(p) {
-                        var cfg = markupsML[p.marca] || { markup: 60, frete: 30, taxa: 23 };
+                        var cfg = markupsML[p.marca] || {};
                         var custoML = p.custo_ml ? Number(p.custo_ml) : Number(p.custo);
-                        var precoCalc = (custoML * (1 + cfg.markup/100) + cfg.frete) * (1 + cfg.taxa/100);
+                        var markup = cfg.markup !== undefined ? cfg.markup : 60;
+                        var taxa   = cfg.taxa   !== undefined ? cfg.taxa   : 23;
+                        var freteAuto = custoML <= 32.64 ? 12 : 30;
+                        var frete = (cfg.frete !== null && cfg.frete !== undefined) ? cfg.frete : freteAuto;
+                        var precoCalc = (custoML * (1 + markup/100) + frete) * (1 + taxa/100);
                         var precoFinal = p.preco_ml ? Number(p.preco_ml) : precoCalc;
                         var chave = 'ml|' + p.marca + '|' + p.sku;
                         var editando = editandoPrecoML && editandoPrecoML.marca === p.marca && editandoPrecoML.sku === p.sku;
