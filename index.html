@@ -781,10 +781,6 @@
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'importar' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
             }, '📊 Importar SKUs'),
             e('button', {
-              onClick: function() { setActiveTab('envios'); },
-              className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'envios' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
-            }, '📊 Planilha Envios Full'),
-            e('button', {
               onClick: function() { setActiveTab('naoAnunciados'); },
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'naoAnunciados' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
             }, '🏪 Lojas ML'),
@@ -889,99 +885,6 @@
               }),
               e('p', {className: 'text-slate-500 text-xs mt-2'}, importing ? '⏳ Processando...' : '✓ Pronto para importar')
             )
-          ),
-
-          activeTab === 'envios' && e('div', {className: 'space-y-4'},
-            !pendingChanges
-              ? e('div', {className: 'bg-slate-800 border border-slate-700 p-6 rounded-lg'},
-                  e('h2', {className: 'text-lg font-bold mb-2'}, '📊 Planilha Envios Full — Baixa Automática'),
-                  e('p', {className: 'text-slate-400 text-sm mb-4'}, 'Selecione a planilha Excel com as colunas MARCA, SKU e BAIXAS. O sistema mostrará todas as alterações para você revisar antes de confirmar.'),
-                  e('input', {
-                    type: 'file',
-                    accept: '.xlsx,.xls',
-                    onChange: function(ev) {
-                      if (ev.target.files && ev.target.files[0]) processarEnviosFull(ev.target.files[0]);
-                    },
-                    disabled: importing,
-                    className: 'block w-full px-4 py-2 rounded border border-slate-600 text-sm'
-                  }),
-                  e('p', {className: 'text-slate-500 text-xs mt-2'}, importing ? '⏳ Lendo planilha...' : '✓ Pronto para importar')
-                )
-              : e('div', {className: 'space-y-4'},
-                  e('div', {className: 'bg-slate-800 border border-slate-700 p-4 rounded-lg flex justify-between items-center'},
-                    e('div', null,
-                      e('div', {className: 'font-bold text-lg'}, '📋 Confirmar Baixas'),
-                      e('div', {className: 'text-slate-400 text-sm mt-1'},
-                        pendingChanges.changes.length + ' SKU(s) serão atualizados' +
-                        (pendingChanges.naoEncontrados.length > 0 ? ' · ⚠️ ' + pendingChanges.naoEncontrados.length + ' não encontrado(s)' : ' · ✓ Todos os SKUs encontrados')
-                      )
-                    ),
-                    e('div', {className: 'flex gap-3'},
-                      e('button', {
-                        onClick: function() { setPendingChanges(null); },
-                        className: 'bg-slate-600 hover:bg-slate-500 text-white px-4 py-2 rounded font-bold text-sm transition'
-                      }, 'Cancelar'),
-                      e('button', {
-                        onClick: confirmarBaixas,
-                        disabled: importing,
-                        className: 'bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded font-bold text-sm transition'
-                      }, importing ? '⏳ Aplicando...' : '✓ Confirmar Baixas')
-                    )
-                  ),
-                  e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg overflow-hidden'},
-                    e('table', {className: 'w-full text-sm'},
-                      e('thead', null,
-                        e('tr', {className: 'bg-slate-700 text-slate-300 text-xs uppercase'},
-                          e('th', {className: 'text-left px-4 py-3'}, 'Marca'),
-                          e('th', {className: 'text-left px-4 py-3'}, 'SKU'),
-                          e('th', {className: 'text-center px-4 py-3'}, 'Estoque Atual'),
-                          e('th', {className: 'text-center px-4 py-3 text-red-400'}, '− Baixa'),
-                          e('th', {className: 'text-center px-4 py-3 text-green-400'}, 'Novo Estoque')
-                        )
-                      ),
-                      e('tbody', null,
-                        pendingChanges.changes.map(function(c, i) {
-                          return e('tr', {key: i, className: i % 2 === 0 ? 'border-t border-slate-700' : 'border-t border-slate-700 bg-slate-900'},
-                            e('td', {className: 'px-4 py-2 text-slate-400 text-xs'}, c.marca),
-                            e('td', {className: 'px-4 py-2 font-bold'}, c.sku),
-                            e('td', {className: 'px-4 py-2 text-center text-slate-300'}, c.estoqueAtual),
-                            e('td', {className: 'px-4 py-2 text-center text-red-400 font-bold'}, '−' + c.baixa),
-                            e('td', {className: 'px-4 py-2 text-center font-bold ' + (c.novoEstoque === 0 ? 'text-red-400' : 'text-green-400')}, c.novoEstoque)
-                          );
-                        })
-                      )
-                    )
-                  ),
-                  pendingChanges.naoEncontrados.length > 0 && e('div', {className: 'space-y-2'},
-                    e('div', {className: 'text-yellow-400 font-bold text-sm px-1'},
-                      '⚠️ Não cadastrados no estoque — precisam ser registrados (' + pendingChanges.naoEncontrados.length + '):'
-                    ),
-                    e('div', {className: 'bg-slate-800 border border-yellow-600 rounded-lg overflow-hidden'},
-                      e('table', {className: 'w-full text-sm'},
-                        e('thead', null,
-                          e('tr', {className: 'bg-yellow-900 bg-opacity-60 text-yellow-300 text-xs uppercase'},
-                            e('th', {className: 'text-left px-4 py-3'}, 'Marca'),
-                            e('th', {className: 'text-left px-4 py-3'}, 'SKU'),
-                            e('th', {className: 'text-center px-4 py-3'}, 'Qtd no Envio')
-                          )
-                        ),
-                        e('tbody', null,
-                          pendingChanges.naoEncontrados.map(function(item, i) {
-                            var partes = item.match(/^([^:]+):\s*([^(]+)\s*\(qty:\s*(\d+)\)/);
-                            var marca = partes ? partes[1].trim() : '?';
-                            var sku = partes ? partes[2].trim() : item;
-                            var qty = partes ? partes[3] : '?';
-                            return e('tr', {key: i, className: 'border-t border-slate-700'},
-                              e('td', {className: 'px-4 py-2 text-yellow-300 text-xs'}, marca),
-                              e('td', {className: 'px-4 py-2 font-bold text-yellow-200'}, sku),
-                              e('td', {className: 'px-4 py-2 text-center text-yellow-300 font-bold'}, qty)
-                            );
-                          })
-                        )
-                      )
-                    )
-                  )
-                )
           ),
 
           activeTab === 'naoAnunciados' && e('div', {className: 'space-y-4'},
