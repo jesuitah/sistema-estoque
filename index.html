@@ -610,6 +610,51 @@
         });
       }
 
+      function importarCustoML(file) {
+        var reader = new FileReader();
+        reader.onload = function(evt) {
+          try {
+            var wb = XLSX.read(evt.target.result, { type: 'array' });
+            var todasLinhas = [];
+            wb.SheetNames.forEach(function(sheetName) {
+              var ws = wb.Sheets[sheetName];
+              var rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+              if (!rows || rows.length < 2) return;
+              var marca = sheetName.toUpperCase().trim();
+              var codigoCol = 0, custoCol = 1, headerIdx = 0;
+              for (var i = 0; i < Math.min(rows.length, 5); i++) {
+                var achou = false;
+                for (var j = 0; j < rows[i].length; j++) {
+                  var cell = String(rows[i][j]).toUpperCase().trim().replace(/[^A-Z]/g, '');
+                  if (cell === 'CODIGO' || cell === 'COD') { codigoCol = j; achou = true; }
+                  if (cell === 'CUSTO') { custoCol = j; achou = true; }
+                }
+                if (achou) { headerIdx = i; break; }
+              }
+              for (var ri = headerIdx + 1; ri < rows.length; ri++) {
+                var sku = String(rows[ri][codigoCol] || '').trim().toUpperCase();
+                var custoRaw = rows[ri][custoCol];
+                if (!sku || sku === 'XXX' || sku === '') continue;
+                var custo = parseFloat(String(custoRaw).replace(',', '.').replace(/[^0-9.]/g, ''));
+                if (isNaN(custo) || custo <= 0) continue;
+                todasLinhas.push({ marca: marca, sku: sku, custo: 0, custo_ml: custo });
+              }
+            });
+            if (todasLinhas.length === 0) { alert('Nenhum dado encontrado na planilha.'); return; }
+            var promises = [];
+            for (var i = 0; i < todasLinhas.length; i += 500)
+              promises.push(supabase.from('precos').upsert(todasLinhas.slice(i, i + 500), { onConflict: 'marca,sku' }));
+            Promise.all(promises).then(function(results) {
+              var err = results.find(function(r) { return r.error; });
+              if (err) { alert('Erro ao importar: ' + err.error.message); return; }
+              alert('✓ ' + todasLinhas.length + ' custos ML importados!');
+              carregarPrecos();
+            });
+          } catch(e) { alert('Erro ao ler planilha: ' + e.message); }
+        };
+        reader.readAsArrayBuffer(file);
+      }
+
       function importarPlanilhaPrecoML(file) {
         var reader = new FileReader();
         reader.onload = function(evt) {
@@ -1140,6 +1185,12 @@
             // ── SUB-ABA ML ──
             activePrecoTab === 'ml' && e('div', {className: 'space-y-5'},
               e('div', {className: 'flex items-center gap-3 flex-wrap'},
+                e('label', {className: 'flex items-center gap-2 bg-slate-600 hover:bg-slate-500 text-white px-4 py-2 rounded-lg font-bold text-sm cursor-pointer transition-colors'},
+                  '📂 Importar Custos ML',
+                  e('input', {type: 'file', accept: '.xlsx,.xls', style: {display:'none'},
+                    onChange: function(ev) { var f=ev.target.files&&ev.target.files[0]; if(f) importarCustoML(f); ev.target.value=''; }
+                  })
+                ),
                 e('label', {className: 'flex items-center gap-2 bg-yellow-400 hover:bg-yellow-300 text-slate-900 px-4 py-2 rounded-lg font-bold text-sm cursor-pointer transition-colors'},
                   '📂 Importar Preços ML',
                   e('input', {type: 'file', accept: '.xlsx,.xls', style: {display:'none'},
@@ -1216,7 +1267,8 @@
                 (function() {
                   var term = precosSearchML.trim().toUpperCase();
                   var filtrados = precos.filter(function(p) {
-                    if (p.custo <= 0 && !p.preco_ml) return false;
+                    var custoEfetivo = p.custo_ml ? Number(p.custo_ml) : Number(p.custo);
+                    if (custoEfetivo <= 0 && !p.preco_ml) return false;
                     if (!term) return true;
                     return p.marca.toUpperCase().indexOf(term) !== -1 || p.sku.toUpperCase().indexOf(term) !== -1;
                   });
@@ -1227,7 +1279,8 @@
                     e('div', {className: 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4'},
                       filtrados.map(function(p) {
                         var cfg = markupsML[p.marca] || { markup: 60, frete: 30, taxa: 23 };
-                        var precoCalc = (p.custo * (1 + cfg.markup/100) + cfg.frete) * (1 + cfg.taxa/100);
+                        var custoML = p.custo_ml ? Number(p.custo_ml) : Number(p.custo);
+                        var precoCalc = (custoML * (1 + cfg.markup/100) + cfg.frete) * (1 + cfg.taxa/100);
                         var precoFinal = p.preco_ml ? Number(p.preco_ml) : precoCalc;
                         var chave = 'ml|' + p.marca + '|' + p.sku;
                         var editando = editandoPrecoML && editandoPrecoML.marca === p.marca && editandoPrecoML.sku === p.sku;
@@ -1268,8 +1321,8 @@
                             )
                           ),
                           e('div', {className: 'border-t border-slate-700 pt-2 flex items-center justify-between'},
-                            e('span', {className: 'text-xs text-slate-400'}, 'Custo'),
-                            e('span', {className: 'text-sm text-slate-300'}, fmt(p.custo))
+                            e('span', {className: 'text-xs text-slate-400'}, p.custo_ml ? 'Custo ML' : 'Custo'),
+                            e('span', {className: 'text-sm text-slate-300'}, fmt(custoML))
                           )
                         );
                       })
