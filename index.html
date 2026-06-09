@@ -504,6 +504,7 @@
         var valor = markupEdit[marca];
         var num = parseFloat(String(valor || '').replace(',', '.'));
         if (isNaN(num) || num <= 0) { alert('Markup inválido para ' + marca); return; }
+        if (!confirm('Alterar markup de ' + marca + ' para ' + num + '%?\nIsso vai recalcular o Preço Mecânico de todos os produtos desta marca.')) return;
         supabase.from('markup_marcas').upsert(
           { marca: marca, markup: num },
           { onConflict: 'marca' }
