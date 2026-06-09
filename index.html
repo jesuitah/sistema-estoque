@@ -535,6 +535,20 @@
         });
       }
 
+      function excluirMarca(marca) {
+        if (!confirm('Excluir todos os custos de ' + marca + '?')) return;
+        Promise.all([
+          supabase.from('precos').delete().eq('marca', marca),
+          supabase.from('markup_marcas').delete().eq('marca', marca)
+        ]).then(function(results) {
+          var err = results.find(function(r) { return r.error; });
+          if (err) { alert('Erro ao excluir: ' + err.error.message); return; }
+          setPrecos(function(prev) { return prev.filter(function(p) { return p.marca !== marca; }); });
+          setMarkups(function(prev) { var n = Object.assign({}, prev); delete n[marca]; return n; });
+          setMarkupEdit(function(prev) { var n = Object.assign({}, prev); delete n[marca]; return n; });
+        });
+      }
+
       function limparTodosPrecos() {
         if (!confirm('Tem certeza? Todos os custos cadastrados serão apagados.')) return;
         supabase.from('precos').delete().neq('id', 0).then(function(res) {
@@ -991,7 +1005,12 @@
                               e('button', {
                                 onMouseDown: function(ev) { ev.preventDefault(); salvarMarkupMarca(marca); },
                                 className: 'ml-1 bg-blue-600 hover:bg-blue-500 text-white text-xs px-2 py-1 rounded font-bold transition-colors'
-                              }, '✓')
+                              }, '✓'),
+                              e('button', {
+                                onMouseDown: function(ev) { ev.preventDefault(); excluirMarca(marca); },
+                                className: 'ml-1 bg-red-700 hover:bg-red-600 text-white text-xs px-2 py-1 rounded font-bold transition-colors',
+                                title: 'Excluir marca'
+                              }, '🗑')
                             )
                           );
                         });
