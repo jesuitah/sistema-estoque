@@ -773,6 +773,10 @@
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'sku' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
             }, '> Busca'),
             e('button', {
+              onClick: function() { setActiveTab('precos'); },
+              className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'precos' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
+            }, '💰 Preço Mecânico'),
+            e('button', {
               onClick: function() { setActiveTab('registro'); },
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'registro' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
             }, '+ Registro'),
@@ -783,11 +787,7 @@
             e('button', {
               onClick: function() { setActiveTab('naoAnunciados'); },
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'naoAnunciados' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
-            }, '🏪 Lojas ML'),
-            e('button', {
-              onClick: function() { setActiveTab('precos'); },
-              className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'precos' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
-            }, '💰 Preços')
+            }, '🏪 Lojas ML')
           )
         ),
 
