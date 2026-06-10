@@ -773,7 +773,9 @@
       function calcularCustoKit(componentes) {
         var total = 0;
         componentes.forEach(function(c) {
-          var prod = precos.find(function(p) { return p.marca === c.marca && p.sku === c.sku; });
+          var prod = precos.find(function(p) {
+            return normStr(p.marca) === c.marca && normStr(p.sku) === c.sku;
+          });
           var custo = prod ? (prod.custo_ml ? Number(prod.custo_ml) : Number(prod.custo)) : 0;
           total += custo * c.quantidade;
         });
@@ -1656,7 +1658,7 @@
                             )
                           ),
                           componentes.map(function(c) {
-                            var prod = precos.find(function(p){return p.marca===c.marca&&p.sku===c.sku;});
+                            var prod = precos.find(function(p){return normStr(p.marca)===c.marca&&normStr(p.sku)===c.sku;});
                             var custo = prod?(prod.custo_ml?Number(prod.custo_ml):Number(prod.custo)):0;
                             return e('div', {key:c.id, className:'flex items-center justify-between text-xs mb-1'},
                               e('span', {className:'text-slate-400'}, c.marca+' · '+c.sku+' · '+c.quantidade+'x'),
