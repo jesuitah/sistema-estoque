@@ -619,6 +619,139 @@
         });
       }
 
+      function parseKitComponentesML(skuString) {
+        var result = [];
+        var texto = String(skuString).trim().toUpperCase().replace(/^KIT:\s*/i, '');
+        var partes = texto.split('+');
+        var ultimaMarca = '';
+        partes.forEach(function(parte) {
+          parte = parte.trim();
+          var qtdMatch = parte.match(/\s*-\s*(\d+)\s*UN\s*$/i);
+          var quantidade = qtdMatch ? parseInt(qtdMatch[1]) : 1;
+          parte = parte.replace(/\s*-\s*\d+\s*UN\s*$/i, '').trim();
+          if (!parte) return;
+          if (parte.indexOf(':') !== -1) {
+            var idx = parte.indexOf(':');
+            var marcaRaw = parte.substring(0, idx).trim();
+            var skuRaw  = parte.substring(idx + 1).trim();
+            var skuN = normStr(skuRaw);
+            if (marcaRaw && skuN && skuN.length >= 2 && skuN.length <= 25) {
+              ultimaMarca = marcaRaw;
+              result.push({ marca: normStr(marcaRaw), sku: skuN, quantidade: quantidade });
+            }
+          } else if (parte && ultimaMarca) {
+            var s = normStr(parte);
+            if (s && s.length >= 2 && s.length <= 25)
+              result.push({ marca: normStr(ultimaMarca), sku: s, quantidade: quantidade });
+          }
+        });
+        return result;
+      }
+
+      function importarAnunciosParaKits(files) {
+        var filesArr = Array.from(files);
+        if (!filesArr.length) return;
+        var individuaisSet = {};
+        var kitsMap = {};
+        var processados = 0;
+
+        function terminar() {
+          var existingSkuMLs = {};
+          kitsML.forEach(function(k) { if (k.sku_ml) existingSkuMLs[k.sku_ml] = true; });
+          var novosKits = Object.keys(kitsMap)
+            .filter(function(k) { return !existingSkuMLs[k]; })
+            .map(function(k) { return kitsMap[k]; });
+
+          function inserirKits(lista, cb) {
+            if (!lista.length) { cb([]); return; }
+            var rows = lista.map(function(k) { return { nome: k.nome, sku_ml: k.kitKey }; });
+            supabase.from('kits_ml').insert(rows).select().then(function(res) {
+              if (res.error) { alert('Erro ao criar kits: ' + res.error.message); return; }
+              cb(res.data || []);
+            });
+          }
+
+          inserirKits(novosKits, function(novosKitsDB) {
+            var compRows = [];
+            novosKitsDB.forEach(function(kitDB) {
+              var info = kitsMap[kitDB.sku_ml];
+              if (!info) return;
+              info.componentes.forEach(function(c) {
+                compRows.push({ kit_id: kitDB.id, marca: c.marca, sku: c.sku, quantidade: c.quantidade });
+              });
+            });
+
+            var pComps = compRows.length > 0
+              ? supabase.from('kits_ml_componentes').insert(compRows)
+              : Promise.resolve({ error: null });
+
+            pComps.then(function() {
+              var kitCompSet = {};
+              Object.values(kitsMap).forEach(function(kit) {
+                kit.componentes.forEach(function(c) { kitCompSet[c.marca + '|' + c.sku] = true; });
+              });
+
+              var idsTrue = precos.filter(function(p) {
+                var key = normStr(p.marca) + '|' + normStr(p.sku);
+                return kitCompSet[key] && !individuaisSet[key];
+              }).map(function(p) { return p.id; });
+
+              var idsFalse = precos.filter(function(p) {
+                var key = normStr(p.marca) + '|' + normStr(p.sku);
+                return individuaisSet[key] && p.kit_apenas;
+              }).map(function(p) { return p.id; });
+
+              var ups = [];
+              for (var i = 0; i < idsTrue.length; i += 200)
+                ups.push(supabase.from('precos').update({ kit_apenas: true }).in('id', idsTrue.slice(i, i + 200)));
+              for (var j = 0; j < idsFalse.length; j += 200)
+                ups.push(supabase.from('precos').update({ kit_apenas: false }).in('id', idsFalse.slice(j, j + 200)));
+
+              Promise.all(ups).then(function() {
+                alert('✓ ' + novosKits.length + ' kits criados · ' + idsTrue.length + ' produtos marcados como kit-only!');
+                carregarKitsML();
+                carregarPrecos();
+              });
+            });
+          });
+        }
+
+        filesArr.forEach(function(file) {
+          var reader = new FileReader();
+          reader.onload = function(evt) {
+            try {
+              var wb = XLSX.read(evt.target.result, { type: 'array' });
+              var sheetName = wb.SheetNames.find(function(s) { return s.toLowerCase().indexOf('an') !== -1; }) || wb.SheetNames[0];
+              var ws = wb.Sheets[sheetName];
+              var rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+              for (var i = 5; i < rows.length; i++) {
+                var sku = String(rows[i][4] || '').trim();
+                if (!sku) continue;
+                var upper = sku.toUpperCase();
+                if (upper.indexOf('KIT:') === 0 || sku.indexOf('+') !== -1) {
+                  var componentes = parseKitComponentesML(sku);
+                  if (componentes.length >= 1) {
+                    var kitKey = componentes.slice().sort(function(a, b) {
+                      return (a.marca + a.sku) < (b.marca + b.sku) ? -1 : 1;
+                    }).map(function(c) {
+                      return c.marca + ':' + c.sku + (c.quantidade > 1 ? '-' + c.quantidade + 'UN' : '');
+                    }).join('+');
+                    if (!kitsMap[kitKey])
+                      kitsMap[kitKey] = { kitKey: kitKey, componentes: componentes, nome: gerarNomeKit(componentes) };
+                  }
+                } else {
+                  var parsed = parseSKUsML(sku);
+                  parsed.forEach(function(p) { individuaisSet[p.marca + '|' + p.sku] = true; });
+                }
+              }
+            } catch (err) { console.error('Erro processando arquivo:', err); }
+            processados++;
+            if (processados === filesArr.length) terminar();
+          };
+          reader.readAsArrayBuffer(file);
+        });
+      }
+
       function carregarKitsML() {
         supabase.from('kits_ml').select('*, kits_ml_componentes(*)').order('id').then(function(result) {
           if (result.error || !result.data) return;
@@ -1305,6 +1438,15 @@
                     onChange: function(ev) { var f=ev.target.files&&ev.target.files[0]; if(f) importarCustoML(f); ev.target.value=''; }
                   })
                 ),
+                e('label', {className: 'flex items-center gap-2 bg-purple-700 hover:bg-purple-600 text-white px-4 py-2 rounded-lg font-bold text-sm cursor-pointer transition-colors'},
+                  '🔍 Detectar Kits',
+                  e('input', {type: 'file', accept: '.xlsx,.xls', multiple: true, style: {display:'none'},
+                    onChange: function(ev) {
+                      if (ev.target.files && ev.target.files.length) importarAnunciosParaKits(ev.target.files);
+                      ev.target.value = '';
+                    }
+                  })
+                ),
                 precos.length > 0 && e('span', {className: 'text-slate-400 text-sm'}, precos.length + ' produtos')
               ),
               // Editor ML markup
@@ -1502,7 +1644,7 @@
                   var term = precosSearchML.trim().toUpperCase();
                   var filtrados = precos.filter(function(p) {
                     var custoEfetivo = p.custo_ml ? Number(p.custo_ml) : Number(p.custo);
-                    if (custoEfetivo <= 0 && !p.preco_ml) return false;
+                    if (custoEfetivo <= 0 && !p.preco_ml && !p.kit_apenas) return false;
                     if (!term) return true;
                     return p.marca.toUpperCase().indexOf(term) !== -1 || p.sku.toUpperCase().indexOf(term) !== -1;
                   });
@@ -1514,6 +1656,10 @@
                       filtrados.map(function(p) {
                         var cfg = markupsML[p.marca] || {};
                         var custoML = p.custo_ml ? Number(p.custo_ml) : Number(p.custo);
+                        var meuNorm = normStr(p.marca) + '|' + normStr(p.sku);
+                        var kitsDoP = kitsML.filter(function(k) {
+                          return (k.kits_ml_componentes||[]).some(function(c) { return (c.marca+'|'+c.sku) === meuNorm; });
+                        });
                         var markup = p.markup_ml_override !== null && p.markup_ml_override !== undefined ? Number(p.markup_ml_override) : (cfg.markup !== undefined ? cfg.markup : 60);
                         var taxa   = cfg.taxa !== undefined ? cfg.taxa : 23;
                         var freteAuto = custoML <= 32.64 ? 12 : 30;
@@ -1559,14 +1705,26 @@
                           ),
                           e('div', {className: 'flex items-center justify-between mb-3'},
                             e('span', {className: 'bg-slate-700 text-white text-base font-bold px-3 py-1.5 rounded-lg'}, p.sku),
-                            e('div', {className: 'flex flex-col items-end bg-yellow-400 px-3 py-1.5 rounded-lg'},
-                              e('span', {className: 'text-xs text-slate-900 font-semibold mb-0.5 opacity-80'}, 'Preço ML'),
-                              e('span', {className: 'text-base font-black text-slate-900'}, fmt(precoFinal))
-                            )
+                            p.kit_apenas
+                              ? e('span', {className: 'text-xs text-purple-400 font-bold bg-purple-900 bg-opacity-40 px-2 py-1 rounded'}, '📦 Apenas em kit')
+                              : e('div', {className: 'flex flex-col items-end bg-yellow-400 px-3 py-1.5 rounded-lg'},
+                                  e('span', {className: 'text-xs text-slate-900 font-semibold mb-0.5 opacity-80'}, 'Preço ML'),
+                                  e('span', {className: 'text-base font-black text-slate-900'}, fmt(precoFinal))
+                                )
                           ),
-                          e('div', {className: 'border-t border-slate-700 pt-2 flex items-center justify-between'},
+                          custoML > 0 && e('div', {className: 'flex items-center justify-between' + (kitsDoP.length > 0 ? ' mb-2' : '')},
                             e('span', {className: 'text-xs text-slate-400'}, p.custo_ml ? 'Custo ML' : 'Custo'),
                             e('span', {className: 'text-sm text-slate-300'}, fmt(custoML))
+                          ),
+                          kitsDoP.length > 0 && e('div', {className: 'border-t border-slate-700 pt-2 space-y-1'},
+                            kitsDoP.map(function(kit) {
+                              return e('div', {key: kit.id, className: 'flex items-center justify-between gap-2'},
+                                e('span', {className: 'text-xs text-slate-400 truncate flex-1'}, kit.nome),
+                                e('div', {className: 'flex flex-col items-end bg-yellow-400 px-2 py-1 rounded flex-shrink-0'},
+                                  e('span', {className: 'text-xs font-black text-slate-900'}, fmt(calcularPrecoKit(kit)))
+                                )
+                              );
+                            })
                           )
                         );
                       })
