@@ -249,6 +249,10 @@
       var editandoKit = editandoKitState[0];
       var setEditandoKit = editandoKitState[1];
 
+      var showKitsListState = useState(true);
+      var showKitsList = showKitsListState[0];
+      var setShowKitsList = showKitsListState[1];
+
       function carregarEstoque() {
         var batchSize = 1000;
         var allData = [];
@@ -637,12 +641,12 @@
             var skuN = normStr(skuRaw);
             if (marcaRaw && skuN && skuN.length >= 2 && skuN.length <= 25) {
               ultimaMarca = marcaRaw;
-              result.push({ marca: normStr(marcaRaw), sku: skuN, quantidade: quantidade });
+              result.push({ marca: normStr(marcaRaw), sku: skuN, skuOriginal: skuRaw.trim(), quantidade: quantidade });
             }
           } else if (parte && ultimaMarca) {
             var s = normStr(parte);
             if (s && s.length >= 2 && s.length <= 25)
-              result.push({ marca: normStr(ultimaMarca), sku: s, quantidade: quantidade });
+              result.push({ marca: normStr(ultimaMarca), sku: s, skuOriginal: parte.trim(), quantidade: quantidade });
           }
         });
         return result;
@@ -761,7 +765,8 @@
 
       function gerarNomeKit(componentes) {
         return 'KIT ' + componentes.map(function(c) {
-          return c.sku + (c.quantidade > 1 ? ' ' + c.quantidade + 'UN' : '');
+          var display = c.skuOriginal || c.sku;
+          return display + (c.quantidade > 1 ? ' ' + c.quantidade + 'UN' : '');
         }).join(' + ');
       }
 
@@ -799,6 +804,14 @@
             setBuscaComp('');
             carregarKitsML();
           });
+        });
+      }
+
+      function limparKitsAuto() {
+        if (!confirm('Apagar todos os kits detectados automaticamente? Kits criados manualmente serão mantidos.')) return;
+        supabase.from('kits_ml').delete().not('sku_ml', 'is', null).then(function(res) {
+          if (res.error) { alert('Erro: ' + res.error.message); return; }
+          carregarKitsML();
         });
       }
 
@@ -1509,12 +1522,26 @@
               ),
               // Kits ML (inline antes da busca)
               e('div', {className: 'bg-slate-800 border border-yellow-500 border-opacity-40 rounded-lg overflow-hidden'},
-                e('div', {className: 'flex items-center justify-between px-5 py-3 border-b border-slate-700'},
-                  e('span', {className: 'font-bold text-sm text-slate-200'}, '📦 Kits ML'),
-                  e('button', {
-                    onClick: function() { setCriandoKit(function(v) { return !v; }); setNovoKitComp([]); setBuscaComp(''); },
-                    className: 'bg-yellow-400 hover:bg-yellow-300 text-slate-900 text-xs font-bold px-3 py-1.5 rounded transition-colors'
-                  }, criandoKit ? '✗ Cancelar' : '+ Novo Kit')
+                e('div', {
+                  className: 'flex items-center justify-between px-5 py-3 border-b border-slate-700 cursor-pointer hover:bg-slate-700 transition-colors',
+                  onClick: function() { setShowKitsList(function(v) { return !v; }); }
+                },
+                  e('div', {className: 'flex items-center gap-2'},
+                    e('span', {className: 'font-bold text-sm text-slate-200'}, '📦 Kits ML'),
+                    e('span', {className: 'text-xs text-slate-500'}, kitsML.length + ' kits'),
+                    e('span', {className: 'text-slate-500 text-xs'}, showKitsList ? '▲' : '▼')
+                  ),
+                  e('div', {className: 'flex gap-2', onClick: function(ev) { ev.stopPropagation(); }},
+                    kitsML.some(function(k){return k.sku_ml;}) && e('button', {
+                      onClick: limparKitsAuto,
+                      className: 'text-slate-500 hover:text-red-400 text-xs px-2 py-1.5 rounded transition-colors',
+                      title: 'Limpar kits auto-detectados'
+                    }, '🗑 Limpar auto'),
+                    e('button', {
+                      onClick: function() { setCriandoKit(function(v) { return !v; }); setNovoKitComp([]); setBuscaComp(''); },
+                      className: 'bg-yellow-400 hover:bg-yellow-300 text-slate-900 text-xs font-bold px-3 py-1.5 rounded transition-colors'
+                    }, criandoKit ? '✗ Cancelar' : '+ Novo Kit')
+                  )
                 ),
                 criandoKit && e('div', {className: 'p-5 border-b border-slate-700'},
                   e('p', {className: 'text-xs text-slate-400 mb-3'}, 'Busque e adicione os produtos do kit:'),
@@ -1575,10 +1602,25 @@
                     className: 'w-full bg-yellow-400 hover:bg-yellow-300 text-slate-900 font-bold text-sm py-2 rounded mt-2'
                   }, '✓ Criar Kit')
                 ),
-                kitsML.length === 0
+                showKitsList && kitsML.length === 0
                   ? e('p', {className: 'text-slate-500 text-sm text-center py-4'}, 'Nenhum kit criado ainda. Clique em "+ Novo Kit" para começar.')
-                  : e('div', {className: 'divide-y divide-slate-700'},
-                      kitsML.map(function(kit) {
+                  : showKitsList && e('div', null,
+                      e('div', {className: 'px-4 py-2 border-b border-slate-700'},
+                        e('input', {
+                          type: 'text', placeholder: 'Buscar kit por SKU ou marca...',
+                          value: precosSearchML,
+                          onChange: function(ev) { setPrecosSearchML(ev.target.value); },
+                          className: 'w-full bg-slate-700 border border-slate-600 text-white text-sm px-3 py-1.5 rounded outline-none focus:border-yellow-400'
+                        })
+                      ),
+                      e('div', {className: 'divide-y divide-slate-700'},
+                      (function() {
+                        var termKit = precosSearchML.trim().toUpperCase();
+                        var kitsFiltrados = kitsML.filter(function(k) {
+                          if (!termKit) return true;
+                          return k.nome.toUpperCase().indexOf(termKit) !== -1;
+                        });
+                        return kitsFiltrados.map(function(kit) {
                         var componentes = kit.kits_ml_componentes || [];
                         var custoTotal = calcularCustoKit(componentes);
                         var precoFinal = calcularPrecoKit(kit);
@@ -1629,8 +1671,10 @@
                             )
                           )
                         );
-                      })
-                    )
+                      })   // fecha map
+                    })()   // fecha IIFE
+                    )      // fecha divide-y
+                  )        // fecha e('div', null, ...)
               ),
               // Busca ML
               e('div', null,
