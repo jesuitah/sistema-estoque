@@ -623,6 +623,12 @@
         });
       }
 
+      function marcaMatch(marcaPrecos, marcaKit) {
+        var a = normStr(marcaPrecos);
+        var b = normStr(marcaKit);
+        return a === b || a.startsWith(b) || b.startsWith(a);
+      }
+
       function parseKitComponentesML(skuString) {
         var result = [];
         var texto = String(skuString).trim().toUpperCase().replace(/^KIT:\s*/i, '');
@@ -774,7 +780,7 @@
         var total = 0;
         componentes.forEach(function(c) {
           var prod = precos.find(function(p) {
-            return normStr(p.marca) === c.marca && normStr(p.sku) === c.sku;
+            return marcaMatch(p.marca, c.marca) && normStr(p.sku) === c.sku;
           });
           var custo = prod ? (prod.custo_ml ? Number(prod.custo_ml) : Number(prod.custo)) : 0;
           total += custo * c.quantidade;
@@ -1658,7 +1664,7 @@
                             )
                           ),
                           componentes.map(function(c) {
-                            var prod = precos.find(function(p){return normStr(p.marca)===c.marca&&normStr(p.sku)===c.sku;});
+                            var prod = precos.find(function(p){return marcaMatch(p.marca,c.marca)&&normStr(p.sku)===c.sku;});
                             var custo = prod?(prod.custo_ml?Number(prod.custo_ml):Number(prod.custo)):0;
                             return e('div', {key:c.id, className:'flex items-center justify-between text-xs mb-1'},
                               e('span', {className:'text-slate-400'}, c.marca+' · '+c.sku+' · '+c.quantidade+'x'),
@@ -1702,9 +1708,10 @@
                       filtrados.map(function(p) {
                         var cfg = markupsML[p.marca] || {};
                         var custoML = p.custo_ml ? Number(p.custo_ml) : Number(p.custo);
-                        var meuNorm = normStr(p.marca) + '|' + normStr(p.sku);
                         var kitsDoP = kitsML.filter(function(k) {
-                          return (k.kits_ml_componentes||[]).some(function(c) { return (c.marca+'|'+c.sku) === meuNorm; });
+                          return (k.kits_ml_componentes||[]).some(function(c) {
+                            return marcaMatch(p.marca, c.marca) && normStr(p.sku) === c.sku;
+                          });
                         });
                         var markup = p.markup_ml_override !== null && p.markup_ml_override !== undefined ? Number(p.markup_ml_override) : (cfg.markup !== undefined ? cfg.markup : 60);
                         var taxa   = cfg.taxa !== undefined ? cfg.taxa : 23;
