@@ -866,6 +866,83 @@
         });
       }
 
+      function exportarItensSemKit() {
+        var itens = precos.filter(function(p) { return p.kit_apenas; });
+        itens.sort(function(a, b) { return (a.marca + a.sku).localeCompare(b.marca + b.sku); });
+        if (itens.length === 0) { alert('Nenhum item "Apenas em kit" encontrado.'); return; }
+        var rows = itens.map(function(p) {
+          var custoAtual = p.custo_ml ? Number(p.custo_ml) : Number(p.custo);
+          return {
+            'Marca': p.marca,
+            'SKU': p.sku,
+            'Custo Atual (R$)': custoAtual,
+            'Nome do Kit': '',
+            'Custo Correto (R$)': ''
+          };
+        });
+        var ws = XLSX.utils.json_to_sheet(rows);
+        var wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Itens sem kit');
+        XLSX.writeFile(wb, 'itens_sem_kit.xlsx');
+      }
+
+      function importarCustosKits(file) {
+        var reader = new FileReader();
+        reader.onload = function(ev) {
+          var data = new Uint8Array(ev.target.result);
+          var wb = XLSX.read(data, { type: 'array' });
+          var sheet = wb.Sheets[wb.SheetNames[0]];
+          var rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+
+          var custoUpdates = [];
+          var kitsMap = {};
+
+          rows.forEach(function(r) {
+            var marca = String(r['Marca'] || '').trim();
+            var sku = String(r['SKU'] || '').trim();
+            if (!marca || !sku) return;
+            var custoCorretoStr = String(r['Custo Correto (R$)'] || '').replace(',', '.').trim();
+            var custoCorreto = parseFloat(custoCorretoStr);
+            var nomeKit = String(r['Nome do Kit'] || '').trim();
+            if (!isNaN(custoCorreto) && custoCorreto > 0) {
+              custoUpdates.push({ marca: marca, sku: sku, custo: custoCorreto });
+            }
+            if (nomeKit) {
+              if (!kitsMap[nomeKit]) kitsMap[nomeKit] = [];
+              var existente = kitsMap[nomeKit].filter(function(c) { return c.marca === marca && c.sku === sku; })[0];
+              if (existente) existente.quantidade++;
+              else kitsMap[nomeKit].push({ marca: marca, sku: sku, quantidade: 1 });
+            }
+          });
+
+          var nomesKits = Object.keys(kitsMap);
+          if (custoUpdates.length === 0 && nomesKits.length === 0) { alert('Nenhum dado válido encontrado na planilha.'); return; }
+          if (!confirm('Atualizar custo de ' + custoUpdates.length + ' itens e criar ' + nomesKits.length + ' kits?')) return;
+
+          Promise.all(custoUpdates.map(function(u) {
+            return supabase.from('precos').update({ custo_ml: u.custo }).eq('marca', u.marca).eq('sku', u.sku);
+          })).then(function() {
+            return nomesKits.reduce(function(prevPromise, nome) {
+              return prevPromise.then(function() {
+                return supabase.from('kits_ml').insert({ nome: nome }).select().then(function(res) {
+                  if (res.error || !res.data || !res.data[0]) return;
+                  var kitId = res.data[0].id;
+                  var comps = kitsMap[nome].map(function(c) {
+                    return { kit_id: kitId, marca: c.marca, sku: c.sku, quantidade: c.quantidade };
+                  });
+                  return supabase.from('kits_ml_componentes').insert(comps);
+                });
+              });
+            }, Promise.resolve());
+          }).then(function() {
+            alert('Importação concluída!');
+            carregarPrecos();
+            carregarKitsML();
+          });
+        };
+        reader.readAsArrayBuffer(file);
+      }
+
       function importarCustoML(file) {
         var reader = new FileReader();
         reader.onload = function(evt) {
@@ -1461,6 +1538,20 @@
                     onChange: function(ev) {
                       var f = ev.target.files && ev.target.files[0];
                       if (f) importarPlanilhaPrecosMecanicos(f);
+                      ev.target.value = '';
+                    }
+                  })
+                ),
+                e('button', {
+                  onClick: exportarItensSemKit,
+                  className: 'flex items-center gap-2 bg-orange-600 hover:bg-orange-500 text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors'
+                }, '📥 Exportar Itens sem Kit'),
+                e('label', {className: 'flex items-center gap-2 bg-orange-800 hover:bg-orange-700 text-white px-4 py-2 rounded-lg font-bold text-sm cursor-pointer transition-colors'},
+                  '📤 Importar Custos/Kits',
+                  e('input', {type: 'file', accept: '.xlsx,.xls', style: {display: 'none'},
+                    onChange: function(ev) {
+                      var f = ev.target.files && ev.target.files[0];
+                      if (f) importarCustosKits(f);
                       ev.target.value = '';
                     }
                   })
