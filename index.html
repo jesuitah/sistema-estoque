@@ -201,13 +201,17 @@
       var showMarkupEditor = showMarkupEditorState[0];
       var setShowMarkupEditor = showMarkupEditorState[1];
 
-      var editandoPrecoState = useState(null);
-      var editandoPreco = editandoPrecoState[0];
-      var setEditandoPreco = editandoPrecoState[1];
+      var showConfigPrecosState = useState(false);
+      var showConfigPrecos = showConfigPrecosState[0];
+      var setShowConfigPrecos = showConfigPrecosState[1];
 
-      var activePrecoTabState = useState('ml');
-      var activePrecoTab = activePrecoTabState[0];
-      var setActivePrecoTab = activePrecoTabState[1];
+      var editandoCustoState = useState(null);
+      var editandoCustoChave = editandoCustoState[0];
+      var setEditandoCustoChave = editandoCustoState[1];
+
+      var custoEditValueState = useState('');
+      var custoEditValue = custoEditValueState[0];
+      var setCustoEditValue = custoEditValueState[1];
 
       var markupsMLState = useState({});
       var markupsML = markupsMLState[0];
@@ -220,10 +224,6 @@
       var showMarkupEditorMLState = useState(false);
       var showMarkupEditorML = showMarkupEditorMLState[0];
       var setShowMarkupEditorML = showMarkupEditorMLState[1];
-
-      var editandoPrecoMLState = useState(null);
-      var editandoPrecoML = editandoPrecoMLState[0];
-      var setEditandoPrecoML = editandoPrecoMLState[1];
 
       var precosSearchMLState = useState('');
       var precosSearchML = precosSearchMLState[0];
@@ -849,29 +849,20 @@
         });
       }
 
-      function salvarPrecoMLUnitario() {
-        var ed = editandoPrecoML;
-        if (!ed) return;
-        var novoCusto  = parseFloat(String(ed.custo          || '').replace(',', '.'));
-        var novoPreco  = parseFloat(String(ed.precoML       || '').replace(',', '.'));
-        var novoMarkup = parseFloat(String(ed.markupOverride || '').replace(',', '.'));
-        var novoFrete  = parseFloat(String(ed.freteOverride  || '').replace(',', '.'));
+      function salvarCustoProduto(p) {
+        var novoCusto = parseFloat(String(custoEditValue || '').replace(',', '.'));
         if (isNaN(novoCusto) || novoCusto <= 0) { alert('Custo inválido.'); return; }
-        var update = {
-          custo_ml:           novoCusto,
-          preco_ml:           isNaN(novoPreco)  || novoPreco  <= 0 ? null : novoPreco,
-          markup_ml_override: isNaN(novoMarkup) || novoMarkup <= 0 ? null : novoMarkup,
-          frete_ml_override:  isNaN(novoFrete)  || novoFrete  <  0 ? null : novoFrete
-        };
-        supabase.from('precos').update(update).eq('marca', ed.marca).eq('sku', ed.sku).then(function(res) {
+        var usaCustoML = p.custo_ml !== null && p.custo_ml !== undefined && Number(p.custo_ml) > 0;
+        var update = usaCustoML ? { custo_ml: novoCusto } : { custo: novoCusto };
+        supabase.from('precos').update(update).eq('marca', p.marca).eq('sku', p.sku).then(function(res) {
           if (res.error) { alert('Erro ao salvar: ' + res.error.message); return; }
           setPrecos(function(prev) {
-            return prev.map(function(p) {
-              if (p.marca === ed.marca && p.sku === ed.sku) return Object.assign({}, p, update);
-              return p;
+            return prev.map(function(x) {
+              if (x.marca === p.marca && x.sku === p.sku) return Object.assign({}, x, update);
+              return x;
             });
           });
-          setEditandoPrecoML(null);
+          setEditandoCustoChave(null);
         });
       }
 
@@ -953,27 +944,6 @@
           } catch(e) { alert('Erro ao ler planilha: ' + e.message); }
         };
         reader.readAsArrayBuffer(file);
-      }
-
-      function salvarPrecoUnitario() {
-        var ed = editandoPreco;
-        if (!ed) return;
-        var novoCusto = parseFloat(String(ed.custo).replace(',', '.'));
-        var novoPreco = parseFloat(String(ed.precoMecanico).replace(',', '.'));
-        if (isNaN(novoCusto) || novoCusto <= 0) { alert('Custo inválido.'); return; }
-        var update = { custo: novoCusto, preco_mecanico: isNaN(novoPreco) || novoPreco <= 0 ? null : novoPreco };
-        supabase.from('precos').update(update).eq('marca', ed.marca).eq('sku', ed.sku).then(function(res) {
-          if (res.error) { alert('Erro ao salvar: ' + res.error.message); return; }
-          setPrecos(function(prev) {
-            return prev.map(function(p) {
-              if (p.marca === ed.marca && p.sku === ed.sku) {
-                return Object.assign({}, p, { custo: novoCusto, preco_mecanico: update.preco_mecanico });
-              }
-              return p;
-            });
-          });
-          setEditandoPreco(null);
-        });
       }
 
       function excluirMarca(marca) {
@@ -1435,20 +1405,24 @@
 
           activeTab === 'precos' && e('div', {className: 'space-y-4'},
 
-            // Sub-abas
-            e('div', {className: 'flex gap-1 bg-slate-800 border border-slate-700 rounded-lg p-1 w-fit'},
+            // Busca + Configurações
+            e('div', {className: 'flex gap-3'},
+              e('input', {
+                type: 'text', placeholder: 'Digite o SKU ou marca...',
+                value: precosSearch,
+                onChange: function(ev) { setPrecosSearch(ev.target.value); },
+                className: 'flex-1 bg-slate-800 text-white px-4 py-3 rounded-lg border border-slate-600 focus:border-blue-400 focus:outline-none text-sm'
+              }),
               e('button', {
-                onClick: function() { setActivePrecoTab('ml'); },
-                className: 'px-5 py-2 rounded-md text-sm font-bold transition-colors ' + (activePrecoTab === 'ml' ? 'bg-yellow-400 text-slate-900' : 'text-slate-400 hover:text-white')
-              }, '🛒 Preço ML'),
-              e('button', {
-                onClick: function() { setActivePrecoTab('mecanico'); },
-                className: 'px-5 py-2 rounded-md text-sm font-bold transition-colors ' + (activePrecoTab === 'mecanico' ? 'bg-green-600 text-white' : 'text-slate-400 hover:text-white')
-              }, '🔧 Preço Mecânico')
+                onClick: function() { setShowConfigPrecos(function(v){return !v;}); },
+                className: 'flex items-center gap-2 bg-slate-800 border border-slate-600 hover:border-slate-500 text-slate-200 px-4 py-3 rounded-lg font-bold text-sm transition-colors whitespace-nowrap'
+              }, showConfigPrecos ? '▲ Configurações' : '⚙️ Configurações')
             ),
 
-            // ── SUB-ABA ML ──
-            activePrecoTab === 'ml' && e('div', {className: 'space-y-5'},
+            // ── Painel de configurações (importações, markup e kits) ──
+            showConfigPrecos && e('div', {className: 'space-y-4'},
+
+              // Importações
               e('div', {className: 'flex items-center gap-3 flex-wrap'},
                 e('label', {className: 'flex items-center gap-2 bg-yellow-400 hover:bg-yellow-300 text-slate-900 px-4 py-2 rounded-lg font-bold text-sm cursor-pointer transition-colors'},
                   '📂 Importar Preços ML',
@@ -1471,9 +1445,34 @@
                     }
                   })
                 ),
-                precos.length > 0 && e('span', {className: 'text-slate-400 text-sm'}, precos.length + ' produtos')
+                e('label', {className: 'flex items-center gap-2 bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded-lg font-bold text-sm cursor-pointer transition-colors'},
+                  '📂 Importar Planilha de Custos',
+                  e('input', {type: 'file', accept: '.xlsx,.xls', style: {display: 'none'},
+                    onChange: function(ev) {
+                      var f = ev.target.files && ev.target.files[0];
+                      if (f) importarPlanilhaCustos(f);
+                      ev.target.value = '';
+                    }
+                  })
+                ),
+                e('label', {className: 'flex items-center gap-2 bg-blue-700 hover:bg-blue-600 text-white px-4 py-2 rounded-lg font-bold text-sm cursor-pointer transition-colors'},
+                  '📂 Importar Preços Mecânicos',
+                  e('input', {type: 'file', accept: '.xlsx,.xls', style: {display: 'none'},
+                    onChange: function(ev) {
+                      var f = ev.target.files && ev.target.files[0];
+                      if (f) importarPlanilhaPrecosMecanicos(f);
+                      ev.target.value = '';
+                    }
+                  })
+                ),
+                precos.length > 0 && e('span', {className: 'text-slate-400 text-sm'}, precos.length + ' produtos cadastrados'),
+                precos.length > 0 && e('button', {
+                  onClick: limparTodosPrecos,
+                  className: 'ml-auto bg-red-800 hover:bg-red-700 text-white px-3 py-2 rounded-lg font-bold text-sm transition-colors'
+                }, '🗑 Limpar tudo')
               ),
-              // Editor ML markup
+
+              // Configuração ML por Marca
               e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg overflow-hidden'},
                 e('button', {
                   onClick: function() { setShowMarkupEditorML(function(v){return !v;}); },
@@ -1531,7 +1530,61 @@
                       )
                 )
               ),
-              // Kits ML (inline antes da busca)
+
+              // Markup por Marca (Mecânico)
+              e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg overflow-hidden'},
+                e('button', {
+                  onClick: function() { setShowMarkupEditor(function(v) { return !v; }); },
+                  className: 'w-full flex items-center justify-between px-5 py-3 hover:bg-slate-700 transition-colors'
+                },
+                  e('span', {className: 'font-bold text-sm text-slate-200'}, '⚙️ Markup por Marca (Mecânico)'),
+                  e('span', {className: 'text-slate-400 text-sm'}, showMarkupEditor ? '▲ Fechar' : '▼ Editar')
+                ),
+                showMarkupEditor && e('div', {className: 'px-5 pb-5'},
+                  e('p', {className: 'text-slate-400 text-xs mb-3'}, 'Marcas sem configuração usam 60% como padrão. Clique em ✓ para salvar cada uma.'),
+                  precos.length === 0
+                    ? e('p', {className: 'text-slate-500 text-sm'}, 'Importe a planilha de custos primeiro para ver as marcas.')
+                    : e('div', {className: 'grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4'},
+                        (function() {
+                          var marcas = [];
+                          precos.forEach(function(p) { if (marcas.indexOf(p.marca) === -1) marcas.push(p.marca); });
+                          marcas.sort();
+                          return marcas.map(function(marca) {
+                            var val = markupEdit[marca] !== undefined ? markupEdit[marca] : (markups[marca] || 60);
+                            return e('div', {key: marca, className: 'bg-slate-700 rounded-lg p-3'},
+                              e('div', {className: 'text-xs font-bold text-slate-300 mb-2 truncate'}, marca),
+                              e('div', {className: 'flex items-center gap-1'},
+                                e('input', {
+                                  type: 'text', inputMode: 'numeric',
+                                  value: val,
+                                  onChange: function(ev) {
+                                    var v = ev.target.value;
+                                    setMarkupEdit(function(prev) { var n = Object.assign({}, prev); n[marca] = v; return n; });
+                                  },
+                                  onKeyDown: function(ev) {
+                                    if (ev.key === 'Enter') salvarMarkupMarca(marca);
+                                  },
+                                  className: 'w-14 bg-slate-600 border border-slate-500 text-white text-sm px-2 py-1 rounded outline-none text-center'
+                                }),
+                                e('span', {className: 'text-slate-400 text-sm'}, '%'),
+                                e('button', {
+                                  onMouseDown: function(ev) { ev.preventDefault(); salvarMarkupMarca(marca); },
+                                  className: 'ml-1 bg-blue-600 hover:bg-blue-500 text-white text-xs px-2 py-1 rounded font-bold transition-colors'
+                                }, '✓'),
+                                e('button', {
+                                  onMouseDown: function(ev) { ev.preventDefault(); excluirMarca(marca); },
+                                  className: 'ml-1 bg-red-700 hover:bg-red-600 text-white text-xs px-2 py-1 rounded font-bold transition-colors',
+                                  title: 'Excluir marca'
+                                }, '🗑')
+                              )
+                            );
+                          });
+                        })()
+                      )
+                )
+              ),
+
+              // Kits ML
               e('div', {className: 'bg-slate-800 border border-yellow-500 border-opacity-40 rounded-lg overflow-hidden'},
                 e('div', {
                   className: 'flex items-center justify-between px-5 py-3 border-b border-slate-700 cursor-pointer hover:bg-slate-700 transition-colors',
@@ -1686,436 +1739,88 @@
                     })()   // fecha IIFE
                     )      // fecha divide-y
                   )        // fecha e('div', null, ...)
-              ),
-              // Busca ML
-              e('div', null,
-                e('input', {
-                  type: 'text', placeholder: 'Digite o SKU ou marca...',
-                  value: precosSearchML,
-                  onChange: function(ev) { setPrecosSearchML(ev.target.value); },
-                  className: 'w-full bg-slate-800 border border-slate-700 text-white px-4 py-3 rounded-lg text-sm outline-none focus:border-yellow-400 transition-colors mb-3'
-                }),
-                (function() {
-                  var term = precosSearchML.trim().toUpperCase();
-                  var filtrados = precos.filter(function(p) {
-                    var custoEfetivo = p.custo_ml ? Number(p.custo_ml) : Number(p.custo);
-                    if (custoEfetivo <= 0 && !p.preco_ml && !p.kit_apenas) return false;
-                    if (!term) return true;
-                    return p.marca.toUpperCase().indexOf(term) !== -1 || p.sku.toUpperCase().indexOf(term) !== -1;
-                  });
-                  if (precos.length === 0) return e('p', {className: 'text-slate-500 text-sm text-center py-10'}, 'Nenhum custo cadastrado. Importe a planilha para começar.');
-                  var fmt = function(n) { return 'R$ ' + Number(n).toFixed(2).replace('.', ','); };
-                  return e('div', null,
-                    e('p', {className: 'text-slate-500 text-xs mb-4'}, 'Exibindo ' + filtrados.length + ' de ' + precos.length + ' produtos'),
-                    e('div', {className: 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4'},
-                      filtrados.map(function(p) {
-                        var cfg = markupsML[p.marca] || {};
-                        var custoML = p.custo_ml ? Number(p.custo_ml) : Number(p.custo);
-                        var kitsDoP = kitsML.filter(function(k) {
-                          return (k.kits_ml_componentes||[]).some(function(c) {
-                            return marcaMatch(p.marca, c.marca) && normStr(p.sku) === c.sku;
-                          });
-                        });
-                        var markup = p.markup_ml_override !== null && p.markup_ml_override !== undefined ? Number(p.markup_ml_override) : (cfg.markup !== undefined ? cfg.markup : 60);
-                        var taxa   = cfg.taxa !== undefined ? cfg.taxa : 23;
-                        var freteAuto = custoML <= 32.64 ? 12 : 30;
-                        var freteMarca = (cfg.frete !== null && cfg.frete !== undefined) ? cfg.frete : freteAuto;
-                        var frete = p.frete_ml_override !== null && p.frete_ml_override !== undefined ? Number(p.frete_ml_override) : freteMarca;
-                        var precoCalc = (custoML * (1 + markup/100) + frete) * (1 + taxa/100);
-                        var precoFinal = p.preco_ml ? Number(p.preco_ml) : precoCalc;
-                        var chave = 'ml|' + p.marca + '|' + p.sku;
-                        var editando = editandoPrecoML && editandoPrecoML.marca === p.marca && editandoPrecoML.sku === p.sku;
-                        if (editando) {
-                          var inpML = function(lbl, field, ph) {
-                            return e('div', {className: 'flex items-center gap-2 mb-2'},
-                              e('span', {className: 'text-xs text-slate-400 w-28 flex-shrink-0'}, lbl),
-                              e('input', {
-                                type: 'text', inputMode: 'numeric',
-                                placeholder: ph || '',
-                                value: editandoPrecoML[field] || '',
-                                onChange: function(ev) { var v=ev.target.value; setEditandoPrecoML(function(prev){return Object.assign({},prev,{[field]:v});}); },
-                                className: 'flex-1 bg-slate-700 border border-slate-600 text-white text-sm px-3 py-1.5 rounded outline-none focus:border-yellow-400'
-                              })
-                            );
-                          };
-                          return e('div', {key: chave, className: 'bg-slate-800 border border-yellow-400 rounded-lg p-4'},
-                            e('div', {className: 'text-xs text-slate-500 font-bold uppercase mb-1'}, p.marca),
-                            e('div', {className: 'text-base font-bold text-white mb-3'}, p.sku),
-                            inpML('Custo ML (R$)', 'custo', 'custo'),
-                            inpML('Preço ML (R$)', 'precoML', 'calculado auto'),
-                            inpML('Markup (%)', 'markupOverride', 'padrão marca'),
-                            inpML('Frete (R$)', 'freteOverride', 'padrão marca'),
-                            e('div', {className: 'flex gap-2 mt-3'},
-                              e('button', {onClick: salvarPrecoMLUnitario, className: 'flex-1 bg-yellow-400 hover:bg-yellow-300 text-slate-900 text-sm py-1.5 rounded font-bold'}, '✓ Salvar'),
-                              e('button', {onClick: function() { setEditandoPrecoML(null); }, className: 'px-3 bg-slate-700 text-slate-300 text-sm py-1.5 rounded'}, '✗')
-                            )
-                          );
-                        }
-                        return e('div', {key: chave, className: 'group bg-slate-800 border border-slate-700 rounded-lg p-4 hover:border-slate-500 transition-colors'},
-                          e('div', {className: 'flex items-start justify-between mb-2'},
-                            e('div', {className: 'text-xs text-slate-500 font-bold uppercase tracking-wider'}, p.marca),
-                            e('button', {
-                              onClick: function() { setEditandoPrecoML({marca: p.marca, sku: p.sku, custo: custoML || '', precoML: p.preco_ml || '', markupOverride: p.markup_ml_override || '', freteOverride: p.frete_ml_override || ''}); },
-                              className: 'opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-yellow-400 text-sm',
-                              title: 'Editar'
-                            }, '✏️')
-                          ),
-                          e('div', {className: 'flex items-center justify-between mb-3'},
-                            e('span', {className: 'bg-slate-700 text-white text-base font-bold px-3 py-1.5 rounded-lg'}, p.sku),
-                            p.kit_apenas
-                              ? e('span', {className: 'text-xs text-purple-400 font-bold bg-purple-900 bg-opacity-40 px-2 py-1 rounded'}, '📦 Apenas em kit')
-                              : e('div', {className: 'flex flex-col items-end bg-yellow-400 px-3 py-1.5 rounded-lg'},
-                                  e('span', {className: 'text-xs text-slate-900 font-semibold mb-0.5 opacity-80'}, 'Preço ML'),
-                                  e('span', {className: 'text-base font-black text-slate-900'}, fmt(precoFinal))
-                                )
-                          ),
-                          custoML > 0 && e('div', {className: 'flex items-center justify-between' + (kitsDoP.length > 0 ? ' mb-2' : '')},
-                            e('span', {className: 'text-xs text-slate-400'}, p.custo_ml ? 'Custo ML' : 'Custo'),
-                            e('span', {className: 'text-sm text-slate-300'}, fmt(custoML))
-                          ),
-                          kitsDoP.length > 0 && e('div', {className: 'border-t border-slate-700 pt-2 space-y-1'},
-                            kitsDoP.map(function(kit) {
-                              return e('div', {key: kit.id, className: 'flex items-center justify-between gap-2'},
-                                e('span', {className: 'text-xs text-slate-400 truncate flex-1'}, kit.nome),
-                                e('div', {className: 'flex flex-col items-end bg-yellow-400 px-2 py-1 rounded flex-shrink-0'},
-                                  e('span', {className: 'text-xs font-black text-slate-900'}, fmt(calcularPrecoKit(kit)))
-                                )
-                              );
-                            })
-                          )
-                        );
-                      })
-                    )
-                  );
-                })()
               )
             ),
 
-            // ── SEÇÃO KITS ML REMOVIDA (movida para dentro da sub-aba ML) ──
-            false && e('div', null,
-              e('div', null,
-                e('div', null,
-                  e('span', null, ''),
-                  e('button', {
-                    onClick: function() {},
-                    className: 'bg-yellow-400 hover:bg-yellow-300 text-slate-900 text-xs font-bold px-3 py-1.5 rounded transition-colors'
-                  }, criandoKit ? '✗ Cancelar' : '+ Novo Kit')
-                ),
+            // ── Grid de produtos (custo + preço ML + preço mecânico) ──
+            (function() {
+              var term = precosSearch.trim().toUpperCase();
+              var filtrados = precos.filter(function(p) {
+                var custoML = p.custo_ml ? Number(p.custo_ml) : Number(p.custo);
+                if (custoML <= 0 && !p.preco_ml && !p.preco_mecanico && !p.kit_apenas) return false;
+                if (!term) return true;
+                return p.marca.toUpperCase().indexOf(term) !== -1 || p.sku.toUpperCase().indexOf(term) !== -1;
+              });
+              if (precos.length === 0) return e('p', {className: 'text-slate-500 text-sm text-center py-10'}, 'Nenhum custo cadastrado. Importe a planilha para começar (em ⚙️ Configurações).');
+              var fmt = function(n) { return 'R$ ' + Number(n).toFixed(2).replace('.', ','); };
+              return e('div', null,
+                e('p', {className: 'text-slate-500 text-xs mb-4'}, 'Exibindo ' + filtrados.length + ' de ' + precos.length + ' produtos'),
+                e('div', {className: 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4'},
+                  filtrados.map(function(p) {
+                    var custoML = p.custo_ml ? Number(p.custo_ml) : Number(p.custo);
+                    var cfg = markupsML[p.marca] || {};
+                    var markupML = cfg.markup !== undefined ? cfg.markup : 60;
+                    var taxa = cfg.taxa !== undefined ? cfg.taxa : 23;
+                    var freteAuto = custoML <= 32.64 ? 12 : 30;
+                    var frete = (cfg.frete !== null && cfg.frete !== undefined) ? cfg.frete : freteAuto;
+                    var precoCalcML = (custoML * (1 + markupML/100) + frete) * (1 + taxa/100);
+                    var precoML = p.preco_ml ? Number(p.preco_ml) : precoCalcML;
 
-                // Formulário de criação
-                criandoKit && e('div', {className: 'p-5 border-b border-slate-700'},
-                  e('p', {className: 'text-xs text-slate-400 mb-3'}, 'Busque e adicione os produtos do kit:'),
-                  e('div', {className: 'flex gap-2 mb-3'},
-                    e('input', {
-                      type: 'text', placeholder: 'Buscar produto (SKU ou marca)...',
-                      value: buscaComp,
-                      onChange: function(ev) { setBuscaComp(ev.target.value); },
-                      className: 'flex-1 bg-slate-700 border border-slate-600 text-white text-sm px-3 py-2 rounded outline-none focus:border-yellow-400'
-                    })
-                  ),
-                  // Resultados da busca
-                  buscaComp.trim().length > 0 && e('div', {className: 'bg-slate-900 rounded-lg mb-3 max-h-40 overflow-y-auto'},
-                    (function() {
-                      var term = buscaComp.trim().toUpperCase();
-                      var resultados = precos.filter(function(p) {
-                        return p.marca.indexOf(term) !== -1 || p.sku.indexOf(term) !== -1;
-                      }).slice(0, 10);
-                      if (resultados.length === 0) return e('p', {className: 'text-slate-500 text-xs p-3'}, 'Nenhum produto encontrado.');
-                      return resultados.map(function(p) {
-                        return e('button', {
-                          key: p.marca+'|'+p.sku,
-                          onClick: function() {
-                            var jaExiste = novoKitComp.findIndex(function(c) { return c.marca===p.marca && c.sku===p.sku; });
-                            if (jaExiste !== -1) {
-                              setNovoKitComp(function(prev) {
-                                return prev.map(function(c, i) { return i===jaExiste ? Object.assign({},c,{quantidade:c.quantidade+1}) : c; });
-                              });
-                            } else {
-                              var custo = p.custo_ml ? Number(p.custo_ml) : Number(p.custo);
-                              setNovoKitComp(function(prev) { return prev.concat([{marca:p.marca, sku:p.sku, quantidade:1, custo:custo}]); });
-                            }
-                            setBuscaComp('');
-                          },
-                          className: 'w-full text-left px-3 py-2 hover:bg-slate-700 transition-colors border-b border-slate-800 last:border-0'
-                        },
-                          e('span', {className: 'text-xs text-slate-400 mr-2'}, p.marca),
-                          e('span', {className: 'text-sm font-bold text-white'}, p.sku),
-                          e('span', {className: 'text-xs text-slate-400 ml-2'}, 'R$ ' + (p.custo_ml ? Number(p.custo_ml) : Number(p.custo)).toFixed(2).replace('.',','))
-                        );
-                      });
-                    })()
-                  ),
-                  // Componentes adicionados
-                  novoKitComp.length > 0 && e('div', {className: 'space-y-2 mb-3'},
-                    e('p', {className: 'text-xs text-slate-400 font-bold mb-1'}, 'Componentes do kit:'),
-                    novoKitComp.map(function(c, i) {
-                      return e('div', {key: i, className: 'flex items-center gap-2 bg-slate-700 rounded px-3 py-2'},
-                        e('span', {className: 'text-xs text-slate-400'}, c.marca),
-                        e('span', {className: 'text-sm font-bold text-white flex-1'}, c.sku),
-                        e('button', {onClick: function() { setNovoKitComp(function(prev){return prev.map(function(x,j){return j===i?Object.assign({},x,{quantidade:Math.max(1,x.quantidade-1)}):x;});}); }, className:'text-slate-400 hover:text-white w-6 text-center font-bold'}, '-'),
-                        e('span', {className: 'text-white text-sm w-6 text-center'}, c.quantidade + 'x'),
-                        e('button', {onClick: function() { setNovoKitComp(function(prev){return prev.map(function(x,j){return j===i?Object.assign({},x,{quantidade:x.quantidade+1}):x;});}); }, className:'text-slate-400 hover:text-white w-6 text-center font-bold'}, '+'),
-                        e('button', {onClick: function() { setNovoKitComp(function(prev){return prev.filter(function(_,j){return j!==i;});}); }, className:'text-red-400 hover:text-red-300 ml-1 font-bold'}, '×')
-                      );
-                    }),
-                    e('div', {className: 'text-xs text-slate-400 mt-1'},
-                      'Nome: ', e('span', {className: 'text-yellow-400 font-bold'}, gerarNomeKit(novoKitComp)),
-                      ' · Custo total: R$ ', calcularCustoKit(novoKitComp).toFixed(2).replace('.',',')
-                    )
-                  ),
-                  novoKitComp.length > 0 && e('button', {
-                    onClick: criarKit,
-                    className: 'w-full bg-yellow-400 hover:bg-yellow-300 text-slate-900 font-bold text-sm py-2 rounded transition-colors'
-                  }, '✓ Criar Kit')
-                ),
+                    var markupMec = markups[p.marca] !== undefined ? markups[p.marca] : 60;
+                    var precoMec = p.preco_mecanico ? Number(p.preco_mecanico) : Number(p.custo) * (1 + markupMec/100);
 
-                // Lista de kits
-                kitsML.length === 0
-                  ? e('p', {className: 'text-slate-500 text-sm text-center py-6'}, 'Nenhum kit criado ainda.')
-                  : e('div', {className: 'divide-y divide-slate-700'},
-                      kitsML.map(function(kit) {
-                        var componentes = kit.kits_ml_componentes || [];
-                        var custoTotal = calcularCustoKit(componentes);
-                        var precoFinal = calcularPrecoKit(kit);
-                        var fmt = function(n) { return 'R$ ' + Number(n).toFixed(2).replace('.',','); };
-                        var editandoEsteKit = editandoKit && editandoKit.id === kit.id;
+                    var chave = p.marca + '|' + p.sku;
+                    var editandoCusto = editandoCustoChave === chave;
 
-                        if (editandoEsteKit) {
-                          return e('div', {key: kit.id, className: 'p-4 bg-slate-750'},
-                            e('div', {className: 'text-xs text-yellow-400 font-bold mb-2'}, kit.nome),
-                            e('div', {className: 'space-y-2 mb-3'},
-                              e('div', {className: 'flex items-center gap-2'},
-                                e('span', {className: 'text-xs text-slate-400 w-32'}, 'Preço ML (R$)'),
-                                e('input', {type:'text', inputMode:'numeric', placeholder:'calculado auto', value: editandoKit.preco||'',
-                                  onChange: function(ev){setEditandoKit(function(p){return Object.assign({},p,{preco:ev.target.value});});},
-                                  className:'flex-1 bg-slate-700 border border-slate-600 text-white text-sm px-3 py-1.5 rounded outline-none'})
-                              ),
-                              e('div', {className: 'flex items-center gap-2'},
-                                e('span', {className: 'text-xs text-slate-400 w-32'}, 'Markup (%)'),
-                                e('input', {type:'text', inputMode:'numeric', placeholder:'60', value: editandoKit.markup||'',
-                                  onChange: function(ev){setEditandoKit(function(p){return Object.assign({},p,{markup:ev.target.value});});},
-                                  className:'flex-1 bg-slate-700 border border-slate-600 text-white text-sm px-3 py-1.5 rounded outline-none'})
-                              ),
-                              e('div', {className: 'flex items-center gap-2'},
-                                e('span', {className: 'text-xs text-slate-400 w-32'}, 'Frete (R$)'),
-                                e('input', {type:'text', inputMode:'numeric', placeholder:'auto', value: editandoKit.frete||'',
-                                  onChange: function(ev){setEditandoKit(function(p){return Object.assign({},p,{frete:ev.target.value});});},
-                                  className:'flex-1 bg-slate-700 border border-slate-600 text-white text-sm px-3 py-1.5 rounded outline-none'})
-                              )
-                            ),
-                            e('div', {className:'flex gap-2'},
-                              e('button', {onClick: salvarKitOverride, className:'flex-1 bg-yellow-400 hover:bg-yellow-300 text-slate-900 text-sm py-1.5 rounded font-bold'}, '✓ Salvar'),
-                              e('button', {onClick: function(){setEditandoKit(null);}, className:'px-3 bg-slate-700 text-slate-300 text-sm py-1.5 rounded'}, '✗')
-                            )
-                          );
-                        }
-
-                        return e('div', {key: kit.id, className: 'group p-4 hover:bg-slate-750 transition-colors'},
-                          e('div', {className: 'flex items-start justify-between mb-2'},
-                            e('span', {className: 'text-xs text-yellow-400 font-bold'}, kit.nome),
-                            e('div', {className: 'flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity'},
-                              e('button', {
-                                onClick: function() { setEditandoKit({id:kit.id, markup:kit.markup_override||'', frete:kit.frete_override||'', preco:kit.preco_override||''}); },
-                                className: 'text-slate-400 hover:text-yellow-400 text-sm', title:'Editar'
-                              }, '✏️'),
-                              e('button', {onClick: function(){deletarKit(kit.id);}, className:'text-slate-400 hover:text-red-400 text-sm', title:'Excluir'}, '🗑')
-                            )
-                          ),
-                          e('div', {className: 'space-y-1 mb-2'},
-                            componentes.map(function(c) {
-                              var prod = precos.find(function(p){return p.marca===c.marca && p.sku===c.sku;});
-                              var custo = prod ? (prod.custo_ml ? Number(prod.custo_ml) : Number(prod.custo)) : 0;
-                              return e('div', {key:c.id, className:'flex items-center justify-between text-xs'},
-                                e('span', {className:'text-slate-400'}, c.marca + ' · ' + e('span',null) ),
-                                e('span', {className:'text-slate-300'},
-                                  e('span', {className:'font-bold text-white'}, c.sku),
-                                  ' ' + c.quantidade + 'x · ' + fmt(custo * c.quantidade)
-                                )
-                              );
-                            })
-                          ),
-                          e('div', {className:'flex items-center justify-between border-t border-slate-700 pt-2'},
-                            e('span', {className:'text-xs text-slate-400'}, 'Custo total: ' + fmt(custoTotal)),
-                            e('div', {className:'flex flex-col items-end bg-yellow-400 px-3 py-1.5 rounded-lg'},
-                              e('span', {className:'text-xs text-slate-900 font-semibold mb-0.5 opacity-80'}, 'Preço ML'),
-                              e('span', {className:'text-base font-black text-slate-900'}, fmt(precoFinal))
-                            )
-                          )
-                        );
-                      })
-                    )
-              )
-            ),
-
-            // ── SUB-ABA MECÂNICO ──
-            activePrecoTab === 'mecanico' && e('div', {className: 'space-y-5'},
-
-            // Linha de import
-            e('div', {className: 'flex items-center gap-3 flex-wrap'},
-              e('label', {className: 'flex items-center gap-2 bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded-lg font-bold text-sm cursor-pointer transition-colors'},
-                '📂 Importar Planilha de Custos',
-                e('input', {type: 'file', accept: '.xlsx,.xls', style: {display: 'none'},
-                  onChange: function(ev) {
-                    var f = ev.target.files && ev.target.files[0];
-                    if (f) importarPlanilhaCustos(f);
-                    ev.target.value = '';
-                  }
-                })
-              ),
-              e('label', {className: 'flex items-center gap-2 bg-blue-700 hover:bg-blue-600 text-white px-4 py-2 rounded-lg font-bold text-sm cursor-pointer transition-colors'},
-                '📂 Importar Preços Mecânicos',
-                e('input', {type: 'file', accept: '.xlsx,.xls', style: {display: 'none'},
-                  onChange: function(ev) {
-                    var f = ev.target.files && ev.target.files[0];
-                    if (f) importarPlanilhaPrecosMecanicos(f);
-                    ev.target.value = '';
-                  }
-                })
-              ),
-              precos.length > 0 && e('span', {className: 'text-slate-400 text-sm'}, precos.length + ' cadastrados'),
-              precos.length > 0 && e('button', {
-                onClick: limparTodosPrecos,
-                className: 'ml-auto bg-red-800 hover:bg-red-700 text-white px-3 py-2 rounded-lg font-bold text-sm transition-colors'
-              }, '🗑 Limpar tudo')
-            ),
-
-            // Editor de markup
-            e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg overflow-hidden'},
-              e('button', {
-                onClick: function() { setShowMarkupEditor(function(v) { return !v; }); },
-                className: 'w-full flex items-center justify-between px-5 py-3 hover:bg-slate-700 transition-colors'
-              },
-                e('span', {className: 'font-bold text-sm text-slate-200'}, '⚙️ Markup por Marca'),
-                e('span', {className: 'text-slate-400 text-sm'}, showMarkupEditor ? '▲ Fechar' : '▼ Editar')
-              ),
-              showMarkupEditor && e('div', {className: 'px-5 pb-5'},
-                e('p', {className: 'text-slate-400 text-xs mb-3'}, 'Marcas sem configuração usam 60% como padrão. Clique em ✓ para salvar cada uma.'),
-                precos.length === 0
-                  ? e('p', {className: 'text-slate-500 text-sm'}, 'Importe a planilha de custos primeiro para ver as marcas.')
-                  : e('div', {className: 'grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4'},
-                      (function() {
-                        var marcas = [];
-                        precos.forEach(function(p) { if (marcas.indexOf(p.marca) === -1) marcas.push(p.marca); });
-                        marcas.sort();
-                        return marcas.map(function(marca) {
-                          var val = markupEdit[marca] !== undefined ? markupEdit[marca] : (markups[marca] || 60);
-                          return e('div', {key: marca, className: 'bg-slate-700 rounded-lg p-3'},
-                            e('div', {className: 'text-xs font-bold text-slate-300 mb-2 truncate'}, marca),
-                            e('div', {className: 'flex items-center gap-1'},
+                    return e('div', {key: chave, className: 'group bg-slate-800 border border-slate-700 rounded-lg p-4 hover:border-slate-500 transition-colors'},
+                      e('div', {className: 'text-xs text-slate-500 font-bold uppercase tracking-wider'}, p.marca),
+                      e('div', {className: 'text-base font-bold text-white mb-3'}, p.sku),
+                      e('div', {className: 'flex items-center justify-between mb-3'},
+                        e('span', {className: 'text-xs text-slate-400'}, 'Custo'),
+                        editandoCusto
+                          ? e('div', {className: 'flex items-center gap-1'},
                               e('input', {
-                                type: 'text', inputMode: 'numeric',
-                                value: val,
-                                onChange: function(ev) {
-                                  var v = ev.target.value;
-                                  setMarkupEdit(function(prev) { var n = Object.assign({}, prev); n[marca] = v; return n; });
-                                },
+                                type: 'text', inputMode: 'numeric', autoFocus: true,
+                                value: custoEditValue,
+                                onChange: function(ev) { setCustoEditValue(ev.target.value); },
                                 onKeyDown: function(ev) {
-                                  if (ev.key === 'Enter') salvarMarkupMarca(marca);
+                                  if (ev.key === 'Enter') salvarCustoProduto(p);
+                                  if (ev.key === 'Escape') setEditandoCustoChave(null);
                                 },
-                                className: 'w-14 bg-slate-600 border border-slate-500 text-white text-sm px-2 py-1 rounded outline-none text-center'
+                                className: 'w-20 bg-slate-700 border border-blue-400 text-white text-sm px-2 py-1 rounded outline-none text-right'
                               }),
-                              e('span', {className: 'text-slate-400 text-sm'}, '%'),
-                              e('button', {
-                                onMouseDown: function(ev) { ev.preventDefault(); salvarMarkupMarca(marca); },
-                                className: 'ml-1 bg-blue-600 hover:bg-blue-500 text-white text-xs px-2 py-1 rounded font-bold transition-colors'
-                              }, '✓'),
-                              e('button', {
-                                onMouseDown: function(ev) { ev.preventDefault(); excluirMarca(marca); },
-                                className: 'ml-1 bg-red-700 hover:bg-red-600 text-white text-xs px-2 py-1 rounded font-bold transition-colors',
-                                title: 'Excluir marca'
-                              }, '🗑')
+                              e('button', {onClick: function() { salvarCustoProduto(p); }, className: 'text-green-400 hover:text-green-300 text-sm font-bold'}, '✓'),
+                              e('button', {onClick: function() { setEditandoCustoChave(null); }, className: 'text-slate-400 hover:text-red-400 text-sm font-bold'}, '✗')
                             )
-                          );
-                        });
-                      })()
-                    )
-              )
-            ),
-
-            // Busca e grid de preços
-            e('div', null,
-              e('input', {
-                type: 'text',
-                placeholder: 'Digite o SKU ou marca...',
-                value: precosSearch,
-                onChange: function(ev) { setPrecosSearch(ev.target.value); },
-                className: 'w-full bg-slate-800 border border-slate-700 text-white px-4 py-3 rounded-lg text-sm outline-none focus:border-blue-500 transition-colors mb-3'
-              }),
-              (function() {
-                var term = precosSearch.trim().toUpperCase();
-                var filtrados = precos.filter(function(p) {
-                  if (!term) return true;
-                  return p.marca.toUpperCase().indexOf(term) !== -1 || p.sku.toUpperCase().indexOf(term) !== -1;
-                });
-                if (precos.length === 0) return e('p', {className: 'text-slate-500 text-sm text-center py-10'}, 'Nenhum custo cadastrado. Importe a planilha para começar.');
-                return e('div', null,
-                  e('p', {className: 'text-slate-500 text-xs mb-4'}, 'Exibindo ' + filtrados.length + ' de ' + precos.length + ' produtos'),
-                  e('div', {className: 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4'},
-                    filtrados.map(function(p) {
-                      var markup = markups[p.marca] !== undefined ? markups[p.marca] : 60;
-                      var precoFinal = p.preco_mecanico ? Number(p.preco_mecanico) : p.custo * (1 + markup / 100);
-                      var fmt = function(n) { return 'R$ ' + Number(n).toFixed(2).replace('.', ','); };
-                      var chave = p.marca + '|' + p.sku;
-                      var editando = editandoPreco && editandoPreco.marca === p.marca && editandoPreco.sku === p.sku;
-                      if (editando) {
-                        return e('div', {key: chave, className: 'bg-slate-800 border border-blue-500 rounded-lg p-4'},
-                          e('div', {className: 'text-xs text-slate-500 font-bold uppercase tracking-wider mb-2'}, p.marca),
-                          e('div', {className: 'text-base font-bold text-white mb-3'}, p.sku),
-                          e('div', {className: 'space-y-2 mb-3'},
-                            e('div', {className: 'flex items-center gap-2'},
-                              e('span', {className: 'text-xs text-slate-400 w-32'}, 'Custo (R$)'),
-                              e('input', {
-                                type: 'number', step: '0.01', min: '0',
-                                value: editandoPreco.custo,
-                                onChange: function(ev) { setEditandoPreco(function(prev) { return Object.assign({}, prev, {custo: ev.target.value}); }); },
-                                className: 'flex-1 bg-slate-700 border border-slate-600 text-white text-sm px-3 py-1.5 rounded outline-none focus:border-blue-400'
-                              })
+                          : e('div', {className: 'flex items-center gap-2'},
+                              e('span', {className: 'text-sm text-slate-300'}, fmt(custoML)),
+                              e('button', {
+                                onClick: function() {
+                                  setEditandoCustoChave(chave);
+                                  setCustoEditValue(String(custoML.toFixed(2)).replace('.', ','));
+                                },
+                                className: 'opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-blue-400 text-xs',
+                                title: 'Editar custo'
+                              }, '✏️')
+                            )
+                      ),
+                      e('div', {className: 'flex items-center gap-2'},
+                        p.kit_apenas
+                          ? e('span', {className: 'text-xs text-purple-400 font-bold bg-purple-900 bg-opacity-40 px-2 py-1 rounded flex-1 text-center'}, '📦 Apenas em kit')
+                          : e('div', {className: 'flex flex-col items-center bg-yellow-400 px-3 py-1.5 rounded-lg flex-1'},
+                              e('span', {className: 'text-xs text-slate-900 font-semibold opacity-80'}, 'Preço ML'),
+                              e('span', {className: 'text-base font-black text-slate-900'}, fmt(precoML))
                             ),
-                            e('div', {className: 'flex items-center gap-2'},
-                              e('span', {className: 'text-xs text-slate-400 w-32'}, 'Preço Mecânico (R$)'),
-                              e('input', {
-                                type: 'number', step: '0.01', min: '0',
-                                placeholder: 'calculado auto',
-                                value: editandoPreco.precoMecanico,
-                                onChange: function(ev) { setEditandoPreco(function(prev) { return Object.assign({}, prev, {precoMecanico: ev.target.value}); }); },
-                                className: 'flex-1 bg-slate-700 border border-slate-600 text-white text-sm px-3 py-1.5 rounded outline-none focus:border-blue-400'
-                              })
-                            )
-                          ),
-                          e('div', {className: 'flex gap-2'},
-                            e('button', {onClick: salvarPrecoUnitario, className: 'flex-1 bg-blue-600 hover:bg-blue-500 text-white text-sm py-1.5 rounded font-bold transition-colors'}, '✓ Salvar'),
-                            e('button', {onClick: function() { setEditandoPreco(null); }, className: 'px-3 bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm py-1.5 rounded transition-colors'}, '✗')
-                          )
-                        );
-                      }
-                      return e('div', {key: chave,
-                        className: 'group bg-slate-800 border border-slate-700 rounded-lg p-4 hover:border-slate-500 transition-colors'},
-                        e('div', {className: 'flex items-start justify-between mb-2'},
-                          e('div', {className: 'text-xs text-slate-500 font-bold uppercase tracking-wider'}, p.marca),
-                          e('button', {
-                            onClick: function() { setEditandoPreco({marca: p.marca, sku: p.sku, custo: p.custo, precoMecanico: p.preco_mecanico || ''}); },
-                            className: 'opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-blue-400 text-sm leading-none',
-                            title: 'Editar'
-                          }, '✏️')
-                        ),
-                        e('div', {className: 'flex items-center justify-between mb-3'},
-                          e('span', {className: 'bg-slate-700 text-white text-base font-bold px-3 py-1.5 rounded-lg'}, p.sku),
-                          e('div', {className: 'flex flex-col items-end bg-green-500 px-3 py-1.5 rounded-lg'},
-                            e('span', {className: 'text-xs text-white font-semibold mb-0.5 opacity-90'}, 'Preço Mecânico'),
-                            e('span', {className: 'text-base font-black text-white'}, fmt(precoFinal))
-                          )
-                        ),
-                        e('div', {className: 'border-t border-slate-700 pt-2 flex items-center justify-between'},
-                          e('span', {className: 'text-xs text-slate-400'}, 'Custo'),
-                          e('span', {className: 'text-sm text-slate-300'}, fmt(p.custo))
+                        precoMec > 0 && e('div', {className: 'flex flex-col items-center bg-green-500 px-3 py-1.5 rounded-lg flex-1'},
+                          e('span', {className: 'text-xs text-white font-semibold opacity-90'}, 'Preço Mecânico'),
+                          e('span', {className: 'text-base font-black text-white'}, fmt(precoMec))
                         )
-                      );
-                    })
-                  )
-                );
-              })()
-            )
-            ) // fecha sub-aba mecanico
+                      )
+                    );
+                  })
+                )
+              );
+            })()
           ),
 
         )
