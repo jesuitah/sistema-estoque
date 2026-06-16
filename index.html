@@ -1280,24 +1280,11 @@
                     return p.marca.toUpperCase().indexOf(term) !== -1 || p.sku.toUpperCase().indexOf(term) !== -1;
                   })
                 : precos;
-              var POR_PAGINA = 100;
-              var exibidos = filtrados.slice(0, paginaPrecos * POR_PAGINA);
               var fmt = function(n) { return 'R$ ' + Number(n).toFixed(2).replace('.', ','); };
               return e('div', null,
-                e('div', {className: 'flex items-center justify-between mb-4'},
-                  e('p', {className: 'text-slate-500 text-xs'}, 'Exibindo ' + exibidos.length + ' de ' + filtrados.length + ' produtos'),
-                  modoSelecao && filtrados.length > 0 && e('button', {
-                    onClick: function() {
-                      var todasChaves = filtrados.map(function(p) { return p.marca+'|'+p.sku; });
-                      setSkusSelecionados(function(sel) {
-                        return sel.length === todasChaves.length ? [] : todasChaves;
-                      });
-                    },
-                    className: 'text-xs text-blue-400 hover:text-blue-300 underline'
-                  }, skusSelecionados.length === filtrados.length ? 'Desmarcar todos' : 'Selecionar todos')
-                ),
+                e('p', {className: 'text-slate-500 text-xs mb-4'}, filtrados.length + ' produtos'),
                 e('div', {className: 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4'},
-                  exibidos.map(function(p) {
+                  filtrados.map(function(p) {
                     var custoML = p.custo_ml ? Number(p.custo_ml) : Number(p.custo);
                     var cfg = markupsML[p.marca] || {};
                     var markupML = cfg.markup !== undefined ? cfg.markup : 60;
@@ -1453,12 +1440,6 @@
                     );
                   })
                 ),
-                exibidos.length < filtrados.length && e('div', {className: 'text-center mt-6'},
-                  e('button', {
-                    onClick: function() { setPaginaPrecos(function(p) { return p + 1; }); },
-                    className: 'bg-slate-700 hover:bg-slate-600 text-slate-200 px-6 py-2 rounded-lg text-sm font-bold transition-colors'
-                  }, 'Carregar mais (' + (filtrados.length - exibidos.length) + ' restantes)')
-                )
               );
             })()
           ),
