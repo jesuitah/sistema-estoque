@@ -225,33 +225,13 @@
       var showMarkupEditorML = showMarkupEditorMLState[0];
       var setShowMarkupEditorML = showMarkupEditorMLState[1];
 
-      var precosSearchMLState = useState('');
-      var precosSearchML = precosSearchMLState[0];
-      var setPrecosSearchML = precosSearchMLState[1];
+      var modoSelecaoState = useState(false);
+      var modoSelecao = modoSelecaoState[0];
+      var setModoSelecao = modoSelecaoState[1];
 
-      var kitsMLState = useState([]);
-      var kitsML = kitsMLState[0];
-      var setKitsML = kitsMLState[1];
-
-      var criandoKitState = useState(false);
-      var criandoKit = criandoKitState[0];
-      var setCriandoKit = criandoKitState[1];
-
-      var novoKitCompState = useState([]);
-      var novoKitComp = novoKitCompState[0];
-      var setNovoKitComp = novoKitCompState[1];
-
-      var buscaCompState = useState('');
-      var buscaComp = buscaCompState[0];
-      var setBuscaComp = buscaCompState[1];
-
-      var editandoKitState = useState(null);
-      var editandoKit = editandoKitState[0];
-      var setEditandoKit = editandoKitState[1];
-
-      var showKitsListState = useState(true);
-      var showKitsList = showKitsListState[0];
-      var setShowKitsList = showKitsListState[1];
+      var skusSelecionadosState = useState([]);
+      var skusSelecionados = skusSelecionadosState[0];
+      var setSkusSelecionados = skusSelecionadosState[1];
 
       var editandoSkuChaveState = useState(null);
       var editandoSkuChave = editandoSkuChaveState[0];
@@ -307,7 +287,6 @@
         carregarPrecos();
         carregarMarkups();
         carregarMarkupsML();
-        carregarKitsML();
         var subscription = supabase
           .channel('estoque-realtime')
           .on('postgres_changes', {event: '*', schema: 'public', table: 'estoque'}, function() {
@@ -665,503 +644,28 @@
         });
         return result;
       }
-
-      function importarAnunciosParaKits(files) {
-        var filesArr = Array.from(files);
-        if (!filesArr.length) return;
-        var individuaisSet = {};
-        var kitsMap = {};
-        var processados = 0;
-
-        function terminar() {
-          var existingSkuMLs = {};
-          kitsML.forEach(function(k) { if (k.sku_ml) existingSkuMLs[k.sku_ml] = true; });
-          var novosKits = Object.keys(kitsMap)
-            .filter(function(k) { return !existingSkuMLs[k]; })
-            .map(function(k) { return kitsMap[k]; });
-
-          function inserirKits(lista, cb) {
-            if (!lista.length) { cb([]); return; }
-            var rows = lista.map(function(k) { return { nome: k.nome, sku_ml: k.kitKey }; });
-            supabase.from('kits_ml').insert(rows).select().then(function(res) {
-              if (res.error) { alert('Erro ao criar kits: ' + res.error.message); return; }
-              cb(res.data || []);
-            });
-          }
-
-          inserirKits(novosKits, function(novosKitsDB) {
-            var compRows = [];
-            novosKitsDB.forEach(function(kitDB) {
-              var info = kitsMap[kitDB.sku_ml];
-              if (!info) return;
-              info.componentes.forEach(function(c) {
-                compRows.push({ kit_id: kitDB.id, marca: c.marca, sku: c.sku, quantidade: c.quantidade });
-              });
-            });
-
-            var pComps = compRows.length > 0
-              ? supabase.from('kits_ml_componentes').insert(compRows)
-              : Promise.resolve({ error: null });
-
-            pComps.then(function() {
-              var kitCompSet = {};
-              Object.values(kitsMap).forEach(function(kit) {
-                kit.componentes.forEach(function(c) { kitCompSet[c.marca + '|' + c.sku] = true; });
-              });
-
-              var idsTrue = precos.filter(function(p) {
-                var key = normStr(p.marca) + '|' + normStr(p.sku);
-                return kitCompSet[key] && !individuaisSet[key];
-              }).map(function(p) { return p.id; });
-
-              var idsFalse = precos.filter(function(p) {
-                var key = normStr(p.marca) + '|' + normStr(p.sku);
-                return individuaisSet[key] && p.kit_apenas;
-              }).map(function(p) { return p.id; });
-
-              var ups = [];
-              for (var i = 0; i < idsTrue.length; i += 200)
-                ups.push(supabase.from('precos').update({ kit_apenas: true }).in('id', idsTrue.slice(i, i + 200)));
-              for (var j = 0; j < idsFalse.length; j += 200)
-                ups.push(supabase.from('precos').update({ kit_apenas: false }).in('id', idsFalse.slice(j, j + 200)));
-
-              Promise.all(ups).then(function() {
-                alert('✓ ' + novosKits.length + ' kits criados · ' + idsTrue.length + ' produtos marcados como kit-only!');
-                carregarKitsML();
-                carregarPrecos();
-              });
-            });
-          });
-        }
-
-        filesArr.forEach(function(file) {
-          var reader = new FileReader();
-          reader.onload = function(evt) {
-            try {
-              var wb = XLSX.read(evt.target.result, { type: 'array' });
-              var sheetName = wb.SheetNames.find(function(s) { return s.toLowerCase().indexOf('an') !== -1; }) || wb.SheetNames[0];
-              var ws = wb.Sheets[sheetName];
-              var rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-              for (var i = 5; i < rows.length; i++) {
-                var sku = String(rows[i][4] || '').trim();
-                if (!sku) continue;
-                var upper = sku.toUpperCase();
-                if (upper.indexOf('KIT:') === 0 || sku.indexOf('+') !== -1) {
-                  var componentes = parseKitComponentesML(sku);
-                  if (componentes.length >= 1) {
-                    var kitKey = componentes.slice().sort(function(a, b) {
-                      return (a.marca + a.sku) < (b.marca + b.sku) ? -1 : 1;
-                    }).map(function(c) {
-                      return c.marca + ':' + c.sku + (c.quantidade > 1 ? '-' + c.quantidade + 'UN' : '');
-                    }).join('+');
-                    if (!kitsMap[kitKey])
-                      kitsMap[kitKey] = { kitKey: kitKey, componentes: componentes, nome: gerarNomeKit(componentes) };
-                  }
-                } else {
-                  var parsed = parseSKUsML(sku);
-                  parsed.forEach(function(p) { individuaisSet[p.marca + '|' + p.sku] = true; });
-                }
-              }
-            } catch (err) { console.error('Erro processando arquivo:', err); }
-            processados++;
-            if (processados === filesArr.length) terminar();
-          };
-          reader.readAsArrayBuffer(file);
+      function excluirSelecionados() {
+        if (skusSelecionados.length === 0) return;
+        if (!confirm('Excluir ' + skusSelecionados.length + ' produto(s) selecionado(s)? Esta ação não pode ser desfeita.')) return;
+        var pares = skusSelecionados.map(function(chave) {
+          var parts = chave.split('|');
+          return { marca: parts[0], sku: parts.slice(1).join('|') };
         });
-      }
-
-      function carregarKitsML() {
-        supabase.from('kits_ml').select('*, kits_ml_componentes(*)').order('id').then(function(result) {
-          if (result.error || !result.data) return;
-          setKitsML(result.data);
-        });
-      }
-
-      function gerarNomeKit(componentes) {
-        return 'KIT ' + componentes.map(function(c) {
-          var display = c.skuOriginal || c.sku;
-          return display + (c.quantidade > 1 ? ' ' + c.quantidade + 'UN' : '');
-        }).join(' + ');
-      }
-
-      function calcularCustoKit(componentes) {
-        var total = 0;
-        componentes.forEach(function(c) {
-          var prod = precos.find(function(p) {
-            return marcaMatch(p.marca, c.marca) && normStr(p.sku) === c.sku;
-          });
-          var custo = prod ? (prod.custo_ml ? Number(prod.custo_ml) : Number(prod.custo)) : 0;
-          total += custo * c.quantidade;
-        });
-        return total;
-      }
-
-      function calcularPrecoKit(kit) {
-        if (kit.preco_override) return Number(kit.preco_override);
-        var componentes = kit.kits_ml_componentes || [];
-        var custoTotal = calcularCustoKit(componentes);
-        var markup = kit.markup_override ? Number(kit.markup_override) : 60;
-        var freteAuto = custoTotal <= 32.64 ? 12 : 30;
-        var frete = (kit.frete_override !== null && kit.frete_override !== undefined) ? Number(kit.frete_override) : freteAuto;
-        return (custoTotal * (1 + markup / 100) + frete) * 1.23;
-      }
-
-      function criarKit() {
-        if (novoKitComp.length < 1) { alert('Adicione pelo menos 1 componente.'); return; }
-        var nome = gerarNomeKit(novoKitComp);
-        supabase.from('kits_ml').insert({ nome: nome }).select().then(function(result) {
-          if (result.error || !result.data || !result.data[0]) { alert('Erro: ' + (result.error ? result.error.message : '')); return; }
-          var kitId = result.data[0].id;
-          var rows = novoKitComp.map(function(c) { return { kit_id: kitId, marca: c.marca, sku: c.sku, quantidade: c.quantidade }; });
-          supabase.from('kits_ml_componentes').insert(rows).then(function(res2) {
-            if (res2.error) { alert('Erro ao salvar componentes: ' + res2.error.message); return; }
-            setCriandoKit(false);
-            setNovoKitComp([]);
-            setBuscaComp('');
-            carregarKitsML();
-          });
-        });
-      }
-
-      function limparKitsAuto() {
-        if (!confirm('Apagar todos os kits detectados automaticamente? Kits criados manualmente serão mantidos.')) return;
-        supabase.from('kits_ml').delete().not('sku_ml', 'is', null).then(function(res) {
-          if (res.error) { alert('Erro: ' + res.error.message); return; }
-          carregarKitsML();
-        });
-      }
-
-      function deletarKit(kitId) {
-        if (!confirm('Excluir este kit?')) return;
-        supabase.from('kits_ml').delete().eq('id', kitId).then(function(res) {
-          if (res.error) { alert('Erro: ' + res.error.message); return; }
-          setKitsML(function(prev) { return prev.filter(function(k) { return k.id !== kitId; }); });
-        });
-      }
-
-      function salvarKitOverride() {
-        var ed = editandoKit;
-        if (!ed) return;
-        var markup = parseFloat(String(ed.markup || '').replace(',', '.'));
-        var frete  = parseFloat(String(ed.frete  || '').replace(',', '.'));
-        var preco  = parseFloat(String(ed.preco  || '').replace(',', '.'));
-        var update = {
-          markup_override: isNaN(markup) || markup <= 0 ? null : markup,
-          frete_override:  isNaN(frete)  || frete  <  0 ? null : frete,
-          preco_override:  isNaN(preco)  || preco  <= 0 ? null : preco
-        };
-        supabase.from('kits_ml').update(update).eq('id', ed.id).then(function(res) {
-          if (res.error) { alert('Erro: ' + res.error.message); return; }
-          setKitsML(function(prev) { return prev.map(function(k) { return k.id === ed.id ? Object.assign({}, k, update) : k; }); });
-          setEditandoKit(null);
-        });
-      }
-
-      function salvarCustoProduto(p) {
-        var novoCusto = parseFloat(String(custoEditValue || '').replace(',', '.'));
-        if (isNaN(novoCusto) || novoCusto <= 0) { alert('Custo inválido.'); return; }
-        var usaCustoML = p.custo_ml !== null && p.custo_ml !== undefined && Number(p.custo_ml) > 0;
-        var update = usaCustoML ? { custo_ml: novoCusto } : { custo: novoCusto };
-        supabase.from('precos').update(update).eq('marca', p.marca).eq('sku', p.sku).then(function(res) {
-          if (res.error) { alert('Erro ao salvar: ' + res.error.message); return; }
-          setPrecos(function(prev) {
-            return prev.map(function(x) {
-              if (x.marca === p.marca && x.sku === p.sku) return Object.assign({}, x, update);
-              return x;
-            });
-          });
-          setEditandoCustoChave(null);
-        });
-      }
-
-      function salvarSkuProduto(p) {
-        var novoSku = skuEditValue.trim().toUpperCase();
-        if (!novoSku || novoSku === p.sku) { setEditandoSkuChave(null); return; }
-        Promise.all([
-          supabase.from('precos').update({ sku: novoSku }).eq('marca', p.marca).eq('sku', p.sku),
-          supabase.from('estoque').update({ sku: novoSku }).eq('sku', p.sku)
-        ]).then(function(results) {
-          var err = results.find(function(r) { return r.error; });
-          if (err) { alert('Erro ao salvar SKU: ' + err.error.message); return; }
-          setPrecos(function(prev) { return prev.map(function(x) { return (x.marca===p.marca&&x.sku===p.sku) ? Object.assign({},x,{sku:novoSku}) : x; }); });
-          setEditandoSkuChave(null);
-        });
-      }
-
-      function exportarItensSemKit() {
-        var itens = precos.filter(function(p) { return p.kit_apenas; });
-        itens.sort(function(a, b) { return (a.marca + a.sku).localeCompare(b.marca + b.sku); });
-        if (itens.length === 0) { alert('Nenhum item "Apenas em kit" encontrado.'); return; }
-        var rows = itens.map(function(p) {
-          var custoAtual = p.custo_ml ? Number(p.custo_ml) : Number(p.custo);
-          return {
-            'Marca': p.marca,
-            'SKU': p.sku,
-            'Custo Atual (R$)': custoAtual,
-            'Nome do Kit': '',
-            'Custo Correto (R$)': ''
-          };
-        });
-        var ws = XLSX.utils.json_to_sheet(rows);
-        var wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, 'Itens sem kit');
-        XLSX.writeFile(wb, 'itens_sem_kit.xlsx');
-      }
-
-      function importarCustosKits(file) {
-        var reader = new FileReader();
-        reader.onload = function(ev) {
-          var data = new Uint8Array(ev.target.result);
-          var wb = XLSX.read(data, { type: 'array' });
-          var sheet = wb.Sheets[wb.SheetNames[0]];
-          var rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
-
-          var custoUpdates = [];
-          var kitsMap = {};
-
-          rows.forEach(function(r) {
-            var marca = String(r['Marca'] || '').trim();
-            var sku = String(r['SKU'] || '').trim();
-            if (!marca || !sku) return;
-            var custoCorretoStr = String(r['Custo Correto (R$)'] || '').replace(',', '.').trim();
-            var custoCorreto = parseFloat(custoCorretoStr);
-            var nomeKit = String(r['Nome do Kit'] || '').trim();
-            if (!isNaN(custoCorreto) && custoCorreto > 0) {
-              custoUpdates.push({ marca: marca, sku: sku, custo: custoCorreto });
-            }
-            if (nomeKit) {
-              if (!kitsMap[nomeKit]) kitsMap[nomeKit] = [];
-              var existente = kitsMap[nomeKit].filter(function(c) { return c.marca === marca && c.sku === sku; })[0];
-              if (existente) existente.quantidade++;
-              else kitsMap[nomeKit].push({ marca: marca, sku: sku, quantidade: 1 });
-            }
-          });
-
-          var nomesKits = Object.keys(kitsMap);
-          if (custoUpdates.length === 0 && nomesKits.length === 0) { alert('Nenhum dado válido encontrado na planilha.'); return; }
-          if (!confirm('Atualizar custo de ' + custoUpdates.length + ' itens e criar ' + nomesKits.length + ' kits?')) return;
-
-          Promise.all(custoUpdates.map(function(u) {
-            return supabase.from('precos').update({ custo_ml: u.custo }).eq('marca', u.marca).eq('sku', u.sku);
-          })).then(function() {
-            return nomesKits.reduce(function(prevPromise, nome) {
-              return prevPromise.then(function() {
-                return supabase.from('kits_ml').insert({ nome: nome }).select().then(function(res) {
-                  if (res.error || !res.data || !res.data[0]) return;
-                  var kitId = res.data[0].id;
-                  var comps = kitsMap[nome].map(function(c) {
-                    return { kit_id: kitId, marca: c.marca, sku: c.sku, quantidade: c.quantidade };
-                  });
-                  return supabase.from('kits_ml_componentes').insert(comps);
-                });
-              });
-            }, Promise.resolve());
-          }).then(function() {
-            alert('Importação concluída!');
-            carregarPrecos();
-            carregarKitsML();
-          });
-        };
-        reader.readAsArrayBuffer(file);
-      }
-
-      function importarCustoML(file) {
-        var reader = new FileReader();
-        reader.onload = function(evt) {
-          try {
-            var wb = XLSX.read(evt.target.result, { type: 'array' });
-            var todasLinhas = [];
-            wb.SheetNames.forEach(function(sheetName) {
-              var ws = wb.Sheets[sheetName];
-              var rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-              if (!rows || rows.length < 2) return;
-              var marca = sheetName.toUpperCase().trim();
-              var codigoCol = 0, custoCol = 1, headerIdx = 0;
-              for (var i = 0; i < Math.min(rows.length, 5); i++) {
-                var achou = false;
-                for (var j = 0; j < rows[i].length; j++) {
-                  var cell = String(rows[i][j]).toUpperCase().trim().replace(/[^A-Z]/g, '');
-                  if (cell === 'CODIGO' || cell === 'COD') { codigoCol = j; achou = true; }
-                  if (cell === 'CUSTO') { custoCol = j; achou = true; }
-                }
-                if (achou) { headerIdx = i; break; }
-              }
-              for (var ri = headerIdx + 1; ri < rows.length; ri++) {
-                var sku = String(rows[ri][codigoCol] || '').trim().toUpperCase();
-                var custoRaw = rows[ri][custoCol];
-                if (!sku || sku === 'XXX' || sku === '') continue;
-                var custo = parseFloat(String(custoRaw).replace(',', '.').replace(/[^0-9.]/g, ''));
-                if (isNaN(custo) || custo <= 0) continue;
-                todasLinhas.push({ marca: marca, sku: sku, custo: 0, custo_ml: custo });
-              }
-            });
-            if (todasLinhas.length === 0) { alert('Nenhum dado encontrado na planilha.'); return; }
-            var promises = [];
-            for (var i = 0; i < todasLinhas.length; i += 500)
-              promises.push(supabase.from('precos').upsert(todasLinhas.slice(i, i + 500), { onConflict: 'marca,sku' }));
-            Promise.all(promises).then(function(results) {
-              var err = results.find(function(r) { return r.error; });
-              if (err) { alert('Erro ao importar: ' + err.error.message); return; }
-              alert('✓ ' + todasLinhas.length + ' custos ML importados!');
-              carregarPrecos();
-            });
-          } catch(e) { alert('Erro ao ler planilha: ' + e.message); }
-        };
-        reader.readAsArrayBuffer(file);
-      }
-
-      function importarPlanilhaPrecoML(file) {
-        var reader = new FileReader();
-        reader.onload = function(evt) {
-          try {
-            var wb = XLSX.read(evt.target.result, { type: 'array' });
-            var todasLinhas = [];
-            wb.SheetNames.forEach(function(sheetName) {
-              var ws = wb.Sheets[sheetName];
-              var rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-              if (!rows || rows.length < 4) return;
-              var marca = String(rows[0][0] || sheetName).toUpperCase().trim();
-              for (var ri = 3; ri < rows.length; ri++) {
-                var sku = String(rows[ri][0] || '').trim().toUpperCase();
-                if (!sku) continue;
-                var preco = parseFloat(String(rows[ri][1]).replace(',', '.').replace(/[^0-9.]/g, ''));
-                if (isNaN(preco) || preco <= 0) continue;
-                var ex = precos.find(function(p) { return p.marca === marca && p.sku === sku; });
-                todasLinhas.push({ marca: marca, sku: sku, custo: ex ? ex.custo : 0, preco_ml: preco });
-              }
-            });
-            if (todasLinhas.length === 0) { alert('Nenhum dado encontrado.'); return; }
-            var promises = [];
-            for (var i = 0; i < todasLinhas.length; i += 500)
-              promises.push(supabase.from('precos').upsert(todasLinhas.slice(i, i+500), { onConflict: 'marca,sku' }));
-            Promise.all(promises).then(function(results) {
-              var err = results.find(function(r) { return r.error; });
-              if (err) { alert('Erro: ' + err.error.message); return; }
-              alert('✓ ' + todasLinhas.length + ' preços ML importados!');
-              carregarPrecos();
-            });
-          } catch(e) { alert('Erro ao ler planilha: ' + e.message); }
-        };
-        reader.readAsArrayBuffer(file);
-      }
-
-      function excluirMarca(marca) {
-        if (!confirm('Excluir todos os custos de ' + marca + '?')) return;
-        Promise.all([
-          supabase.from('precos').delete().eq('marca', marca),
-          supabase.from('markup_marcas').delete().eq('marca', marca)
-        ]).then(function(results) {
+        Promise.all(pares.map(function(par) {
+          return supabase.from('precos').delete().eq('marca', par.marca).eq('sku', par.sku);
+        })).then(function(results) {
           var err = results.find(function(r) { return r.error; });
           if (err) { alert('Erro ao excluir: ' + err.error.message); return; }
-          setPrecos(function(prev) { return prev.filter(function(p) { return p.marca !== marca; }); });
-          setMarkups(function(prev) { var n = Object.assign({}, prev); delete n[marca]; return n; });
-          setMarkupEdit(function(prev) { var n = Object.assign({}, prev); delete n[marca]; return n; });
+          setPrecos(function(prev) {
+            return prev.filter(function(x) {
+              return !skusSelecionados.includes(x.marca + '|' + x.sku);
+            });
+          });
+          setSkusSelecionados([]);
+          setModoSelecao(false);
         });
       }
 
-      function importarPlanilhaPrecosMecanicos(file) {
-        var reader = new FileReader();
-        reader.onload = function(evt) {
-          try {
-            var wb = XLSX.read(evt.target.result, { type: 'array' });
-            var todasLinhas = [];
-            wb.SheetNames.forEach(function(sheetName) {
-              var ws = wb.Sheets[sheetName];
-              var rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-              if (!rows || rows.length < 4) return;
-              // Linha 1 = nome da marca (célula A1), linha 3 = cabeçalho, linha 4+ = dados
-              var marca = String(rows[0][0] || sheetName).toUpperCase().trim();
-              // Linha 3 (índice 2) = cabeçalho — dados começam na linha 4 (índice 3)
-              for (var ri = 3; ri < rows.length; ri++) {
-                var sku = String(rows[ri][0] || '').trim().toUpperCase();
-                var precoRaw = rows[ri][1];
-                if (!sku || sku === '') continue;
-                var preco = parseFloat(String(precoRaw).replace(',', '.').replace(/[^0-9.]/g, ''));
-                if (isNaN(preco) || preco <= 0) continue;
-                // Preserva custo existente se já tiver cadastrado
-                var existente = precos.find(function(p) { return p.marca === marca && p.sku === sku; });
-                todasLinhas.push({
-                  marca: marca,
-                  sku: sku,
-                  custo: existente ? existente.custo : 0,
-                  preco_mecanico: preco
-                });
-              }
-            });
-            if (todasLinhas.length === 0) { alert('Nenhum dado encontrado na planilha.'); return; }
-            var promises = [];
-            for (var i = 0; i < todasLinhas.length; i += 500) {
-              promises.push(supabase.from('precos').upsert(todasLinhas.slice(i, i + 500), { onConflict: 'marca,sku' }));
-            }
-            Promise.all(promises).then(function(results) {
-              var hasError = results.find(function(r) { return r.error; });
-              if (hasError) { alert('Erro ao importar: ' + hasError.error.message); return; }
-              alert('✓ ' + todasLinhas.length + ' preços mecânicos importados!');
-              carregarPrecos();
-            });
-          } catch(err) {
-            alert('Erro ao ler planilha: ' + err.message);
-          }
-        };
-        reader.readAsArrayBuffer(file);
-      }
-
-      function limparTodosPrecos() {
-        if (!confirm('Tem certeza? Todos os custos cadastrados serão apagados.')) return;
-        supabase.from('precos').delete().neq('id', 0).then(function(res) {
-          if (res.error) { alert('Erro ao limpar: ' + res.error.message); return; }
-          setPrecos([]);
-        });
-      }
-
-      function importarPlanilhaCustos(file) {
-        var reader = new FileReader();
-        reader.onload = function(evt) {
-          try {
-            var wb = XLSX.read(evt.target.result, { type: 'array' });
-            var todasLinhas = [];
-            wb.SheetNames.forEach(function(sheetName) {
-              var marca = sheetName.toUpperCase().trim();
-              var ws = wb.Sheets[sheetName];
-              var rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-              if (!rows || rows.length < 2) return;
-              var codigoCol = 0, custoCol = 1, headerIdx = 0;
-              for (var i = 0; i < Math.min(rows.length, 5); i++) {
-                var achou = false;
-                for (var j = 0; j < rows[i].length; j++) {
-                  var cell = String(rows[i][j]).toUpperCase().trim().replace(/[^A-Z]/g, '');
-                  if (cell === 'CODIGO' || cell === 'COD') { codigoCol = j; achou = true; }
-                  if (cell === 'CUSTO') { custoCol = j; achou = true; }
-                }
-                if (achou) { headerIdx = i; break; }
-              }
-              for (var ri = headerIdx + 1; ri < rows.length; ri++) {
-                var sku = String(rows[ri][codigoCol] || '').trim().toUpperCase();
-                var custoRaw = rows[ri][custoCol];
-                if (!sku || sku === 'XXX' || sku === '') continue;
-                var custo = parseFloat(String(custoRaw).replace(',', '.').replace(/[^0-9.]/g, ''));
-                if (isNaN(custo) || custo <= 0) continue;
-                todasLinhas.push({ marca: marca, sku: sku, custo: custo });
-              }
-            });
-            if (todasLinhas.length === 0) { alert('Nenhum dado encontrado na planilha.'); return; }
-            var promises = [];
-            for (var i = 0; i < todasLinhas.length; i += 500) {
-              promises.push(supabase.from('precos').upsert(todasLinhas.slice(i, i + 500), { onConflict: 'marca,sku' }));
-            }
-            Promise.all(promises).then(function(results) {
-              var hasError = results.find(function(r) { return r.error; });
-              if (hasError) { alert('Erro ao importar: ' + hasError.error.message); return; }
-              alert('✓ ' + todasLinhas.length + ' custos importados com sucesso!');
-              carregarPrecos();
-              carregarMarkups();
-            });
-          } catch(err) {
-            alert('Erro ao ler planilha: ' + err.message);
-          }
-        };
-        reader.readAsArrayBuffer(file);
-      }
 
       function removerLojaML(nome) {
         supabase.from('ml_lojas').delete().eq('nome', nome).then(function(res) {
@@ -1509,9 +1013,17 @@
               e('input', {
                 type: 'text', placeholder: 'Digite o SKU ou marca...',
                 value: precosSearch,
-                onChange: function(ev) { setPrecosSearch(ev.target.value); },
+                onChange: function(ev) { setPrecosSearch(ev.target.value); setModoSelecao(false); setSkusSelecionados([]); },
                 className: 'flex-1 bg-slate-800 text-white px-4 py-3 rounded-lg border border-slate-600 focus:border-blue-400 focus:outline-none text-sm'
               }),
+              modoSelecao && skusSelecionados.length > 0 && e('button', {
+                onClick: excluirSelecionados,
+                className: 'bg-red-700 hover:bg-red-600 text-white px-4 py-3 rounded-lg font-bold text-sm transition-colors whitespace-nowrap'
+              }, '🗑 Excluir ' + skusSelecionados.length),
+              precosSearch.trim().length > 0 && e('button', {
+                onClick: function() { setModoSelecao(function(v){return !v;}); setSkusSelecionados([]); },
+                className: 'flex items-center gap-2 ' + (modoSelecao ? 'bg-blue-600 border-blue-500' : 'bg-slate-800 border-slate-600 hover:border-slate-500') + ' border text-slate-200 px-4 py-3 rounded-lg font-bold text-sm transition-colors whitespace-nowrap'
+              }, modoSelecao ? '✓ Selecionando' : '☑ Selecionar'),
               e('button', {
                 onClick: function() { setShowConfigPrecos(function(v){return !v;}); },
                 className: 'flex items-center gap-2 bg-slate-800 border border-slate-600 hover:border-slate-500 text-slate-200 px-4 py-3 rounded-lg font-bold text-sm transition-colors whitespace-nowrap'
@@ -1520,70 +1032,15 @@
 
             // ── Painel de configurações (importações, markup e kits) ──
             showConfigPrecos && e('div', {className: 'space-y-4'},
-
-              // Importações
+              // Ações
               e('div', {className: 'flex items-center gap-3 flex-wrap'},
-                e('label', {className: 'flex items-center gap-2 bg-yellow-400 hover:bg-yellow-300 text-slate-900 px-4 py-2 rounded-lg font-bold text-sm cursor-pointer transition-colors'},
-                  '📂 Importar Preços ML',
-                  e('input', {type: 'file', accept: '.xlsx,.xls', style: {display:'none'},
-                    onChange: function(ev) { var f=ev.target.files&&ev.target.files[0]; if(f) importarPlanilhaPrecoML(f); ev.target.value=''; }
-                  })
-                ),
-                e('label', {className: 'flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg font-bold text-sm cursor-pointer transition-colors'},
-                  '📂 Importar Custos ML',
-                  e('input', {type: 'file', accept: '.xlsx,.xls', style: {display:'none'},
-                    onChange: function(ev) { var f=ev.target.files&&ev.target.files[0]; if(f) importarCustoML(f); ev.target.value=''; }
-                  })
-                ),
-                e('label', {className: 'flex items-center gap-2 bg-purple-700 hover:bg-purple-600 text-white px-4 py-2 rounded-lg font-bold text-sm cursor-pointer transition-colors'},
-                  '🔍 Detectar Kits',
-                  e('input', {type: 'file', accept: '.xlsx,.xls', multiple: true, style: {display:'none'},
-                    onChange: function(ev) {
-                      if (ev.target.files && ev.target.files.length) importarAnunciosParaKits(ev.target.files);
-                      ev.target.value = '';
-                    }
-                  })
-                ),
-                e('label', {className: 'flex items-center gap-2 bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded-lg font-bold text-sm cursor-pointer transition-colors'},
-                  '📂 Importar Planilha de Custos',
-                  e('input', {type: 'file', accept: '.xlsx,.xls', style: {display: 'none'},
-                    onChange: function(ev) {
-                      var f = ev.target.files && ev.target.files[0];
-                      if (f) importarPlanilhaCustos(f);
-                      ev.target.value = '';
-                    }
-                  })
-                ),
-                e('label', {className: 'flex items-center gap-2 bg-blue-700 hover:bg-blue-600 text-white px-4 py-2 rounded-lg font-bold text-sm cursor-pointer transition-colors'},
-                  '📂 Importar Preços Mecânicos',
-                  e('input', {type: 'file', accept: '.xlsx,.xls', style: {display: 'none'},
-                    onChange: function(ev) {
-                      var f = ev.target.files && ev.target.files[0];
-                      if (f) importarPlanilhaPrecosMecanicos(f);
-                      ev.target.value = '';
-                    }
-                  })
-                ),
-                e('button', {
-                  onClick: exportarItensSemKit,
-                  className: 'flex items-center gap-2 bg-orange-600 hover:bg-orange-500 text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors'
-                }, '📥 Exportar Itens sem Kit'),
-                e('label', {className: 'flex items-center gap-2 bg-orange-800 hover:bg-orange-700 text-white px-4 py-2 rounded-lg font-bold text-sm cursor-pointer transition-colors'},
-                  '📤 Importar Custos/Kits',
-                  e('input', {type: 'file', accept: '.xlsx,.xls', style: {display: 'none'},
-                    onChange: function(ev) {
-                      var f = ev.target.files && ev.target.files[0];
-                      if (f) importarCustosKits(f);
-                      ev.target.value = '';
-                    }
-                  })
-                ),
                 precos.length > 0 && e('span', {className: 'text-slate-400 text-sm'}, precos.length + ' produtos cadastrados'),
                 precos.length > 0 && e('button', {
                   onClick: limparTodosPrecos,
                   className: 'ml-auto bg-red-800 hover:bg-red-700 text-white px-3 py-2 rounded-lg font-bold text-sm transition-colors'
                 }, '🗑 Limpar tudo')
               ),
+
 
               // Configuração ML por Marca
               e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg overflow-hidden'},
@@ -1696,178 +1153,30 @@
                       )
                 )
               ),
-
-              // Kits ML
-              e('div', {className: 'bg-slate-800 border border-yellow-500 border-opacity-40 rounded-lg overflow-hidden'},
-                e('div', {
-                  className: 'flex items-center justify-between px-5 py-3 border-b border-slate-700 cursor-pointer hover:bg-slate-700 transition-colors',
-                  onClick: function() { setShowKitsList(function(v) { return !v; }); }
-                },
-                  e('div', {className: 'flex items-center gap-2'},
-                    e('span', {className: 'font-bold text-sm text-slate-200'}, '📦 Kits ML'),
-                    e('span', {className: 'text-xs text-slate-500'}, kitsML.length + ' kits'),
-                    e('span', {className: 'text-slate-500 text-xs'}, showKitsList ? '▲' : '▼')
-                  ),
-                  e('div', {className: 'flex gap-2', onClick: function(ev) { ev.stopPropagation(); }},
-                    kitsML.some(function(k){return k.sku_ml;}) && e('button', {
-                      onClick: limparKitsAuto,
-                      className: 'text-slate-500 hover:text-red-400 text-xs px-2 py-1.5 rounded transition-colors',
-                      title: 'Limpar kits auto-detectados'
-                    }, '🗑 Limpar auto'),
-                    e('button', {
-                      onClick: function() { setCriandoKit(function(v) { return !v; }); setNovoKitComp([]); setBuscaComp(''); },
-                      className: 'bg-yellow-400 hover:bg-yellow-300 text-slate-900 text-xs font-bold px-3 py-1.5 rounded transition-colors'
-                    }, criandoKit ? '✗ Cancelar' : '+ Novo Kit')
-                  )
-                ),
-                criandoKit && e('div', {className: 'p-5 border-b border-slate-700'},
-                  e('p', {className: 'text-xs text-slate-400 mb-3'}, 'Busque e adicione os produtos do kit:'),
-                  e('input', {
-                    type: 'text', placeholder: 'Buscar produto (SKU ou marca)...',
-                    value: buscaComp,
-                    onChange: function(ev) { setBuscaComp(ev.target.value); },
-                    className: 'w-full bg-slate-700 border border-slate-600 text-white text-sm px-3 py-2 rounded outline-none focus:border-yellow-400 mb-2'
-                  }),
-                  buscaComp.trim().length > 0 && e('div', {className: 'bg-slate-900 rounded-lg mb-3 max-h-40 overflow-y-auto'},
-                    (function() {
-                      var term = buscaComp.trim().toUpperCase();
-                      var resultados = precos.filter(function(p) {
-                        return p.marca.indexOf(term) !== -1 || p.sku.indexOf(term) !== -1;
-                      }).slice(0, 10);
-                      if (resultados.length === 0) return e('p', {className: 'text-slate-500 text-xs p-3'}, 'Nenhum produto encontrado.');
-                      return resultados.map(function(p) {
-                        return e('button', {
-                          key: p.marca+'|'+p.sku,
-                          onClick: function() {
-                            var jaExiste = novoKitComp.findIndex(function(c) { return c.marca===p.marca && c.sku===p.sku; });
-                            if (jaExiste !== -1) {
-                              setNovoKitComp(function(prev) { return prev.map(function(c,i) { return i===jaExiste?Object.assign({},c,{quantidade:c.quantidade+1}):c; }); });
-                            } else {
-                              var custo = p.custo_ml ? Number(p.custo_ml) : Number(p.custo);
-                              setNovoKitComp(function(prev) { return prev.concat([{marca:p.marca,sku:p.sku,quantidade:1,custo:custo}]); });
-                            }
-                            setBuscaComp('');
-                          },
-                          className: 'w-full text-left px-3 py-2 hover:bg-slate-700 transition-colors border-b border-slate-800 last:border-0'
-                        },
-                          e('span', {className: 'text-xs text-slate-400 mr-2'}, p.marca),
-                          e('span', {className: 'text-sm font-bold text-white'}, p.sku),
-                          e('span', {className: 'text-xs text-slate-400 ml-2'}, 'R$ '+(p.custo_ml?Number(p.custo_ml):Number(p.custo)).toFixed(2).replace('.',','))
-                        );
-                      });
-                    })()
-                  ),
-                  novoKitComp.length > 0 && e('div', {className: 'space-y-2 mb-3'},
-                    e('p', {className: 'text-xs text-slate-400 font-bold mb-1'}, 'Componentes:'),
-                    novoKitComp.map(function(c, i) {
-                      return e('div', {key:i, className:'flex items-center gap-2 bg-slate-700 rounded px-3 py-2'},
-                        e('span', {className:'text-xs text-slate-400'}, c.marca),
-                        e('span', {className:'text-sm font-bold text-white flex-1'}, c.sku),
-                        e('button', {onClick:function(){setNovoKitComp(function(prev){return prev.map(function(x,j){return j===i?Object.assign({},x,{quantidade:Math.max(1,x.quantidade-1)}):x;});});}, className:'text-slate-400 hover:text-white w-5 font-bold'}, '-'),
-                        e('span', {className:'text-white text-sm w-6 text-center'}, c.quantidade+'x'),
-                        e('button', {onClick:function(){setNovoKitComp(function(prev){return prev.map(function(x,j){return j===i?Object.assign({},x,{quantidade:x.quantidade+1}):x;});});}, className:'text-slate-400 hover:text-white w-5 font-bold'}, '+'),
-                        e('button', {onClick:function(){setNovoKitComp(function(prev){return prev.filter(function(_,j){return j!==i;});});}, className:'text-red-400 ml-1 font-bold'}, '×')
-                      );
-                    }),
-                    e('p', {className:'text-xs text-slate-400 mt-1'},
-                      'Nome: ', e('span', {className:'text-yellow-400 font-bold'}, gerarNomeKit(novoKitComp)),
-                      ' · Custo: R$ ', calcularCustoKit(novoKitComp).toFixed(2).replace('.',',')
-                    )
-                  ),
-                  novoKitComp.length > 0 && e('button', {
-                    onClick: criarKit,
-                    className: 'w-full bg-yellow-400 hover:bg-yellow-300 text-slate-900 font-bold text-sm py-2 rounded mt-2'
-                  }, '✓ Criar Kit')
-                ),
-                showKitsList && kitsML.length === 0
-                  ? e('p', {className: 'text-slate-500 text-sm text-center py-4'}, 'Nenhum kit criado ainda. Clique em "+ Novo Kit" para começar.')
-                  : showKitsList && e('div', null,
-                      e('div', {className: 'px-4 py-2 border-b border-slate-700'},
-                        e('input', {
-                          type: 'text', placeholder: 'Buscar kit por SKU ou marca...',
-                          value: precosSearchML,
-                          onChange: function(ev) { setPrecosSearchML(ev.target.value); },
-                          className: 'w-full bg-slate-700 border border-slate-600 text-white text-sm px-3 py-1.5 rounded outline-none focus:border-yellow-400'
-                        })
-                      ),
-                      e('div', {className: 'divide-y divide-slate-700'},
-                      (function() {
-                        var termKit = precosSearchML.trim().toUpperCase();
-                        var kitsFiltrados = kitsML.filter(function(k) {
-                          if (!termKit) return true;
-                          return k.nome.toUpperCase().indexOf(termKit) !== -1;
-                        });
-                        return kitsFiltrados.map(function(kit) {
-                        var componentes = kit.kits_ml_componentes || [];
-                        var custoTotal = calcularCustoKit(componentes);
-                        var precoFinal = calcularPrecoKit(kit);
-                        var fmt = function(n) { return 'R$ '+Number(n).toFixed(2).replace('.',','); };
-                        var editandoEsteKit = editandoKit && editandoKit.id === kit.id;
-                        if (editandoEsteKit) {
-                          return e('div', {key:kit.id, className:'p-4'},
-                            e('div', {className:'text-xs text-yellow-400 font-bold mb-3'}, kit.nome),
-                            e('div', {className:'space-y-2 mb-3'},
-                              ['Preço ML (R$)','Markup (%)','Frete (R$)'].map(function(lbl, idx) {
-                                var keys = ['preco','markup','frete'];
-                                var phs  = ['calculado auto','60','auto'];
-                                return e('div', {key:lbl, className:'flex items-center gap-2'},
-                                  e('span', {className:'text-xs text-slate-400 w-32'}, lbl),
-                                  e('input', {type:'text', inputMode:'numeric', placeholder:phs[idx], value:editandoKit[keys[idx]]||'',
-                                    onChange:function(ev){var v=ev.target.value,k=keys[idx];setEditandoKit(function(p){var n=Object.assign({},p);n[k]=v;return n;});},
-                                    className:'flex-1 bg-slate-700 border border-slate-600 text-white text-sm px-3 py-1.5 rounded outline-none'})
-                                );
-                              })
-                            ),
-                            e('div', {className:'flex gap-2'},
-                              e('button', {onClick:salvarKitOverride, className:'flex-1 bg-yellow-400 hover:bg-yellow-300 text-slate-900 text-sm py-1.5 rounded font-bold'}, '✓ Salvar'),
-                              e('button', {onClick:function(){setEditandoKit(null);}, className:'px-3 bg-slate-700 text-slate-300 text-sm py-1.5 rounded'}, '✗')
-                            )
-                          );
-                        }
-                        return e('div', {key:kit.id, className:'group p-4 hover:bg-slate-750'},
-                          e('div', {className:'flex items-start justify-between mb-2'},
-                            e('span', {className:'text-xs text-yellow-400 font-bold'}, kit.nome),
-                            e('div', {className:'flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity'},
-                              e('button', {onClick:function(){setEditandoKit({id:kit.id,markup:kit.markup_override||'',frete:kit.frete_override||'',preco:kit.preco_override||''});}, className:'text-slate-400 hover:text-yellow-400 text-sm'}, '✏️'),
-                              e('button', {onClick:function(){deletarKit(kit.id);}, className:'text-slate-400 hover:text-red-400 text-sm'}, '🗑')
-                            )
-                          ),
-                          componentes.map(function(c) {
-                            var prod = precos.find(function(p){return marcaMatch(p.marca,c.marca)&&normStr(p.sku)===c.sku;});
-                            var custo = prod?(prod.custo_ml?Number(prod.custo_ml):Number(prod.custo)):0;
-                            return e('div', {key:c.id, className:'flex items-center justify-between text-xs mb-1'},
-                              e('span', {className:'text-slate-400'}, c.marca+' · '+c.sku+' · '+c.quantidade+'x'),
-                              e('span', {className:'text-slate-300'}, fmt(custo*c.quantidade))
-                            );
-                          }),
-                          e('div', {className:'flex items-center justify-between border-t border-slate-700 pt-2 mt-2'},
-                            e('span', {className:'text-xs text-slate-400'}, 'Custo total: '+fmt(custoTotal)),
-                            e('div', {className:'flex flex-col items-end bg-yellow-400 px-3 py-1.5 rounded-lg'},
-                              e('span', {className:'text-xs text-slate-900 font-semibold opacity-80'}, 'Preço ML'),
-                              e('span', {className:'text-base font-black text-slate-900'}, fmt(precoFinal))
-                            )
-                          )
-                        );
-                      })   // fecha map
-                    })()   // fecha IIFE
-                    )      // fecha divide-y
-                  )        // fecha e('div', null, ...)
-              )
             ),
 
             // ── Grid de produtos (custo + preço ML + preço mecânico) ──
             (function() {
               var term = precosSearch.trim().toUpperCase();
+              if (precos.length === 0) return e('p', {className: 'text-slate-500 text-sm text-center py-10'}, 'Nenhum custo cadastrado.');
+              if (!term) return e('p', {className: 'text-slate-500 text-sm text-center py-10'}, '🔍 Digite um SKU ou marca para buscar nos ' + precos.length + ' produtos cadastrados.');
               var filtrados = precos.filter(function(p) {
-                var custoML = p.custo_ml ? Number(p.custo_ml) : Number(p.custo);
-                if (custoML <= 0 && !p.preco_ml && !p.preco_mecanico && !p.kit_apenas) return false;
-                if (!term) return true;
                 return p.marca.toUpperCase().indexOf(term) !== -1 || p.sku.toUpperCase().indexOf(term) !== -1;
               });
-              if (precos.length === 0) return e('p', {className: 'text-slate-500 text-sm text-center py-10'}, 'Nenhum custo cadastrado. Importe a planilha para começar (em ⚙️ Configurações).');
               var fmt = function(n) { return 'R$ ' + Number(n).toFixed(2).replace('.', ','); };
               return e('div', null,
-                e('p', {className: 'text-slate-500 text-xs mb-4'}, 'Exibindo ' + filtrados.length + ' de ' + precos.length + ' produtos'),
+                e('div', {className: 'flex items-center justify-between mb-4'},
+                  e('p', {className: 'text-slate-500 text-xs'}, filtrados.length + ' resultado(s) para "' + precosSearch.trim() + '"'),
+                  modoSelecao && filtrados.length > 0 && e('button', {
+                    onClick: function() {
+                      var todasChaves = filtrados.map(function(p) { return p.marca+'|'+p.sku; });
+                      setSkusSelecionados(function(sel) {
+                        return sel.length === todasChaves.length ? [] : todasChaves;
+                      });
+                    },
+                    className: 'text-xs text-blue-400 hover:text-blue-300 underline'
+                  }, skusSelecionados.length === filtrados.length ? 'Desmarcar todos' : 'Selecionar todos')
+                ),
                 e('div', {className: 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4'},
                   filtrados.map(function(p) {
                     var custoML = p.custo_ml ? Number(p.custo_ml) : Number(p.custo);
@@ -1885,9 +1194,24 @@
                     var chave = p.marca + '|' + p.sku;
                     var editandoCusto = editandoCustoChave === chave;
                     var editandoSku = editandoSkuChave === chave;
+                    var selecionado = skusSelecionados.indexOf(chave) !== -1;
 
-                    return e('div', {key: chave, className: 'group bg-slate-800 border border-slate-700 rounded-lg p-4 hover:border-slate-500 transition-colors'},
-                      e('div', {className: 'text-xs text-slate-500 font-bold uppercase tracking-wider mb-1'}, p.marca),
+                    return e('div', {
+                      key: chave,
+                      className: 'group bg-slate-800 border rounded-lg p-4 transition-colors cursor-default ' + (selecionado ? 'border-blue-500 bg-slate-700' : 'border-slate-700 hover:border-slate-500'),
+                      onClick: modoSelecao ? function() {
+                        setSkusSelecionados(function(sel) {
+                          return sel.indexOf(chave) !== -1 ? sel.filter(function(c){return c!==chave;}) : sel.concat([chave]);
+                        });
+                      } : undefined
+                    },
+                      e('div', {className: 'flex items-center justify-between mb-1'},
+                        e('div', {className: 'text-xs text-slate-500 font-bold uppercase tracking-wider'}, p.marca),
+                        modoSelecao && e('input', {
+                          type: 'checkbox', readOnly: true, checked: selecionado,
+                          className: 'w-4 h-4 accent-blue-500 cursor-pointer'
+                        })
+                      ),
                       editandoSku
                         ? e('div', {className: 'flex items-center gap-2 mb-3'},
                             e('input', {
