@@ -1897,7 +1897,19 @@
                       ),
                       e('div', {className: 'flex items-center gap-2'},
                         p.kit_apenas
-                          ? e('span', {className: 'text-xs text-purple-400 font-bold bg-purple-900 bg-opacity-40 px-2 py-1 rounded flex-1 text-center'}, '📦 Apenas em kit')
+                          ? e('div', {className: 'flex items-center gap-2 flex-1'},
+                              e('span', {className: 'text-xs text-purple-400 font-bold bg-purple-900 bg-opacity-40 px-2 py-1 rounded flex-1 text-center'}, '📦 Apenas em kit'),
+                              e('button', {
+                                title: 'Desmarcar — mostrar como produto normal',
+                                onClick: function() {
+                                  supabase.from('precos').update({kit_apenas: false}).eq('marca', p.marca).eq('sku', p.sku).then(function(res) {
+                                    if (res.error) { alert('Erro: ' + res.error.message); return; }
+                                    setPrecos(function(prev) { return prev.map(function(x) { return (x.marca===p.marca&&x.sku===p.sku) ? Object.assign({},x,{kit_apenas:false}) : x; }); });
+                                  });
+                                },
+                                className: 'text-slate-500 hover:text-purple-300 text-xs opacity-0 group-hover:opacity-100 transition-opacity'
+                              }, '🔓')
+                            )
                           : custoML > 0
                             ? e('div', {className: 'flex flex-col items-center bg-yellow-400 px-3 py-1.5 rounded-lg flex-1'},
                                 e('span', {className: 'text-xs text-slate-900 font-semibold opacity-80'}, 'Preço ML'),
