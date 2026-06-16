@@ -157,6 +157,10 @@
       var novasUnidades = unidadesState[0];
       var setNovasUnidades = unidadesState[1];
 
+      var novoCustoState = useState('');
+      var novoCusto = novoCustoState[0];
+      var setNovoCusto = novoCustoState[1];
+
       var importingState = useState(false);
       var importing = importingState[0];
       var setImporting = importingState[1];
@@ -309,20 +313,46 @@
       }, []);
 
       function adicionarSKU() {
-        if (!novaMarca.trim() || !novoSku.trim()) {
-          alert('Preencha a Marca e o SKU!');
-          return;
-        }
-        supabase.from('estoque').insert([{
-          marca: novaMarca.trim().toUpperCase(),
-          sku: novoSku.trim().toUpperCase(),
-          unidades: novasUnidades
-        }]).then(function(result) {
-          if (result.error) { alert('Erro: ' + result.error.message); return; }
-          setNovaMarca('');
-          setNovoSku('');
-          setNovasUnidades(0);
-          carregarEstoque();
+        var marca = novaMarca.trim().toUpperCase();
+        var sku = novoSku.trim().toUpperCase();
+        if (!marca || !sku) { alert('Preencha a Marca e o SKU!'); return; }
+        var custo = parseFloat(String(novoCusto || '').replace(',', '.')) || 0;
+
+        // Verifica se já existe em estoque e precos antes de inserir
+        Promise.all([
+          supabase.from('estoque').select('id').eq('sku', sku).maybeSingle(),
+          supabase.from('precos').select('id').eq('marca', marca).eq('sku', sku).maybeSingle()
+        ]).then(function(results) {
+          var estoqueExiste = results[0].data;
+          var precosExiste = results[1].data;
+          var ops = [];
+
+          if (!estoqueExiste) {
+            ops.push(supabase.from('estoque').insert([{ marca: marca, sku: sku, unidades: novasUnidades }]));
+          }
+          if (!precosExiste) {
+            ops.push(supabase.from('precos').insert([{ marca: marca, sku: sku, custo: custo }]));
+          }
+
+          if (ops.length === 0) {
+            alert('SKU "' + sku + '" já existe tanto no estoque quanto nos preços.');
+            return;
+          }
+
+          Promise.all(ops).then(function(res) {
+            var err = res.find(function(r) { return r.error; });
+            if (err) { alert('Erro: ' + err.error.message); return; }
+            var msgs = [];
+            if (!estoqueExiste) msgs.push('estoque');
+            if (!precosExiste) msgs.push('preços');
+            alert('✓ SKU adicionado em: ' + msgs.join(' e ') + (estoqueExiste ? '\n(já existia no estoque)' : '') + (precosExiste ? '\n(já existia nos preços)' : ''));
+            setNovaMarca('');
+            setNovoSku('');
+            setNovasUnidades(0);
+            setNovoCusto('');
+            carregarEstoque();
+            carregarPrecos();
+          });
         });
       }
 
@@ -990,7 +1020,7 @@
           activeTab === 'registro' && e('div', {className: 'space-y-5'},
             e('div', {className: 'bg-slate-800 border border-slate-700 p-6 rounded-lg'},
               e('h2', {className: 'text-lg font-bold mb-4'}, 'Adicionar SKU Individual'),
-              e('div', {className: 'grid grid-cols-1 md:grid-cols-4 gap-3'},
+              e('div', {className: 'grid grid-cols-1 md:grid-cols-5 gap-3'},
                 e('input', {
                   type: 'text',
                   placeholder: 'MARCA',
@@ -1010,6 +1040,14 @@
                   placeholder: 'Unidades',
                   value: novasUnidades,
                   onChange: function(ev) { setNovasUnidades(parseInt(ev.target.value) || 0); },
+                  className: 'bg-slate-700 text-white px-4 py-2 rounded border border-slate-600 focus:border-blue-400 focus:outline-none text-sm'
+                }),
+                e('input', {
+                  type: 'text',
+                  inputMode: 'numeric',
+                  placeholder: 'Custo (R$)',
+                  value: novoCusto,
+                  onChange: function(ev) { setNovoCusto(ev.target.value); },
                   className: 'bg-slate-700 text-white px-4 py-2 rounded border border-slate-600 focus:border-blue-400 focus:outline-none text-sm'
                 }),
                 e('button', {
