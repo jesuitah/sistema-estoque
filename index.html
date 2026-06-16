@@ -648,6 +648,20 @@
         });
         return result;
       }
+      function salvarSkuProduto(p) {
+        var novoSku = skuEditValue.trim().toUpperCase();
+        if (!novoSku || novoSku === p.sku) { setEditandoSkuChave(null); return; }
+        Promise.all([
+          supabase.from('precos').update({ sku: novoSku }).eq('marca', p.marca).eq('sku', p.sku),
+          supabase.from('estoque').update({ sku: novoSku }).eq('sku', p.sku)
+        ]).then(function(results) {
+          var err = results.find(function(r) { return r.error; });
+          if (err) { alert('Erro ao salvar SKU: ' + err.error.message); return; }
+          setPrecos(function(prev) { return prev.map(function(x) { return (x.marca===p.marca&&x.sku===p.sku) ? Object.assign({},x,{sku:novoSku}) : x; }); });
+          setEditandoSkuChave(null);
+        });
+      }
+
       function excluirSelecionados() {
         if (skusSelecionados.length === 0) return;
         if (!confirm('Excluir ' + skusSelecionados.length + ' produto(s) selecionado(s)? Esta ação não pode ser desfeita.')) return;
