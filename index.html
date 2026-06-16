@@ -357,15 +357,10 @@
       }
 
       function deletarSKU(item) {
-        if (!confirm('Deletar SKU ' + item.sku + '? Será removido do estoque e dos preços.')) return;
-        Promise.all([
-          supabase.from('estoque').delete().eq('id', item.id),
-          supabase.from('precos').delete().eq('marca', item.marca).eq('sku', item.sku)
-        ]).then(function(results) {
-          var err = results.find(function(r) { return r.error; });
-          if (err) { alert('Erro: ' + err.error.message); return; }
+        if (!confirm('Deletar SKU ' + item.sku + ' do estoque?')) return;
+        supabase.from('estoque').delete().eq('id', item.id).then(function(res) {
+          if (res.error) { alert('Erro: ' + res.error.message); return; }
           carregarEstoque();
-          setPrecos(function(prev) { return prev.filter(function(p) { return !(p.marca === item.marca && p.sku === item.sku); }); });
         });
       }
 
