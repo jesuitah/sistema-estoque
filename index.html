@@ -86,7 +86,7 @@
               }, loja.nome);
             }),
             e('button', {
-              onClick: function() { props.onDelete(item.id); },
+              onClick: function() { props.onDelete(item); },
               className: 'w-6 h-6 flex items-center justify-center hover:bg-red-200 rounded-full text-red-600 font-bold text-sm ml-1'
             }, 'x')
           )
@@ -356,11 +356,16 @@
         });
       }
 
-      function deletarSKU(id) {
-        if (!confirm('Deletar este SKU?')) return;
-        supabase.from('estoque').delete().eq('id', id).then(function(result) {
-          if (result.error) { alert('Erro: ' + result.error.message); return; }
+      function deletarSKU(item) {
+        if (!confirm('Deletar SKU ' + item.sku + '? Será removido do estoque e dos preços.')) return;
+        Promise.all([
+          supabase.from('estoque').delete().eq('id', item.id),
+          supabase.from('precos').delete().eq('marca', item.marca).eq('sku', item.sku)
+        ]).then(function(results) {
+          var err = results.find(function(r) { return r.error; });
+          if (err) { alert('Erro: ' + err.error.message); return; }
           carregarEstoque();
+          setPrecos(function(prev) { return prev.filter(function(p) { return !(p.marca === item.marca && p.sku === item.sku); }); });
         });
       }
 
@@ -758,9 +763,13 @@
           return { marca: parts[0], sku: parts.slice(1).join('|') };
         });
         Promise.all(pares.map(function(par) {
-          return supabase.from('precos').delete().eq('marca', par.marca).eq('sku', par.sku);
+          return Promise.all([
+            supabase.from('precos').delete().eq('marca', par.marca).eq('sku', par.sku),
+            supabase.from('estoque').delete().eq('marca', par.marca).eq('sku', par.sku)
+          ]);
         })).then(function(results) {
-          var err = results.find(function(r) { return r.error; });
+          var flat = results.reduce(function(acc, r) { return acc.concat(r); }, []);
+          var err = flat.find(function(r) { return r.error; });
           if (err) { alert('Erro ao excluir: ' + err.error.message); return; }
           setPrecos(function(prev) {
             return prev.filter(function(x) {
@@ -769,6 +778,7 @@
           });
           setSkusSelecionados([]);
           setModoSelecao(false);
+          carregarEstoque();
         });
       }
 
