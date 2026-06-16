@@ -225,6 +225,10 @@
       var showMarkupEditorML = showMarkupEditorMLState[0];
       var setShowMarkupEditorML = showMarkupEditorMLState[1];
 
+      var paginaPrecosState = useState(1);
+      var paginaPrecos = paginaPrecosState[0];
+      var setPaginaPrecos = paginaPrecosState[1];
+
       var modoSelecaoState = useState(false);
       var modoSelecao = modoSelecaoState[0];
       var setModoSelecao = modoSelecaoState[1];
@@ -1013,7 +1017,7 @@
               e('input', {
                 type: 'text', placeholder: 'Digite o SKU ou marca...',
                 value: precosSearch,
-                onChange: function(ev) { setPrecosSearch(ev.target.value); setModoSelecao(false); setSkusSelecionados([]); },
+                onChange: function(ev) { setPrecosSearch(ev.target.value); setModoSelecao(false); setSkusSelecionados([]); setPaginaPrecos(1); },
                 className: 'flex-1 bg-slate-800 text-white px-4 py-3 rounded-lg border border-slate-600 focus:border-blue-400 focus:outline-none text-sm'
               }),
               modoSelecao && skusSelecionados.length > 0 && e('button', {
@@ -1159,14 +1163,17 @@
             (function() {
               var term = precosSearch.trim().toUpperCase();
               if (precos.length === 0) return e('p', {className: 'text-slate-500 text-sm text-center py-10'}, 'Nenhum custo cadastrado.');
-              if (!term) return e('p', {className: 'text-slate-500 text-sm text-center py-10'}, '🔍 Digite um SKU ou marca para buscar nos ' + precos.length + ' produtos cadastrados.');
-              var filtrados = precos.filter(function(p) {
-                return p.marca.toUpperCase().indexOf(term) !== -1 || p.sku.toUpperCase().indexOf(term) !== -1;
-              });
+              var filtrados = term
+                ? precos.filter(function(p) {
+                    return p.marca.toUpperCase().indexOf(term) !== -1 || p.sku.toUpperCase().indexOf(term) !== -1;
+                  })
+                : precos;
+              var POR_PAGINA = 100;
+              var exibidos = filtrados.slice(0, paginaPrecos * POR_PAGINA);
               var fmt = function(n) { return 'R$ ' + Number(n).toFixed(2).replace('.', ','); };
               return e('div', null,
                 e('div', {className: 'flex items-center justify-between mb-4'},
-                  e('p', {className: 'text-slate-500 text-xs'}, filtrados.length + ' resultado(s) para "' + precosSearch.trim() + '"'),
+                  e('p', {className: 'text-slate-500 text-xs'}, 'Exibindo ' + exibidos.length + ' de ' + filtrados.length + ' produtos'),
                   modoSelecao && filtrados.length > 0 && e('button', {
                     onClick: function() {
                       var todasChaves = filtrados.map(function(p) { return p.marca+'|'+p.sku; });
@@ -1178,7 +1185,7 @@
                   }, skusSelecionados.length === filtrados.length ? 'Desmarcar todos' : 'Selecionar todos')
                 ),
                 e('div', {className: 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4'},
-                  filtrados.map(function(p) {
+                  exibidos.map(function(p) {
                     var custoML = p.custo_ml ? Number(p.custo_ml) : Number(p.custo);
                     var cfg = markupsML[p.marca] || {};
                     var markupML = cfg.markup !== undefined ? cfg.markup : 60;
@@ -1292,6 +1299,12 @@
                       )
                     );
                   })
+                ),
+                exibidos.length < filtrados.length && e('div', {className: 'text-center mt-6'},
+                  e('button', {
+                    onClick: function() { setPaginaPrecos(function(p) { return p + 1; }); },
+                    className: 'bg-slate-700 hover:bg-slate-600 text-slate-200 px-6 py-2 rounded-lg text-sm font-bold transition-colors'
+                  }, 'Carregar mais (' + (filtrados.length - exibidos.length) + ' restantes)')
                 )
               );
             })()
