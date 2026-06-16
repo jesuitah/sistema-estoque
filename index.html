@@ -648,6 +648,23 @@
         });
         return result;
       }
+      function salvarCustoProduto(p) {
+        var novoCusto = parseFloat(String(custoEditValue || '').replace(',', '.'));
+        if (isNaN(novoCusto) || novoCusto <= 0) { alert('Custo inválido.'); return; }
+        var usaCustoML = p.custo_ml !== null && p.custo_ml !== undefined && Number(p.custo_ml) > 0;
+        var update = usaCustoML ? { custo_ml: novoCusto } : { custo: novoCusto };
+        supabase.from('precos').update(update).eq('marca', p.marca).eq('sku', p.sku).then(function(res) {
+          if (res.error) { alert('Erro ao salvar: ' + res.error.message); return; }
+          setPrecos(function(prev) {
+            return prev.map(function(x) {
+              if (x.marca === p.marca && x.sku === p.sku) return Object.assign({}, x, update);
+              return x;
+            });
+          });
+          setEditandoCustoChave(null);
+        });
+      }
+
       function salvarSkuProduto(p) {
         var novoSku = skuEditValue.trim().toUpperCase();
         if (!novoSku || novoSku === p.sku) { setEditandoSkuChave(null); return; }
