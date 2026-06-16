@@ -614,6 +614,23 @@
         });
       }
 
+      function excluirMarca(marca) {
+        if (!confirm('Excluir configuração da marca ' + marca + '?')) return;
+        supabase.from('markup_marcas').delete().eq('marca', marca).then(function(res) {
+          if (res.error) { alert('Erro: ' + res.error.message); return; }
+          setMarkupsML(function(prev) { var n = Object.assign({}, prev); delete n[marca]; return n; });
+          setMarkups(function(prev) { var n = Object.assign({}, prev); delete n[marca]; return n; });
+        });
+      }
+
+      function limparTodosPrecos() {
+        if (!confirm('Apagar TODOS os preços cadastrados? Esta ação não pode ser desfeita.')) return;
+        supabase.from('precos').delete().neq('id', 0).then(function(res) {
+          if (res.error) { alert('Erro: ' + res.error.message); return; }
+          setPrecos([]);
+        });
+      }
+
       function marcaMatch(marcaPrecos, marcaKit) {
         var a = normStr(marcaPrecos);
         var b = normStr(marcaKit);
