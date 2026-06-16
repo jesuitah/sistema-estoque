@@ -237,6 +237,14 @@
       var skusSelecionados = skusSelecionadosState[0];
       var setSkusSelecionados = skusSelecionadosState[1];
 
+      var editandoFreteChaveState = useState(null);
+      var editandoFreteChave = editandoFreteChaveState[0];
+      var setEditandoFreteChave = editandoFreteChaveState[1];
+
+      var freteEditValueState = useState('');
+      var freteEditValue = freteEditValueState[0];
+      var setFreteEditValue = freteEditValueState[1];
+
       var editandoSkuChaveState = useState(null);
       var editandoSkuChave = editandoSkuChaveState[0];
       var setEditandoSkuChave = editandoSkuChaveState[1];
@@ -679,6 +687,22 @@
             });
           });
           setEditandoCustoChave(null);
+        });
+      }
+
+      function salvarFreteProduto(p) {
+        var val = freteEditValue.trim().replace(',', '.');
+        var novoFrete = val === '' ? null : parseFloat(val);
+        if (val !== '' && (isNaN(novoFrete) || novoFrete < 0)) { alert('Frete inválido.'); return; }
+        supabase.from('precos').update({ frete_ml_override: novoFrete }).eq('marca', p.marca).eq('sku', p.sku).then(function(res) {
+          if (res.error) { alert('Erro ao salvar: ' + res.error.message); return; }
+          setPrecos(function(prev) {
+            return prev.map(function(x) {
+              if (x.marca === p.marca && x.sku === p.sku) return Object.assign({}, x, { frete_ml_override: novoFrete });
+              return x;
+            });
+          });
+          setEditandoFreteChave(null);
         });
       }
 
@@ -1239,7 +1263,10 @@
                     var markupML = cfg.markup !== undefined ? cfg.markup : 60;
                     var taxa = cfg.taxa !== undefined ? cfg.taxa : 23;
                     var freteAuto = custoML <= 32.64 ? 12 : 30;
-                    var frete = (cfg.frete !== null && cfg.frete !== undefined) ? cfg.frete : freteAuto;
+                    var freteMarca = (cfg.frete !== null && cfg.frete !== undefined) ? cfg.frete : freteAuto;
+                    var freteProduto = (p.frete_ml_override !== null && p.frete_ml_override !== undefined) ? Number(p.frete_ml_override) : null;
+                    var frete = freteProduto !== null ? freteProduto : freteMarca;
+                    var freteLabel = freteProduto !== null ? fmt(freteProduto) : 'Auto';
                     var precoCalcML = (custoML * (1 + markupML/100) + frete) * (1 + taxa/100);
                     var precoML = p.preco_ml ? Number(p.preco_ml) : precoCalcML;
 
@@ -1249,6 +1276,7 @@
                     var chave = p.marca + '|' + p.sku;
                     var editandoCusto = editandoCustoChave === chave;
                     var editandoSku = editandoSkuChave === chave;
+                    var editandoFrete = editandoFreteChave === chave;
                     var selecionado = skusSelecionados.indexOf(chave) !== -1;
 
                     return e('div', {
@@ -1316,6 +1344,36 @@
                                 },
                                 className: 'opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-blue-400 text-xs',
                                 title: 'Editar custo'
+                              }, '✏️')
+                            )
+                      ),
+                      e('div', {className: 'flex items-center justify-between mb-3'},
+                        e('span', {className: 'text-xs text-slate-400'}, 'Frete ML'),
+                        editandoFrete
+                          ? e('div', {className: 'flex items-center gap-2'},
+                              e('input', {
+                                type: 'text', inputMode: 'numeric', autoFocus: true,
+                                placeholder: 'Ex: 30,00 (vazio = Auto)',
+                                value: freteEditValue,
+                                onChange: function(ev) { setFreteEditValue(ev.target.value); },
+                                onKeyDown: function(ev) {
+                                  if (ev.key === 'Enter') salvarFreteProduto(p);
+                                  if (ev.key === 'Escape') setEditandoFreteChave(null);
+                                },
+                                className: 'w-28 bg-slate-700 border border-blue-400 text-white text-sm px-2 py-1 rounded outline-none text-right'
+                              }),
+                              e('button', {onClick: function() { salvarFreteProduto(p); }, className: 'bg-green-600 hover:bg-green-500 text-white text-sm font-bold px-3 py-1.5 rounded'}, '✓'),
+                              e('button', {onClick: function() { setEditandoFreteChave(null); }, className: 'bg-slate-600 hover:bg-red-700 text-white text-sm font-bold px-3 py-1.5 rounded'}, '✗')
+                            )
+                          : e('div', {className: 'flex items-center gap-2'},
+                              e('span', {className: 'text-sm ' + (freteProduto !== null ? 'text-blue-300 font-semibold' : 'text-slate-500')}, freteLabel),
+                              e('button', {
+                                onClick: function() {
+                                  setEditandoFreteChave(chave);
+                                  setFreteEditValue(freteProduto !== null ? String(freteProduto.toFixed(2)).replace('.', ',') : '');
+                                },
+                                className: 'opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-blue-400 text-xs',
+                                title: 'Editar frete ML'
                               }, '✏️')
                             )
                       ),
