@@ -397,18 +397,22 @@
 
               rows.forEach(function(row, idx) {
                 if (idx < 1) return;
-                if (row[0] === null || row[0] === undefined || row[1] === null || row[1] === undefined) return;
+                if (row[0] === null || row[0] === undefined) return;
 
                 var sku = String(row[0]).trim().toUpperCase();
-                var unidades = parseInt(row[1]) || 0;
+                if (!sku || sku === 'SKU') return;
 
-                if (sku && sku !== 'SKU') {
-                  skusDaPlanilha.push({
-                    marca: sheetName.trim().toUpperCase(),
-                    sku: sku,
-                    unidades: unidades
-                  });
-                }
+                var temQtd = row[1] !== null && row[1] !== undefined && row[1] !== '';
+                var temCusto = row[2] !== null && row[2] !== undefined && row[2] !== '';
+
+                skusDaPlanilha.push({
+                  marca: sheetName.trim().toUpperCase(),
+                  sku: sku,
+                  unidades: temQtd ? (parseInt(row[1]) || 0) : null,
+                  custo: temCusto ? (parseFloat(String(row[2]).replace(',', '.')) || 0) : null,
+                  temQtd: temQtd,
+                  temCusto: temCusto
+                });
               });
             });
 
@@ -418,57 +422,74 @@
               return;
             }
 
-            // Remove duplicatas da planilha (mantém o último por marca+sku)
+            // Remove duplicatas (mantém o último por marca+sku)
             var deduped = {};
-            skusDaPlanilha.forEach(function(item) {
-              deduped[item.marca + '|' + item.sku] = item;
-            });
+            skusDaPlanilha.forEach(function(item) { deduped[item.marca + '|' + item.sku] = item; });
             var skusUnicos = Object.keys(deduped).map(function(k) { return deduped[k]; });
 
-            // Compara com o banco: INSERT novos, UPDATE existentes
-            var existentes = estoque.map(function(x) {
+            var existentesEstoque = estoque.map(function(x) {
               return { id: x.id, marca: (x.marca||'').toUpperCase(), sku: (x.sku||'').toUpperCase() };
             });
 
-            var paraInserir = [];
-            var paraAtualizar = [];
+            var opsEstoque = [];
+            var opsPrecos = [];
+            var inseridosEstoque = 0, atualizadosEstoque = 0, atualizadosPrecos = 0, inseridosPrecos = 0;
+
             skusUnicos.forEach(function(item) {
-              var found = existentes.find(function(e) {
-                return e.marca === item.marca && e.sku === item.sku;
-              });
-              if (found) {
-                paraAtualizar.push({ id: found.id, unidades: item.unidades });
-              } else {
-                paraInserir.push(item);
+              // --- ESTOQUE (quantidade) ---
+              if (item.temQtd) {
+                var found = existentesEstoque.find(function(x) { return x.marca === item.marca && x.sku === item.sku; });
+                if (found) {
+                  opsEstoque.push(supabase.from('estoque').update({ unidades: item.unidades }).eq('id', found.id));
+                  atualizadosEstoque++;
+                } else {
+                  opsEstoque.push(supabase.from('estoque').insert([{ marca: item.marca, sku: item.sku, unidades: item.unidades }]));
+                  inseridosEstoque++;
+                }
+              }
+
+              // --- PREÇOS (custo) ---
+              if (item.temCusto) {
+                opsPrecos.push(
+                  supabase.from('precos').select('id').eq('marca', item.marca).eq('sku', item.sku).maybeSingle()
+                    .then(function(res) {
+                      if (res.data) {
+                        atualizadosPrecos++;
+                        return supabase.from('precos').update({ custo: item.custo }).eq('marca', item.marca).eq('sku', item.sku);
+                      } else {
+                        inseridosPrecos++;
+                        return supabase.from('precos').insert([{ marca: item.marca, sku: item.sku, custo: item.custo }]);
+                      }
+                    })
+                );
               }
             });
 
-            var ops = [];
-            // Inserir novos em lotes
-            var chunkSize = 500;
-            for (var ci = 0; ci < paraInserir.length; ci += chunkSize) {
-              ops.push(supabase.from('estoque').insert(paraInserir.slice(ci, ci + chunkSize)));
-            }
-            // Atualizar existentes um a um (necessário para update com id)
-            paraAtualizar.forEach(function(item) {
-              ops.push(supabase.from('estoque').update({ unidades: item.unidades }).eq('id', item.id));
-            });
-
-            if (ops.length === 0) {
+            if (opsEstoque.length === 0 && opsPrecos.length === 0) {
               alert('Nenhuma alteração para aplicar.');
               setImporting(false);
               return;
             }
 
-            Promise.all(ops).then(function(results) {
-              var err = results.find(function(r) { return r.error; });
-              if (err) {
-                alert('Erro na importação: ' + err.error.message);
+            Promise.all(opsEstoque.concat(opsPrecos)).then(function(results) {
+              var flat = results.reduce(function(acc, r) {
+                if (r && r.error) acc.push(r);
+                else if (Array.isArray(r)) r.forEach(function(x) { if (x && x.error) acc.push(x); });
+                return acc;
+              }, []);
+              if (flat.length > 0) {
+                alert('Erro na importação: ' + flat[0].error.message);
                 setImporting(false);
                 return;
               }
-              alert('✓ ' + paraInserir.length + ' inseridos e ' + paraAtualizar.length + ' atualizados com sucesso!');
+              var msg = '✓ Importação concluída!\n';
+              if (inseridosEstoque > 0 || atualizadosEstoque > 0)
+                msg += 'Estoque: ' + inseridosEstoque + ' inseridos, ' + atualizadosEstoque + ' atualizados\n';
+              if (inseridosPrecos > 0 || atualizadosPrecos > 0)
+                msg += 'Preços: ' + inseridosPrecos + ' inseridos, ' + atualizadosPrecos + ' atualizados';
+              alert(msg);
               carregarEstoque();
+              carregarPrecos();
               setImporting(false);
             });
           } catch (err) {
@@ -1090,7 +1111,10 @@
           activeTab === 'importar' && e('div', {className: 'space-y-5'},
             e('div', {className: 'bg-slate-800 border border-slate-700 p-6 rounded-lg'},
               e('h2', {className: 'text-lg font-bold mb-2'}, 'Importar Planilha de SKUs'),
-              e('p', {className: 'text-slate-400 text-sm mb-4'}, 'Formato: Cada aba é uma marca. Coluna A = SKU, Coluna B = Quantidade'),
+              e('p', {className: 'text-slate-400 text-sm mb-1'}, 'Cada aba da planilha = uma marca.'),
+              e('p', {className: 'text-slate-500 text-xs mb-1'}, '• Coluna A: SKU (obrigatório)'),
+              e('p', {className: 'text-slate-500 text-xs mb-1'}, '• Coluna B: Quantidade (opcional — deixe vazio para não alterar o estoque)'),
+              e('p', {className: 'text-slate-500 text-xs mb-4'}, '• Coluna C: Custo (opcional — deixe vazio para não alterar o preço)'),
               e('input', {
                 type: 'file',
                 accept: '.xlsx,.xls',
