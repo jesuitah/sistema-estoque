@@ -1316,7 +1316,7 @@
                     var precoCalcML = (custoML * (1 + markupML/100) + frete) * (1 + taxa/100);
                     var precoML = p.preco_ml ? Number(p.preco_ml) : precoCalcML;
 
-                    var markupMecBase = markups[p.marca] !== undefined ? markups[p.marca] : 60;
+                    var markupMecBase = markups[p.marca] !== undefined ? markups[p.marca] : 50;
                     var markupMec = p.markup_mec_override !== null && p.markup_mec_override !== undefined ? Number(p.markup_mec_override) : markupMecBase;
                     var precoMec = p.preco_mecanico ? Number(p.preco_mecanico) : custoML * (1 + markupMec/100);
                     var valorComMarkup = custoML * (1 + markupMec/100);
@@ -1482,7 +1482,7 @@
                             ? e('div', {className: 'flex flex-col items-center bg-yellow-400 px-3 py-1.5 rounded-lg flex-1'},
                                 e('span', {className: 'text-xs text-slate-900 font-semibold opacity-80'}, 'Preço ML'),
                                 e('span', {className: 'text-base font-black text-slate-900'}, fmt(precoML)),
-                                e('div', {className: 'w-full border-t border-yellow-600 border-opacity-40 mt-1 pt-1'},
+                                e('div', {className: 'w-full border-t border-yellow-600 border-opacity-40 mt-1 pt-1 flex flex-col items-center'},
                                   e('span', {className: 'text-xs text-slate-800 font-semibold opacity-70'}, 'Promoção −10%'),
                                   e('div', {className: 'text-sm font-black text-slate-900'}, fmt(precoML * 0.9))
                                 )
