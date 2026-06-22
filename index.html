@@ -392,37 +392,43 @@
             var skusDaPlanilha = [];
 
             workbook.SheetNames.forEach(function(sheetName) {
+              var marca = sheetName.trim().toUpperCase();
               var sheet = workbook.Sheets[sheetName];
               var rows = XLSX.utils.sheet_to_json(sheet, {header: 1});
 
-              rows.forEach(function(row, idx) {
-                if (idx < 1) return;
-                if (row[0] === null || row[0] === undefined) return;
+              // Encontra a linha de cabeçalho: primeira linha onde col A é "SKU"
+              var dataStart = 1; // padrão: pula só a linha 0
+              for (var i = 0; i < Math.min(rows.length, 10); i++) {
+                if (rows[i][0] && String(rows[i][0]).trim().toUpperCase() === 'SKU') {
+                  dataStart = i + 1;
+                  break;
+                }
+              }
 
+              rows.slice(dataStart).forEach(function(row) {
+                if (!row[0]) return;
                 var sku = String(row[0]).trim().toUpperCase();
-                if (!sku || sku === 'SKU') return;
+                if (!sku) return;
 
                 var temQtd = row[1] !== null && row[1] !== undefined && row[1] !== '';
                 var temCusto = row[2] !== null && row[2] !== undefined && row[2] !== '';
 
                 skusDaPlanilha.push({
-                  marca: sheetName.trim().toUpperCase(),
-                  sku: sku,
+                  marca: marca, sku: sku,
                   unidades: temQtd ? (parseInt(row[1]) || 0) : null,
                   custo: temCusto ? (parseFloat(String(row[2]).replace(',', '.')) || 0) : null,
-                  temQtd: temQtd,
-                  temCusto: temCusto
+                  temQtd: temQtd, temCusto: temCusto
                 });
               });
             });
 
             if (skusDaPlanilha.length === 0) {
-              alert('Nenhum SKU encontrado no arquivo');
+              alert('Nenhum SKU encontrado no arquivo.');
               setImporting(false);
               return;
             }
 
-            // Remove duplicatas (mantém o último por marca+sku)
+            // Remove duplicatas
             var deduped = {};
             skusDaPlanilha.forEach(function(item) { deduped[item.marca + '|' + item.sku] = item; });
             var skusUnicos = Object.keys(deduped).map(function(k) { return deduped[k]; });
@@ -432,11 +438,10 @@
             });
 
             var opsEstoque = [];
-            var opsPrecos = [];
-            var inseridosEstoque = 0, atualizadosEstoque = 0, atualizadosPrecos = 0, inseridosPrecos = 0;
+            var paraUpsertPrecos = [];
+            var inseridosEstoque = 0, atualizadosEstoque = 0;
 
             skusUnicos.forEach(function(item) {
-              // --- ESTOQUE (quantidade) ---
               if (item.temQtd) {
                 var found = existentesEstoque.find(function(x) { return x.marca === item.marca && x.sku === item.sku; });
                 if (found) {
@@ -447,49 +452,42 @@
                   inseridosEstoque++;
                 }
               }
-
-              // --- PREÇOS (custo) ---
               if (item.temCusto) {
-                opsPrecos.push(
-                  supabase.from('precos').select('id').eq('marca', item.marca).eq('sku', item.sku).maybeSingle()
-                    .then(function(res) {
-                      if (res.data) {
-                        atualizadosPrecos++;
-                        return supabase.from('precos').update({ custo: item.custo }).eq('marca', item.marca).eq('sku', item.sku);
-                      } else {
-                        inseridosPrecos++;
-                        return supabase.from('precos').insert([{ marca: item.marca, sku: item.sku, custo: item.custo }]);
-                      }
-                    })
-                );
+                paraUpsertPrecos.push({ marca: item.marca, sku: item.sku, custo: item.custo });
               }
             });
 
-            if (opsEstoque.length === 0 && opsPrecos.length === 0) {
+            // Upsert preços em lotes de 500
+            var opsPrecos = [];
+            var chunkSize = 500;
+            for (var ci = 0; ci < paraUpsertPrecos.length; ci += chunkSize) {
+              opsPrecos.push(
+                supabase.from('precos').upsert(paraUpsertPrecos.slice(ci, ci + chunkSize), { onConflict: 'marca,sku', ignoreDuplicates: false })
+              );
+            }
+
+            var todasOps = opsEstoque.concat(opsPrecos);
+            if (todasOps.length === 0) {
               alert('Nenhuma alteração para aplicar.');
               setImporting(false);
               return;
             }
 
-            Promise.all(opsEstoque.concat(opsPrecos)).then(function(results) {
-              var flat = results.reduce(function(acc, r) {
-                if (r && r.error) acc.push(r);
-                else if (Array.isArray(r)) r.forEach(function(x) { if (x && x.error) acc.push(x); });
-                return acc;
-              }, []);
-              if (flat.length > 0) {
-                alert('Erro na importação: ' + flat[0].error.message);
+            Promise.all(todasOps).then(function(results) {
+              var err = results.find(function(r) { return r && r.error; });
+              if (err) {
+                alert('Erro na importação: ' + err.error.message);
                 setImporting(false);
                 return;
               }
-              var msg = '✓ Importação concluída!\n';
+              var msg = '✓ Importação concluída! ' + skusUnicos.length + ' SKUs processados.\n';
               if (inseridosEstoque > 0 || atualizadosEstoque > 0)
                 msg += 'Estoque: ' + inseridosEstoque + ' inseridos, ' + atualizadosEstoque + ' atualizados\n';
-              if (inseridosPrecos > 0 || atualizadosPrecos > 0)
-                msg += 'Preços: ' + inseridosPrecos + ' inseridos, ' + atualizadosPrecos + ' atualizados';
+              if (paraUpsertPrecos.length > 0)
+                msg += 'Preços: ' + paraUpsertPrecos.length + ' custos salvos';
               alert(msg);
               carregarEstoque();
-              carregarPrecos();
+              if (paraUpsertPrecos.length > 0) carregarPrecos();
               setImporting(false);
             });
           } catch (err) {
