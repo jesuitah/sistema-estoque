@@ -257,6 +257,14 @@
       var skuEditValue = skuEditValueState[0];
       var setSkuEditValue = skuEditValueState[1];
 
+      var editandoMarkupChaveState = useState(null);
+      var editandoMarkupChave = editandoMarkupChaveState[0];
+      var setEditandoMarkupChave = editandoMarkupChaveState[1];
+
+      var markupEditValueState = useState('');
+      var markupEditValue = markupEditValueState[0];
+      var setMarkupEditValue = markupEditValueState[1];
+
       function carregarEstoque() {
         var batchSize = 1000;
         var allData = [];
@@ -733,6 +741,22 @@
             });
           });
           setEditandoFreteChave(null);
+        });
+      }
+
+      function salvarMarkupProduto(p) {
+        var val = markupEditValue.trim().replace(',', '.');
+        var novoMarkup = val === '' ? null : parseFloat(val);
+        if (val !== '' && (isNaN(novoMarkup) || novoMarkup < 0)) { alert('Markup inválido.'); return; }
+        supabase.from('precos').update({ markup_mec_override: novoMarkup }).eq('marca', p.marca).eq('sku', p.sku).then(function(res) {
+          if (res.error) { alert('Erro ao salvar: ' + res.error.message); return; }
+          setPrecos(function(prev) {
+            return prev.map(function(x) {
+              if (x.marca === p.marca && x.sku === p.sku) return Object.assign({}, x, { markup_mec_override: novoMarkup });
+              return x;
+            });
+          });
+          setEditandoMarkupChave(null);
         });
       }
 
@@ -1292,13 +1316,16 @@
                     var precoCalcML = (custoML * (1 + markupML/100) + frete) * (1 + taxa/100);
                     var precoML = p.preco_ml ? Number(p.preco_ml) : precoCalcML;
 
-                    var markupMec = markups[p.marca] !== undefined ? markups[p.marca] : 60;
+                    var markupMecBase = markups[p.marca] !== undefined ? markups[p.marca] : 60;
+                    var markupMec = p.markup_mec_override !== null && p.markup_mec_override !== undefined ? Number(p.markup_mec_override) : markupMecBase;
                     var precoMec = p.preco_mecanico ? Number(p.preco_mecanico) : custoML * (1 + markupMec/100);
+                    var valorComMarkup = custoML * (1 + markupMec/100);
 
                     var chave = p.marca + '|' + p.sku;
                     var editandoCusto = editandoCustoChave === chave;
                     var editandoSku = editandoSkuChave === chave;
                     var editandoFrete = editandoFreteChave === chave;
+                    var editandoMarkup = editandoMarkupChave === chave;
                     var selecionado = skusSelecionados.indexOf(chave) !== -1;
 
                     return e('div', {
@@ -1406,6 +1433,36 @@
                               }, '✏️')
                             )
                       ),
+                      e('div', {className: 'flex items-center justify-between mb-3'},
+                        e('span', {className: 'text-xs text-slate-400'}, 'Markup ' + markupMec + '%'),
+                        editandoMarkup
+                          ? e('div', {className: 'flex items-center gap-2'},
+                              e('input', {
+                                type: 'text', inputMode: 'numeric', autoFocus: true,
+                                placeholder: 'Ex: 50 (vazio = padrão)',
+                                value: markupEditValue,
+                                onChange: function(ev) { setMarkupEditValue(ev.target.value); },
+                                onKeyDown: function(ev) {
+                                  if (ev.key === 'Enter') salvarMarkupProduto(p);
+                                  if (ev.key === 'Escape') setEditandoMarkupChave(null);
+                                },
+                                className: 'w-28 bg-slate-700 border border-blue-400 text-white text-sm px-2 py-1 rounded outline-none text-right'
+                              }),
+                              e('button', {onClick: function() { salvarMarkupProduto(p); }, className: 'bg-green-600 hover:bg-green-500 text-white text-sm font-bold px-3 py-1.5 rounded'}, '✓'),
+                              e('button', {onClick: function() { setEditandoMarkupChave(null); }, className: 'bg-slate-600 hover:bg-red-700 text-white text-sm font-bold px-3 py-1.5 rounded'}, '✗')
+                            )
+                          : e('div', {className: 'flex items-center gap-2'},
+                              e('span', {className: 'text-sm ' + (p.markup_mec_override !== null && p.markup_mec_override !== undefined ? 'text-blue-300 font-semibold' : 'text-slate-300')}, fmt(valorComMarkup)),
+                              e('button', {
+                                onClick: function() {
+                                  setEditandoMarkupChave(chave);
+                                  setMarkupEditValue(String(markupMec));
+                                },
+                                className: 'opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-blue-400 text-xs',
+                                title: 'Editar markup'
+                              }, '✏️')
+                            )
+                      ),
                       e('div', {className: 'flex items-center gap-2'},
                         p.kit_apenas
                           ? e('div', {className: 'flex items-center gap-2 flex-1'},
@@ -1424,7 +1481,11 @@
                           : custoML > 0
                             ? e('div', {className: 'flex flex-col items-center bg-yellow-400 px-3 py-1.5 rounded-lg flex-1'},
                                 e('span', {className: 'text-xs text-slate-900 font-semibold opacity-80'}, 'Preço ML'),
-                                e('span', {className: 'text-base font-black text-slate-900'}, fmt(precoML))
+                                e('span', {className: 'text-base font-black text-slate-900'}, fmt(precoML)),
+                                e('div', {className: 'w-full border-t border-yellow-600 border-opacity-40 mt-1 pt-1'},
+                                  e('span', {className: 'text-xs text-slate-800 font-semibold opacity-70'}, 'Promoção −10%'),
+                                  e('div', {className: 'text-sm font-black text-slate-900'}, fmt(precoML * 0.9))
+                                )
                               )
                             : null,
                         precoMec > 0 && e('div', {className: 'flex flex-col items-center bg-green-500 px-3 py-1.5 rounded-lg flex-1'},
