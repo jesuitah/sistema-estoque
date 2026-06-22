@@ -1405,36 +1405,6 @@
                             )
                       ),
                       e('div', {className: 'flex items-center justify-between mb-3'},
-                        e('span', {className: 'text-xs text-slate-400'}, 'Frete ML'),
-                        editandoFrete
-                          ? e('div', {className: 'flex items-center gap-2'},
-                              e('input', {
-                                type: 'text', inputMode: 'numeric', autoFocus: true,
-                                placeholder: 'Ex: 30,00 (vazio = Auto)',
-                                value: freteEditValue,
-                                onChange: function(ev) { setFreteEditValue(ev.target.value); },
-                                onKeyDown: function(ev) {
-                                  if (ev.key === 'Enter') salvarFreteProduto(p);
-                                  if (ev.key === 'Escape') setEditandoFreteChave(null);
-                                },
-                                className: 'w-28 bg-slate-700 border border-blue-400 text-white text-sm px-2 py-1 rounded outline-none text-right'
-                              }),
-                              e('button', {onClick: function() { salvarFreteProduto(p); }, className: 'bg-green-600 hover:bg-green-500 text-white text-sm font-bold px-3 py-1.5 rounded'}, '✓'),
-                              e('button', {onClick: function() { setEditandoFreteChave(null); }, className: 'bg-slate-600 hover:bg-red-700 text-white text-sm font-bold px-3 py-1.5 rounded'}, '✗')
-                            )
-                          : e('div', {className: 'flex items-center gap-2'},
-                              e('span', {className: 'text-sm ' + (freteProduto !== null ? 'text-blue-300 font-semibold' : 'text-slate-500')}, freteLabel),
-                              e('button', {
-                                onClick: function() {
-                                  setEditandoFreteChave(chave);
-                                  setFreteEditValue(freteProduto !== null ? String(freteProduto.toFixed(2)).replace('.', ',') : '');
-                                },
-                                className: 'opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-blue-400 text-xs',
-                                title: 'Editar frete ML'
-                              }, '✏️')
-                            )
-                      ),
-                      e('div', {className: 'flex items-center justify-between mb-3'},
                         e('span', {className: 'text-xs text-slate-400'}, 'Markup ' + markupRef + '%'),
                         editandoMarkup
                           ? e('div', {className: 'flex items-center gap-2'},
@@ -1464,6 +1434,36 @@
                               }, '✏️')
                             )
                       ),
+                      e('div', {className: 'flex items-center justify-between mb-3'},
+                        e('span', {className: 'text-xs text-slate-400'}, 'Frete ML'),
+                        editandoFrete
+                          ? e('div', {className: 'flex items-center gap-2'},
+                              e('input', {
+                                type: 'text', inputMode: 'numeric', autoFocus: true,
+                                placeholder: 'Ex: 30,00 (vazio = Auto)',
+                                value: freteEditValue,
+                                onChange: function(ev) { setFreteEditValue(ev.target.value); },
+                                onKeyDown: function(ev) {
+                                  if (ev.key === 'Enter') salvarFreteProduto(p);
+                                  if (ev.key === 'Escape') setEditandoFreteChave(null);
+                                },
+                                className: 'w-28 bg-slate-700 border border-blue-400 text-white text-sm px-2 py-1 rounded outline-none text-right'
+                              }),
+                              e('button', {onClick: function() { salvarFreteProduto(p); }, className: 'bg-green-600 hover:bg-green-500 text-white text-sm font-bold px-3 py-1.5 rounded'}, '✓'),
+                              e('button', {onClick: function() { setEditandoFreteChave(null); }, className: 'bg-slate-600 hover:bg-red-700 text-white text-sm font-bold px-3 py-1.5 rounded'}, '✗')
+                            )
+                          : e('div', {className: 'flex items-center gap-2'},
+                              e('span', {className: 'text-sm ' + (freteProduto !== null ? 'text-blue-300 font-semibold' : 'text-slate-500')}, freteLabel),
+                              e('button', {
+                                onClick: function() {
+                                  setEditandoFreteChave(chave);
+                                  setFreteEditValue(freteProduto !== null ? String(freteProduto.toFixed(2)).replace('.', ',') : '');
+                                },
+                                className: 'opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-blue-400 text-xs',
+                                title: 'Editar frete ML'
+                              }, '✏️')
+                            )
+                      ),
                       e('div', {className: 'flex items-center gap-2'},
                         p.kit_apenas
                           ? e('div', {className: 'flex items-center gap-2 flex-1'},
@@ -1489,7 +1489,7 @@
                                 )
                               )
                             : null,
-                        precoMec > 0 && e('div', {className: 'flex flex-col items-center bg-green-500 px-3 py-1.5 rounded-lg flex-1'},
+                        precoMec > 0 && e('div', {className: 'flex flex-col items-center bg-green-500 px-3 py-1.5 rounded-lg flex-1 self-stretch justify-center'},
                           e('span', {className: 'text-xs text-white font-semibold opacity-90'}, 'Preço Mecânico'),
                           e('span', {className: 'text-base font-black text-white'}, fmt(precoMec))
                         )
