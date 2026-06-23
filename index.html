@@ -197,6 +197,10 @@
       var precosSearch = precosSearchState[0];
       var setPrecosSearch = precosSearchState[1];
 
+      var precosSearchInputState = useState('');
+      var precosSearchInput = precosSearchInputState[0];
+      var setPrecosSearchInput = precosSearchInputState[1];
+
       var markupEditState = useState({});
       var markupEdit = markupEditState[0];
       var setMarkupEdit = markupEditState[1];
@@ -1407,8 +1411,16 @@
             e('div', {className: 'flex gap-3'},
               e('input', {
                 type: 'text', placeholder: 'Digite o SKU ou marca...',
-                value: precosSearch,
-                onChange: function(ev) { setPrecosSearch(ev.target.value); setModoSelecao(false); setSkusSelecionados([]); setPaginaPrecos(1); },
+                value: precosSearchInput,
+                onChange: function(ev) {
+                  var val = ev.target.value;
+                  setPrecosSearchInput(val);
+                  clearTimeout(window._precosDebounce);
+                  window._precosDebounce = setTimeout(function() {
+                    setPrecosSearch(val);
+                    setPaginaPrecos(1);
+                  }, 300);
+                },
                 className: 'flex-1 bg-slate-800 text-white px-4 py-3 rounded-lg border border-slate-600 focus:border-blue-400 focus:outline-none text-sm'
               }),
               e('button', {
@@ -1552,10 +1564,12 @@
                   })
                 : precos;
               var fmt = function(n) { return 'R$ ' + Number(n).toFixed(2).replace('.', ','); };
+              var POR_PAGINA = 1000;
+              var exibidos = filtrados.slice(0, paginaPrecos * POR_PAGINA);
               return e('div', null,
-                e('p', {className: 'text-slate-500 text-xs mb-4'}, filtrados.length + ' produtos'),
+                e('p', {className: 'text-slate-500 text-xs mb-4'}, 'Exibindo ' + exibidos.length + ' de ' + filtrados.length + ' produtos'),
                 e('div', {className: 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4'},
-                  filtrados.map(function(p) {
+                  exibidos.map(function(p) {
                     var custoML = p.custo_ml ? Number(p.custo_ml) : Number(p.custo);
                     var cfg = markupsML[p.marca] || {};
                     var markupML = cfg.markup !== undefined ? cfg.markup : 60;
@@ -1749,6 +1763,12 @@
                     );
                   })
                 ),
+                exibidos.length < filtrados.length && e('div', {className: 'text-center mt-6'},
+                  e('button', {
+                    onClick: function() { setPaginaPrecos(function(p) { return p + 1; }); },
+                    className: 'bg-slate-700 hover:bg-slate-600 text-slate-200 px-6 py-2 rounded-lg text-sm font-bold transition-colors'
+                  }, 'Carregar mais (' + (filtrados.length - exibidos.length) + ' restantes)')
+                )
               );
             })()
           ),
