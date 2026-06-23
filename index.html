@@ -1069,13 +1069,17 @@
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'sku' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
             }, '> Busca'),
             e('button', {
+              onClick: function() { setActiveTab('registro'); },
+              className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'registro' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
+            }, '+ Registro'),
+            e('button', {
               onClick: function() { setActiveTab('precos'); },
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'precos' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
             }, '💰 Preços'),
             e('button', {
-              onClick: function() { setActiveTab('registro'); },
-              className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'registro' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
-            }, '+ Registro'),
+              onClick: function() { setActiveTab('vendas'); },
+              className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'vendas' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
+            }, '💰 Vendas'),
             e('button', {
               onClick: function() { setActiveTab('importar'); },
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'importar' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
@@ -1083,11 +1087,7 @@
             e('button', {
               onClick: function() { setActiveTab('naoAnunciados'); },
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'naoAnunciados' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
-            }, '🏪 Lojas ML'),
-            e('button', {
-              onClick: function() { setActiveTab('vendas'); },
-              className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'vendas' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
-            }, '💰 Vendas')
+            }, '🏪 Lojas ML')
           )
         ),
 
