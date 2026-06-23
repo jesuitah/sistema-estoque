@@ -522,20 +522,20 @@
 
             // Encontra linha de cabeçalho (tem "SKU" em alguma coluna)
             var headerIdx = -1;
-            var colSku = -1, colTotal = -1, colPreco = -1;
+            var colSku = -1, colTotal = -1, colUnidades = -1;
             for (var i = 0; i < Math.min(rows.length, 10); i++) {
               var row = rows[i];
               for (var j = 0; j < row.length; j++) {
                 var val = String(row[j]).trim().toUpperCase();
                 if (val === 'SKU') { colSku = j; headerIdx = i; }
                 if (val === 'TOTAL (BRL)') colTotal = j;
-                if (val === 'PREÇO UNITÁRIO DE VENDA DO ANÚNCIO (BRL)') colPreco = j;
+                if (val === 'UNIDADES') colUnidades = j;
               }
               if (headerIdx !== -1) break;
             }
             if (colSku === -1) { alert('Coluna SKU não encontrada na planilha ' + nomeLoja); return; }
             if (colTotal === -1) colTotal = 17;
-            if (colPreco === -1) colPreco = 27;
+            if (colUnidades === -1) colUnidades = 6;
 
             // Agrupa por SKU
             var grupos = {};
@@ -544,10 +544,12 @@
               if (!skuRaw) return;
               var total = parseFloat(row[colTotal]) || 0;
               if (total <= 0) return;
+              var unidades = parseInt(row[colUnidades]) || 1;
               var chave = nomeLoja + '||' + skuRaw;
-              if (!grupos[chave]) grupos[chave] = { loja: nomeLoja, skuRaw: skuRaw, count: 0, receitaTotal: 0 };
+              if (!grupos[chave]) grupos[chave] = { loja: nomeLoja, skuRaw: skuRaw, count: 0, receitaTotal: 0, unidadesTotal: 0 };
               grupos[chave].count++;
               grupos[chave].receitaTotal += total;
+              grupos[chave].unidadesTotal += unidades;
             });
 
             var novosCards = Object.keys(grupos).map(function(k) { return grupos[k]; });
@@ -1208,14 +1210,16 @@
             // Calcula custo e status de cada card
             var cards = filtrados.map(function(v) {
               var componentes = parseSKUsML(v.skuRaw);
-              var custoTotal = 0;
+              var custoUnitario = 0;
               var custoOk = componentes.length > 0;
               componentes.forEach(function(c) {
                 var prod = precos.find(function(p) { return p.marca === c.marca && p.sku === c.sku; });
                 if (prod) {
-                  custoTotal += prod.custo_ml ? Number(prod.custo_ml) : Number(prod.custo || 0);
+                  custoUnitario += prod.custo_ml ? Number(prod.custo_ml) : Number(prod.custo || 0);
                 } else { custoOk = false; }
               });
+              var mediaUnidades = v.count > 0 ? (v.unidadesTotal || v.count) / v.count : 1;
+              var custoTotal = custoUnitario * mediaUnidades;
               var receitaMedia = v.count > 0 ? v.receitaTotal / v.count : 0;
               var minimoEsperado = custoTotal * 1.5;
               var markupReal = custoTotal > 0 ? ((receitaMedia - custoTotal) / custoTotal * 100) : null;
