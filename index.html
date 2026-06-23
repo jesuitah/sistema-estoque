@@ -543,6 +543,7 @@
               var skuRaw = String(row[colSku] || '').trim();
               if (!skuRaw) return;
               var total = parseFloat(row[colTotal]) || 0;
+              if (total <= 0) return;
               var chave = nomeLoja + '||' + skuRaw;
               if (!grupos[chave]) grupos[chave] = { loja: nomeLoja, skuRaw: skuRaw, count: 0, receitaTotal: 0 };
               grupos[chave].count++;
