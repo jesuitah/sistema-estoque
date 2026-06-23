@@ -544,12 +544,10 @@
               if (!skuRaw) return;
               var total = parseFloat(row[colTotal]) || 0;
               if (total <= 0) return;
-              var unidades = parseInt(row[colUnidades]) || 1;
               var chave = nomeLoja + '||' + skuRaw;
-              if (!grupos[chave]) grupos[chave] = { loja: nomeLoja, skuRaw: skuRaw, count: 0, receitaTotal: 0, unidadesTotal: 0 };
+              if (!grupos[chave]) grupos[chave] = { loja: nomeLoja, skuRaw: skuRaw, count: 0, receitaTotal: 0 };
               grupos[chave].count++;
               grupos[chave].receitaTotal += total;
-              grupos[chave].unidadesTotal += unidades;
             });
 
             var novosCards = Object.keys(grupos).map(function(k) { return grupos[k]; });
@@ -1209,17 +1207,31 @@
 
             // Calcula custo e status de cada card
             var cards = filtrados.map(function(v) {
-              var componentes = parseSKUsML(v.skuRaw);
-              var custoUnitario = 0;
-              var custoOk = componentes.length > 0;
-              componentes.forEach(function(c) {
-                var prod = precos.find(function(p) { return p.marca === c.marca && p.sku === c.sku; });
-                if (prod) {
-                  custoUnitario += prod.custo_ml ? Number(prod.custo_ml) : Number(prod.custo || 0);
-                } else { custoOk = false; }
+              // Extrai multiplicador do SKU (ex: "MP2104 - 2UN" → 2)
+              var partes = v.skuRaw.split('+');
+              var custoTotal = 0;
+              var custoOk = true;
+              var componentesDisplay = [];
+              partes.forEach(function(parte) {
+                parte = parte.trim();
+                var multMatch = parte.match(/[-–]\s*(\d+)\s*UN/i);
+                var mult = multMatch ? parseInt(multMatch[1]) : 1;
+                var parteClean = parte.replace(/\s*[-–]\s*\d+\s*UN\s*/i, '').trim();
+                var parsed = parseSKUsML(parteClean);
+                if (parsed.length === 0) { custoOk = false; return; }
+                parsed.forEach(function(c) {
+                  var prod = precos.find(function(p) { return p.marca === c.marca && p.sku === c.sku; });
+                  if (prod) {
+                    custoTotal += (prod.custo_ml ? Number(prod.custo_ml) : Number(prod.custo || 0)) * mult;
+                    componentesDisplay.push(c.marca + ': ' + c.sku + (mult > 1 ? ' ×' + mult : ''));
+                  } else { custoOk = false; }
+                });
               });
-              var mediaUnidades = v.count > 0 ? (v.unidadesTotal || v.count) / v.count : 1;
-              var custoTotal = custoUnitario * mediaUnidades;
+              var skuDisplay = componentesDisplay.length > 0 ? componentesDisplay.join(' + ') : v.skuRaw;
+              var marcaDisplay = (function() {
+                var p = parseSKUsML(v.skuRaw.split('+')[0].replace(/\s*[-–]\s*\d+\s*UN\s*/i,'').trim());
+                return p.length > 0 ? p[0].marca : v.loja;
+              })();
               var receitaMedia = v.count > 0 ? v.receitaTotal / v.count : 0;
               var minimoEsperado = custoTotal * 1.5;
               var markupReal = custoTotal > 0 ? ((receitaMedia - custoTotal) / custoTotal * 100) : null;
@@ -1227,11 +1239,8 @@
                 : markupReal >= 50 ? 'ok'
                 : markupReal >= 40 ? 'limite'
                 : 'abaixo';
-              var skuDisplay = componentes.length > 0
-                ? componentes.map(function(c) { return c.marca + ': ' + c.sku; }).join(' + ')
-                : v.skuRaw;
-              return Object.assign({}, v, { custoTotal: custoTotal, custoOk: custoOk, receitaMedia: receitaMedia, minimoEsperado: minimoEsperado, markupReal: markupReal, status: status, skuDisplay: skuDisplay });
-            });
+              return Object.assign({}, v, { custoTotal: custoTotal, custoOk: custoOk, receitaMedia: receitaMedia, minimoEsperado: minimoEsperado, markupReal: markupReal, status: status, skuDisplay: skuDisplay, marcaDisplay: marcaDisplay });
+            }).sort(function(a, b) { return a.marcaDisplay.localeCompare(b.marcaDisplay); });
 
             var nAbaixo = cards.filter(function(c) { return c.status === 'abaixo'; }).length;
             var nLimite = cards.filter(function(c) { return c.status === 'limite'; }).length;
