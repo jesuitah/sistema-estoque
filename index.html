@@ -285,6 +285,14 @@
       var filtroSemPreco = filtroSemPrecoState[0];
       var setFiltroSemPreco = filtroSemPrecoState[1];
 
+      var adicionandoPrecoIdState = useState(null);
+      var adicionandoPrecoId = adicionandoPrecoIdState[0];
+      var setAdicionandoPrecoId = adicionandoPrecoIdState[1];
+
+      var adicionandoPrecoValorState = useState('');
+      var adicionandoPrecoValor = adicionandoPrecoValorState[0];
+      var setAdicionandoPrecoValor = adicionandoPrecoValorState[1];
+
       function carregarEstoque() {
         var batchSize = 1000;
         var allData = [];
@@ -1578,22 +1586,59 @@
                     ? e('p', {className: 'text-green-400 text-sm text-center py-10'}, '✓ Todos os SKUs do estoque têm preço cadastrado!')
                     : e('div', {className: 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4'},
                         semPreco.map(function(item) {
+                          var editando = adicionandoPrecoId === item.id;
                           return e('div', {
                             key: item.id,
                             className: 'bg-slate-800 border border-orange-600 rounded-lg p-4'
                           },
                             e('div', {className: 'text-xs text-slate-500 font-bold uppercase tracking-wider mb-1'}, item.marca),
                             e('div', {className: 'text-base font-bold text-white mb-2'}, item.sku),
-                            e('div', {className: 'text-xs text-orange-400'}, '⚠ Sem custo cadastrado'),
-                            e('button', {
-                              onClick: function() {
-                                supabase.from('precos').insert([{marca: item.marca, sku: item.sku, custo: 0}]).then(function(res) {
-                                  if (res.error) { alert('Erro: ' + res.error.message); return; }
-                                  carregarPrecos();
-                                });
-                              },
-                              className: 'mt-3 w-full bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold py-2 rounded-lg transition-colors'
-                            }, '+ Adicionar aos preços')
+                            editando
+                              ? e('div', {className: 'mt-2'},
+                                  e('p', {className: 'text-xs text-slate-400 mb-2'}, 'Digite o custo:'),
+                                  e('div', {className: 'flex gap-2'},
+                                    e('input', {
+                                      type: 'text', inputMode: 'numeric', autoFocus: true,
+                                      placeholder: '0,00',
+                                      value: adicionandoPrecoValor,
+                                      onChange: function(ev) { setAdicionandoPrecoValor(ev.target.value); },
+                                      onKeyDown: function(ev) {
+                                        if (ev.key === 'Escape') { setAdicionandoPrecoId(null); setAdicionandoPrecoValor(''); }
+                                        if (ev.key === 'Enter') {
+                                          var custo = parseFloat(adicionandoPrecoValor.replace(',', '.')) || 0;
+                                          supabase.from('precos').insert([{marca: item.marca, sku: item.sku, custo: custo}]).then(function(res) {
+                                            if (res.error) { alert('Erro: ' + res.error.message); return; }
+                                            setAdicionandoPrecoId(null); setAdicionandoPrecoValor('');
+                                            carregarPrecos();
+                                          });
+                                        }
+                                      },
+                                      className: 'flex-1 bg-slate-700 border border-blue-400 text-white text-sm px-3 py-2 rounded-lg outline-none'
+                                    }),
+                                    e('button', {
+                                      onClick: function() {
+                                        var custo = parseFloat(adicionandoPrecoValor.replace(',', '.')) || 0;
+                                        supabase.from('precos').insert([{marca: item.marca, sku: item.sku, custo: custo}]).then(function(res) {
+                                          if (res.error) { alert('Erro: ' + res.error.message); return; }
+                                          setAdicionandoPrecoId(null); setAdicionandoPrecoValor('');
+                                          carregarPrecos();
+                                        });
+                                      },
+                                      className: 'bg-green-600 hover:bg-green-500 text-white font-bold px-3 py-2 rounded-lg'
+                                    }, '✓'),
+                                    e('button', {
+                                      onClick: function() { setAdicionandoPrecoId(null); setAdicionandoPrecoValor(''); },
+                                      className: 'bg-slate-600 hover:bg-red-700 text-white font-bold px-3 py-2 rounded-lg'
+                                    }, '✗')
+                                  )
+                                )
+                              : e('div', null,
+                                  e('div', {className: 'text-xs text-orange-400 mb-3'}, '⚠ Sem custo cadastrado'),
+                                  e('button', {
+                                    onClick: function() { setAdicionandoPrecoId(item.id); setAdicionandoPrecoValor(''); },
+                                    className: 'w-full bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold py-2 rounded-lg transition-colors'
+                                  }, '+ Adicionar aos preços')
+                                )
                           );
                         })
                       )
