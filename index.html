@@ -281,6 +281,10 @@
       var vendasStatusFiltro = vendasStatusFiltroState[0];
       var setVendasStatusFiltro = vendasStatusFiltroState[1];
 
+      var filtroSemPrecoState = useState(false);
+      var filtroSemPreco = filtroSemPrecoState[0];
+      var setFiltroSemPreco = filtroSemPrecoState[1];
+
       function carregarEstoque() {
         var batchSize = 1000;
         var allData = [];
@@ -1424,6 +1428,10 @@
                 className: 'flex-1 bg-slate-800 text-white px-4 py-3 rounded-lg border border-slate-600 focus:border-blue-400 focus:outline-none text-sm'
               }),
               e('button', {
+                onClick: function() { setFiltroSemPreco(function(v){return !v;}); setPrecosSearchInput(''); setPrecosSearch(''); setPaginaPrecos(1); },
+                className: 'flex items-center gap-2 border px-4 py-3 rounded-lg font-bold text-sm transition-colors whitespace-nowrap ' + (filtroSemPreco ? 'bg-orange-600 border-orange-500 text-white' : 'bg-slate-800 border-slate-600 hover:border-slate-500 text-slate-200')
+              }, filtroSemPreco ? '⚠ Sem preço' : 'Sem preço'),
+              e('button', {
                 onClick: function() { setShowConfigPrecos(function(v){return !v;}); },
                 className: 'flex items-center gap-2 bg-slate-800 border border-slate-600 hover:border-slate-500 text-slate-200 px-4 py-3 rounded-lg font-bold text-sm transition-colors whitespace-nowrap'
               }, showConfigPrecos ? '▲ Configurações' : '⚙️ Configurações')
@@ -1557,6 +1565,40 @@
             // ── Grid de produtos (custo + preço ML + preço mecânico) ──
             (function() {
               var term = precosSearch.trim().toUpperCase();
+              if (filtroSemPreco) {
+                var precosSet = {};
+                precos.forEach(function(p) { precosSet[(p.marca||'').toUpperCase() + '|' + (p.sku||'').toUpperCase()] = true; });
+                var semPreco = estoque.filter(function(item) {
+                  return !precosSet[(item.marca||'').toUpperCase() + '|' + (item.sku||'').toUpperCase()];
+                });
+                var fmt2 = function(n) { return 'R$ ' + Number(n).toFixed(2).replace('.', ','); };
+                return e('div', null,
+                  e('p', {className: 'text-slate-500 text-xs mb-4'}, semPreco.length + ' SKUs no estoque sem preço cadastrado'),
+                  semPreco.length === 0
+                    ? e('p', {className: 'text-green-400 text-sm text-center py-10'}, '✓ Todos os SKUs do estoque têm preço cadastrado!')
+                    : e('div', {className: 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4'},
+                        semPreco.map(function(item) {
+                          return e('div', {
+                            key: item.id,
+                            className: 'bg-slate-800 border border-orange-600 rounded-lg p-4'
+                          },
+                            e('div', {className: 'text-xs text-slate-500 font-bold uppercase tracking-wider mb-1'}, item.marca),
+                            e('div', {className: 'text-base font-bold text-white mb-2'}, item.sku),
+                            e('div', {className: 'text-xs text-orange-400'}, '⚠ Sem custo cadastrado'),
+                            e('button', {
+                              onClick: function() {
+                                supabase.from('precos').insert([{marca: item.marca, sku: item.sku, custo: 0}]).then(function(res) {
+                                  if (res.error) { alert('Erro: ' + res.error.message); return; }
+                                  carregarPrecos();
+                                });
+                              },
+                              className: 'mt-3 w-full bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold py-2 rounded-lg transition-colors'
+                            }, '+ Adicionar aos preços')
+                          );
+                        })
+                      )
+                );
+              }
               if (precos.length === 0) return e('p', {className: 'text-slate-500 text-sm text-center py-10'}, 'Nenhum custo cadastrado.');
               var filtrados = term
                 ? precos.filter(function(p) {
