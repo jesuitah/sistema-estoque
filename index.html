@@ -1452,9 +1452,9 @@
                   className: 'border px-3 py-3 rounded-lg text-sm font-bold transition-colors whitespace-nowrap cursor-pointer ' + (filtroSemPreco ? 'bg-orange-600 border-orange-500 text-white' : 'bg-slate-800 border-slate-600 text-slate-200')
                 },
                   e('option', {value: ''}, 'Sem preço' + (totalSemPreco > 0 ? ' (' + totalSemPreco + ')' : '')),
-                  totalSemPreco > 0 && e('option', {value: 'TODAS'}, 'Todas as marcas (' + totalSemPreco + ')'),
+                  e('option', {value: 'TODAS'}, '— Todas as marcas (' + totalSemPreco + ')'),
                   marcasSemPreco.map(function(m) {
-                    return e('option', {key: m, value: m}, m + ' (' + contsPorMarca[m] + ')');
+                    return e('option', {key: m, value: m}, '— ' + m + ' (' + contsPorMarca[m] + ')');
                   })
                 );
               })(),
