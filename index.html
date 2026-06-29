@@ -1601,11 +1601,19 @@
                                       type: 'text', inputMode: 'numeric', autoFocus: true,
                                       placeholder: '0,00',
                                       value: adicionandoPrecoValor,
-                                      onChange: function(ev) { setAdicionandoPrecoValor(ev.target.value); },
+                                      onChange: function(ev) {
+                                        var digits = ev.target.value.replace(/\D/g, '');
+                                        if (!digits) { setAdicionandoPrecoValor(''); return; }
+                                        var num = parseInt(digits, 10);
+                                        var reais = Math.floor(num / 100);
+                                        var centavos = num % 100;
+                                        var reaisStr = reais.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+                                        setAdicionandoPrecoValor(reaisStr + ',' + (centavos < 10 ? '0' : '') + centavos);
+                                      },
                                       onKeyDown: function(ev) {
                                         if (ev.key === 'Escape') { setAdicionandoPrecoId(null); setAdicionandoPrecoValor(''); }
                                         if (ev.key === 'Enter') {
-                                          var custo = parseFloat(adicionandoPrecoValor.replace(',', '.')) || 0;
+                                          var custo = parseFloat(adicionandoPrecoValor.replace(/\./g,'').replace(',', '.')) || 0;
                                           supabase.from('precos').insert([{marca: item.marca, sku: item.sku, custo: custo}]).then(function(res) {
                                             if (res.error) { alert('Erro: ' + res.error.message); return; }
                                             setAdicionandoPrecoId(null); setAdicionandoPrecoValor('');
@@ -1617,7 +1625,7 @@
                                     }),
                                     e('button', {
                                       onClick: function() {
-                                        var custo = parseFloat(adicionandoPrecoValor.replace(',', '.')) || 0;
+                                        var custo = parseFloat(adicionandoPrecoValor.replace(/\./g,'').replace(',', '.')) || 0;
                                         supabase.from('precos').insert([{marca: item.marca, sku: item.sku, custo: custo}]).then(function(res) {
                                           if (res.error) { alert('Erro: ' + res.error.message); return; }
                                           setAdicionandoPrecoId(null); setAdicionandoPrecoValor('');
