@@ -281,7 +281,7 @@
       var vendasStatusFiltro = vendasStatusFiltroState[0];
       var setVendasStatusFiltro = vendasStatusFiltroState[1];
 
-      var filtroSemPrecoState = useState(false);
+      var filtroSemPrecoState = useState('');
       var filtroSemPreco = filtroSemPrecoState[0];
       var setFiltroSemPreco = filtroSemPrecoState[1];
 
@@ -1435,10 +1435,29 @@
                 },
                 className: 'flex-1 bg-slate-800 text-white px-4 py-3 rounded-lg border border-slate-600 focus:border-blue-400 focus:outline-none text-sm'
               }),
-              e('button', {
-                onClick: function() { setFiltroSemPreco(function(v){return !v;}); setPrecosSearchInput(''); setPrecosSearch(''); setPaginaPrecos(1); },
-                className: 'flex items-center gap-2 border px-4 py-3 rounded-lg font-bold text-sm transition-colors whitespace-nowrap ' + (filtroSemPreco ? 'bg-orange-600 border-orange-500 text-white' : 'bg-slate-800 border-slate-600 hover:border-slate-500 text-slate-200')
-              }, filtroSemPreco ? '⚠ Sem preço' : 'Sem preço'),
+              (function() {
+                var precosSet = {};
+                precos.forEach(function(p) { precosSet[(p.marca||'').toUpperCase()+'|'+(p.sku||'').toUpperCase()] = true; });
+                var contsPorMarca = {};
+                estoque.forEach(function(item) {
+                  if (!precosSet[(item.marca||'').toUpperCase()+'|'+(item.sku||'').toUpperCase()]) {
+                    contsPorMarca[item.marca] = (contsPorMarca[item.marca] || 0) + 1;
+                  }
+                });
+                var marcasSemPreco = Object.keys(contsPorMarca).sort();
+                var totalSemPreco = marcasSemPreco.reduce(function(acc, m) { return acc + contsPorMarca[m]; }, 0);
+                return e('select', {
+                  value: filtroSemPreco,
+                  onChange: function(ev) { setFiltroSemPreco(ev.target.value); setPrecosSearchInput(''); setPrecosSearch(''); setPaginaPrecos(1); },
+                  className: 'border px-3 py-3 rounded-lg text-sm font-bold transition-colors whitespace-nowrap cursor-pointer ' + (filtroSemPreco ? 'bg-orange-600 border-orange-500 text-white' : 'bg-slate-800 border-slate-600 text-slate-200')
+                },
+                  e('option', {value: ''}, 'Sem preço' + (totalSemPreco > 0 ? ' (' + totalSemPreco + ')' : '')),
+                  totalSemPreco > 0 && e('option', {value: 'TODAS'}, 'Todas as marcas (' + totalSemPreco + ')'),
+                  marcasSemPreco.map(function(m) {
+                    return e('option', {key: m, value: m}, m + ' (' + contsPorMarca[m] + ')');
+                  })
+                );
+              })(),
               e('button', {
                 onClick: function() { setShowConfigPrecos(function(v){return !v;}); },
                 className: 'flex items-center gap-2 bg-slate-800 border border-slate-600 hover:border-slate-500 text-slate-200 px-4 py-3 rounded-lg font-bold text-sm transition-colors whitespace-nowrap'
@@ -1577,7 +1596,10 @@
                 var precosSet = {};
                 precos.forEach(function(p) { precosSet[(p.marca||'').toUpperCase() + '|' + (p.sku||'').toUpperCase()] = true; });
                 var semPreco = estoque.filter(function(item) {
-                  return !precosSet[(item.marca||'').toUpperCase() + '|' + (item.sku||'').toUpperCase()];
+                  var semP = !precosSet[(item.marca||'').toUpperCase() + '|' + (item.sku||'').toUpperCase()];
+                  if (!semP) return false;
+                  if (filtroSemPreco === 'TODAS') return true;
+                  return (item.marca||'').toUpperCase() === filtroSemPreco.toUpperCase();
                 });
                 var fmt2 = function(n) { return 'R$ ' + Number(n).toFixed(2).replace('.', ','); };
                 return e('div', null,
