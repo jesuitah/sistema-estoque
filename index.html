@@ -353,6 +353,14 @@
       var dragOverItemId = dragOverItemIdState[0];
       var setDragOverItemId = dragOverItemIdState[1];
 
+      var editandoItemIdState = useState(null);
+      var editandoItemId = editandoItemIdState[0];
+      var setEditandoItemId = editandoItemIdState[1];
+
+      var editandoItemTextoState = useState('');
+      var editandoItemTexto = editandoItemTextoState[0];
+      var setEditandoItemTexto = editandoItemTextoState[1];
+
       var dragListaIdState = useState(null);
       var dragListaId = dragListaIdState[0];
       var setDragListaId = dragListaIdState[1];
@@ -872,6 +880,18 @@
           setKanbanCartoes(function(prev) { return prev.filter(function(c) { return c.id !== cartaoId; }); });
           setKanbanItens(function(prev) { return prev.filter(function(i) { return i.cartao_id !== cartaoId; }); });
           setKanbanModalCartao(null);
+        });
+      }
+
+      function salvarTextoItem(itemId) {
+        var texto = editandoItemTexto.trim();
+        if (!texto) { setEditandoItemId(null); return; }
+        supabase.from('kanban_itens').update({texto: texto}).eq('id', itemId).then(function(res) {
+          if (res.error) { alert('Erro: ' + res.error.message); return; }
+          setKanbanItens(function(prev) {
+            return prev.map(function(i) { return i.id === itemId ? Object.assign({}, i, {texto: texto}) : i; });
+          });
+          setEditandoItemId(null);
         });
       }
 
@@ -2183,9 +2203,24 @@
                           onChange: function() { toggleItem(item); },
                           className: 'w-4 h-4 accent-green-500 cursor-pointer flex-shrink-0'
                         }),
-                        e('span', {
-                          className: 'text-sm flex-1 ' + (item.feito ? 'line-through text-slate-500' : 'text-slate-200')
-                        }, item.texto)
+                        editandoItemId === item.id
+                          ? e('input', {
+                              type: 'text',
+                              autoFocus: true,
+                              value: editandoItemTexto,
+                              onChange: function(ev) { setEditandoItemTexto(ev.target.value); },
+                              onKeyDown: function(ev) {
+                                if (ev.key === 'Enter') salvarTextoItem(item.id);
+                                if (ev.key === 'Escape') setEditandoItemId(null);
+                              },
+                              onBlur: function() { salvarTextoItem(item.id); },
+                              className: 'flex-1 bg-slate-700 border border-blue-400 text-white text-sm px-2 py-0.5 rounded focus:outline-none'
+                            })
+                          : e('span', {
+                              className: 'text-sm flex-1 cursor-pointer ' + (item.feito ? 'line-through text-slate-500' : 'text-slate-200 hover:text-blue-300'),
+                              onClick: function() { setEditandoItemId(item.id); setEditandoItemTexto(item.texto); },
+                              title: 'Clique para editar'
+                            }, item.texto)
                       );
                     })
                   ),
