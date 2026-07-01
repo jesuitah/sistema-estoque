@@ -345,6 +345,14 @@
       var editandoCartaoValor = editandoCartaoValorState[0];
       var setEditandoCartaoValor = editandoCartaoValorState[1];
 
+      var dragItemIdState = useState(null);
+      var dragItemId = dragItemIdState[0];
+      var setDragItemId = dragItemIdState[1];
+
+      var dragOverItemIdState = useState(null);
+      var dragOverItemId = dragOverItemIdState[0];
+      var setDragOverItemId = dragOverItemIdState[1];
+
       function carregarEstoque() {
         var batchSize = 1000;
         var allData = [];
@@ -856,6 +864,28 @@
           setKanbanCartoes(function(prev) { return prev.filter(function(c) { return c.id !== cartaoId; }); });
           setKanbanItens(function(prev) { return prev.filter(function(i) { return i.cartao_id !== cartaoId; }); });
           setKanbanModalCartao(null);
+        });
+      }
+
+      function reordenarItens(fromId, toId) {
+        if (!fromId || !toId || fromId === toId || !kanbanModalCartao) return;
+        var cartaoId = kanbanModalCartao.id;
+        var itensCartao = kanbanItens.filter(function(i) { return i.cartao_id === cartaoId; });
+        var fromIdx = itensCartao.findIndex(function(i) { return i.id === fromId; });
+        var toIdx = itensCartao.findIndex(function(i) { return i.id === toId; });
+        if (fromIdx === -1 || toIdx === -1) return;
+        var reordenados = itensCartao.slice();
+        var removed = reordenados.splice(fromIdx, 1)[0];
+        reordenados.splice(toIdx, 0, removed);
+        var comOrdem = reordenados.map(function(item, idx) { return Object.assign({}, item, {ordem: idx}); });
+        setKanbanItens(function(prev) {
+          return prev.map(function(i) {
+            var atualizado = comOrdem.find(function(n) { return n.id === i.id; });
+            return atualizado || i;
+          });
+        });
+        comOrdem.forEach(function(item) {
+          supabase.from('kanban_itens').update({ordem: item.ordem}).eq('id', item.id).then(function() {});
         });
       }
 
@@ -2111,9 +2141,19 @@
                       style: {width: modalPct + '%'}
                     })
                   ),
-                  e('div', {className: 'space-y-2 mb-4 max-h-64 overflow-y-auto'},
+                  e('div', {className: 'space-y-1 mb-4 max-h-64 overflow-y-auto'},
                     modalExibidos.map(function(item) {
-                      return e('div', {key: item.id, className: 'flex items-center gap-3 py-1 group'},
+                      var isDragOver = dragOverItemId === item.id && dragItemId !== item.id;
+                      return e('div', {
+                        key: item.id,
+                        draggable: true,
+                        onDragStart: function() { setDragItemId(item.id); },
+                        onDragOver: function(ev) { ev.preventDefault(); setDragOverItemId(item.id); },
+                        onDrop: function(ev) { ev.preventDefault(); reordenarItens(dragItemId, item.id); setDragItemId(null); setDragOverItemId(null); },
+                        onDragEnd: function() { setDragItemId(null); setDragOverItemId(null); },
+                        className: 'flex items-center gap-2 py-1.5 px-1 rounded-lg transition-colors ' + (isDragOver ? 'bg-blue-900 border border-blue-500' : 'hover:bg-slate-700') + (dragItemId === item.id ? ' opacity-40' : '')
+                      },
+                        e('span', {className: 'text-slate-500 cursor-grab active:cursor-grabbing select-none text-base flex-shrink-0', style: {lineHeight: 1}}, '⠿'),
                         e('input', {
                           type: 'checkbox',
                           checked: item.feito,
@@ -2121,7 +2161,7 @@
                           className: 'w-4 h-4 accent-green-500 cursor-pointer flex-shrink-0'
                         }),
                         e('span', {
-                          className: 'text-sm ' + (item.feito ? 'line-through text-slate-500' : 'text-slate-200')
+                          className: 'text-sm flex-1 ' + (item.feito ? 'line-through text-slate-500' : 'text-slate-200')
                         }, item.texto)
                       );
                     })
