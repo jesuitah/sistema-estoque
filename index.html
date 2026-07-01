@@ -353,6 +353,14 @@
       var dragOverItemId = dragOverItemIdState[0];
       var setDragOverItemId = dragOverItemIdState[1];
 
+      var dragListaIdState = useState(null);
+      var dragListaId = dragListaIdState[0];
+      var setDragListaId = dragListaIdState[1];
+
+      var dragOverListaIdState = useState(null);
+      var dragOverListaId = dragOverListaIdState[0];
+      var setDragOverListaId = dragOverListaIdState[1];
+
       function carregarEstoque() {
         var batchSize = 1000;
         var allData = [];
@@ -864,6 +872,21 @@
           setKanbanCartoes(function(prev) { return prev.filter(function(c) { return c.id !== cartaoId; }); });
           setKanbanItens(function(prev) { return prev.filter(function(i) { return i.cartao_id !== cartaoId; }); });
           setKanbanModalCartao(null);
+        });
+      }
+
+      function reordenarListas(fromId, toId) {
+        if (!fromId || !toId || fromId === toId) return;
+        var fromIdx = kanbanListas.findIndex(function(l) { return l.id === fromId; });
+        var toIdx = kanbanListas.findIndex(function(l) { return l.id === toId; });
+        if (fromIdx === -1 || toIdx === -1) return;
+        var reordenadas = kanbanListas.slice();
+        var removed = reordenadas.splice(fromIdx, 1)[0];
+        reordenadas.splice(toIdx, 0, removed);
+        var comOrdem = reordenadas.map(function(l, idx) { return Object.assign({}, l, {ordem: idx}); });
+        setKanbanListas(comOrdem);
+        comOrdem.forEach(function(l) {
+          supabase.from('kanban_listas').update({ordem: l.ordem}).eq('id', l.id).then(function() {});
         });
       }
 
@@ -2188,7 +2211,16 @@
                   var cartoesLista = kanbanCartoes.filter(function(c) { return c.lista_id === lista.id; });
                   var estaEditandoLista = editandoListaId === lista.id;
 
-                  return e('div', {key: lista.id, className: 'flex-shrink-0 w-80 bg-slate-800 rounded-xl p-3'},
+                  var isDragOverLista = dragOverListaId === lista.id && dragListaId !== lista.id;
+                  return e('div', {
+                    key: lista.id,
+                    draggable: true,
+                    onDragStart: function(ev) { ev.stopPropagation(); setDragListaId(lista.id); },
+                    onDragOver: function(ev) { ev.preventDefault(); ev.stopPropagation(); setDragOverListaId(lista.id); },
+                    onDrop: function(ev) { ev.preventDefault(); ev.stopPropagation(); reordenarListas(dragListaId, lista.id); setDragListaId(null); setDragOverListaId(null); },
+                    onDragEnd: function() { setDragListaId(null); setDragOverListaId(null); },
+                    className: 'flex-shrink-0 w-80 bg-slate-800 rounded-xl p-3 transition-all ' + (isDragOverLista ? 'ring-2 ring-blue-500 opacity-80' : '') + (dragListaId === lista.id ? ' opacity-40' : '')
+                  },
                     e('div', {className: 'flex items-center justify-between mb-3'},
                       estaEditandoLista
                         ? e('div', {className: 'flex items-center gap-2 flex-1 mr-2'},
