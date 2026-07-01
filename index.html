@@ -329,6 +329,22 @@
       var kanbanOcultarMarcados = kanbanOcultarMarcadosState[0];
       var setKanbanOcultarMarcados = kanbanOcultarMarcadosState[1];
 
+      var editandoListaIdState = useState(null);
+      var editandoListaId = editandoListaIdState[0];
+      var setEditandoListaId = editandoListaIdState[1];
+
+      var editandoListaNomeState = useState('');
+      var editandoListaNome = editandoListaNomeState[0];
+      var setEditandoListaNome = editandoListaNomeState[1];
+
+      var editandoCartaoNomeState = useState(false);
+      var editandoCartaoNome = editandoCartaoNomeState[0];
+      var setEditandoCartaoNome = editandoCartaoNomeState[1];
+
+      var editandoCartaoValorState = useState('');
+      var editandoCartaoValor = editandoCartaoValorState[0];
+      var setEditandoCartaoValor = editandoCartaoValorState[1];
+
       function carregarEstoque() {
         var batchSize = 1000;
         var allData = [];
@@ -840,6 +856,31 @@
           setKanbanCartoes(function(prev) { return prev.filter(function(c) { return c.id !== cartaoId; }); });
           setKanbanItens(function(prev) { return prev.filter(function(i) { return i.cartao_id !== cartaoId; }); });
           setKanbanModalCartao(null);
+        });
+      }
+
+      function salvarNomeLista(listaId) {
+        var nome = editandoListaNome.trim().toUpperCase();
+        if (!nome) { setEditandoListaId(null); return; }
+        supabase.from('kanban_listas').update({nome: nome}).eq('id', listaId).then(function(res) {
+          if (res.error) { alert('Erro: ' + res.error.message); return; }
+          setKanbanListas(function(prev) {
+            return prev.map(function(l) { return l.id === listaId ? Object.assign({}, l, {nome: nome}) : l; });
+          });
+          setEditandoListaId(null);
+        });
+      }
+
+      function salvarNomeCartao(cartaoId) {
+        var nome = editandoCartaoValor.trim().toUpperCase();
+        if (!nome) { setEditandoCartaoNome(false); return; }
+        supabase.from('kanban_cartoes').update({nome: nome}).eq('id', cartaoId).then(function(res) {
+          if (res.error) { alert('Erro: ' + res.error.message); return; }
+          setKanbanCartoes(function(prev) {
+            return prev.map(function(c) { return c.id === cartaoId ? Object.assign({}, c, {nome: nome}) : c; });
+          });
+          setKanbanModalCartao(function(prev) { return prev ? Object.assign({}, prev, {nome: nome}) : prev; });
+          setEditandoCartaoNome(false);
         });
       }
 
@@ -2026,14 +2067,31 @@
               },
                 e('div', {className: 'bg-slate-800 rounded-xl p-6 w-full max-w-md mx-4 shadow-2xl border border-slate-600'},
                   e('div', {className: 'flex items-center justify-between mb-4'},
-                    e('div', {className: 'flex items-center gap-2'},
+                    e('div', {className: 'flex items-center gap-2 flex-1 mr-2'},
                       e('input', {
                         type: 'checkbox',
                         checked: true,
                         readOnly: true,
-                        className: 'w-4 h-4 accent-blue-500'
+                        className: 'w-4 h-4 accent-blue-500 flex-shrink-0'
                       }),
-                      e('span', {className: 'font-bold text-white text-base'}, kanbanModalCartao.nome)
+                      editandoCartaoNome
+                        ? e('input', {
+                            type: 'text',
+                            autoFocus: true,
+                            value: editandoCartaoValor,
+                            onChange: function(ev) { setEditandoCartaoValor(ev.target.value); },
+                            onKeyDown: function(ev) {
+                              if (ev.key === 'Enter') salvarNomeCartao(kanbanModalCartao.id);
+                              if (ev.key === 'Escape') setEditandoCartaoNome(false);
+                            },
+                            onBlur: function() { salvarNomeCartao(kanbanModalCartao.id); },
+                            className: 'flex-1 bg-slate-700 border border-blue-400 text-white text-sm font-bold px-2 py-1 rounded-lg focus:outline-none'
+                          })
+                        : e('span', {
+                            className: 'font-bold text-white text-base cursor-pointer hover:text-blue-300 transition-colors',
+                            onClick: function() { setEditandoCartaoNome(true); setEditandoCartaoValor(kanbanModalCartao.nome); },
+                            title: 'Clique para editar'
+                          }, kanbanModalCartao.nome)
                     ),
                     e('div', {className: 'flex gap-2'},
                       e('button', {
@@ -2088,19 +2146,33 @@
               e('div', {className: 'flex gap-4 overflow-x-auto pb-4', style: {alignItems: 'flex-start'}},
                 kanbanListas.map(function(lista) {
                   var cartoesLista = kanbanCartoes.filter(function(c) { return c.lista_id === lista.id; });
-                  var totalItensLista = kanbanItens.filter(function(i) {
-                    return cartoesLista.some(function(c) { return c.id === i.cartao_id; });
-                  }).length;
+                  var estaEditandoLista = editandoListaId === lista.id;
 
-                  return e('div', {key: lista.id, className: 'flex-shrink-0 w-64 bg-slate-800 rounded-xl p-3'},
+                  return e('div', {key: lista.id, className: 'flex-shrink-0 w-80 bg-slate-800 rounded-xl p-3'},
                     e('div', {className: 'flex items-center justify-between mb-3'},
-                      e('div', {className: 'flex items-center gap-2'},
-                        e('span', {className: 'font-bold text-white text-sm'}, lista.nome),
-                        e('span', {className: 'bg-slate-600 text-slate-300 text-xs font-bold px-2 py-0.5 rounded-full'}, cartoesLista.length)
-                      ),
+                      estaEditandoLista
+                        ? e('div', {className: 'flex items-center gap-2 flex-1 mr-2'},
+                            e('input', {
+                              type: 'text',
+                              autoFocus: true,
+                              value: editandoListaNome,
+                              onChange: function(ev) { setEditandoListaNome(ev.target.value); },
+                              onKeyDown: function(ev) {
+                                if (ev.key === 'Enter') salvarNomeLista(lista.id);
+                                if (ev.key === 'Escape') setEditandoListaId(null);
+                              },
+                              onBlur: function() { salvarNomeLista(lista.id); },
+                              className: 'flex-1 bg-slate-700 border border-blue-400 text-white text-sm font-bold px-2 py-1 rounded-lg focus:outline-none'
+                            })
+                          )
+                        : e('div', {className: 'flex items-center gap-2 cursor-pointer group', onClick: function() { setEditandoListaId(lista.id); setEditandoListaNome(lista.nome); }},
+                            e('span', {className: 'font-bold text-white text-sm group-hover:text-blue-300 transition-colors'}, lista.nome),
+                            e('span', {className: 'bg-slate-600 text-slate-300 text-xs font-bold px-2 py-0.5 rounded-full'}, cartoesLista.length),
+                            e('span', {className: 'opacity-0 group-hover:opacity-100 text-slate-500 text-xs transition-opacity'}, '✏️')
+                          ),
                       e('button', {
                         onClick: function() { excluirLista(lista.id); },
-                        className: 'text-slate-500 hover:text-red-400 text-sm transition-colors',
+                        className: 'text-slate-500 hover:text-red-400 text-sm transition-colors flex-shrink-0',
                         title: 'Excluir lista'
                       }, '✕')
                     ),
@@ -2167,7 +2239,7 @@
                   );
                 }),
 
-                e('div', {className: 'flex-shrink-0 w-64'},
+                e('div', {className: 'flex-shrink-0 w-80'},
                   novaListaNome !== null && e('div', {className: 'bg-slate-800 rounded-xl p-3'},
                     e('input', {
                       type: 'text',
