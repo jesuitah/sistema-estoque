@@ -293,6 +293,42 @@
       var adicionandoPrecoValor = adicionandoPrecoValorState[0];
       var setAdicionandoPrecoValor = adicionandoPrecoValorState[1];
 
+      var kanbanListasState = useState([]);
+      var kanbanListas = kanbanListasState[0];
+      var setKanbanListas = kanbanListasState[1];
+
+      var kanbanCartoesState = useState([]);
+      var kanbanCartoes = kanbanCartoesState[0];
+      var setKanbanCartoes = kanbanCartoesState[1];
+
+      var kanbanItensState = useState([]);
+      var kanbanItens = kanbanItensState[0];
+      var setKanbanItens = kanbanItensState[1];
+
+      var kanbanModalCartaoState = useState(null);
+      var kanbanModalCartao = kanbanModalCartaoState[0];
+      var setKanbanModalCartao = kanbanModalCartaoState[1];
+
+      var novaListaNomeState = useState('');
+      var novaListaNome = novaListaNomeState[0];
+      var setNovaListaNome = novaListaNomeState[1];
+
+      var novoCartaoListaIdState = useState(null);
+      var novoCartaoListaId = novoCartaoListaIdState[0];
+      var setNovoCartaoListaId = novoCartaoListaIdState[1];
+
+      var novoCartaoNomeState = useState('');
+      var novoCartaoNome = novoCartaoNomeState[0];
+      var setNovoCartaoNome = novoCartaoNomeState[1];
+
+      var novoItemTextoState = useState('');
+      var novoItemTexto = novoItemTextoState[0];
+      var setNovoItemTexto = novoItemTextoState[1];
+
+      var kanbanOcultarMarcadosState = useState(false);
+      var kanbanOcultarMarcados = kanbanOcultarMarcadosState[0];
+      var setKanbanOcultarMarcados = kanbanOcultarMarcadosState[1];
+
       function carregarEstoque() {
         var batchSize = 1000;
         var allData = [];
@@ -339,6 +375,7 @@
         carregarPrecos();
         carregarMarkups();
         carregarMarkupsML();
+        carregarKanban();
         var subscription = supabase
           .channel('estoque-realtime')
           .on('postgres_changes', {event: '*', schema: 'public', table: 'estoque'}, function() {
@@ -738,6 +775,85 @@
         });
       }
 
+      function carregarKanban() {
+        supabase.from('kanban_listas').select('*').order('ordem').then(function(res) {
+          if (!res.error) setKanbanListas(res.data || []);
+        });
+        supabase.from('kanban_cartoes').select('*').order('ordem').then(function(res) {
+          if (!res.error) setKanbanCartoes(res.data || []);
+        });
+        supabase.from('kanban_itens').select('*').order('ordem').then(function(res) {
+          if (!res.error) setKanbanItens(res.data || []);
+        });
+      }
+
+      function adicionarLista() {
+        var nome = novaListaNome.trim().toUpperCase();
+        if (!nome) return;
+        var ordem = kanbanListas.length;
+        supabase.from('kanban_listas').insert({nome: nome, ordem: ordem}).select().then(function(res) {
+          if (res.error) { alert('Erro: ' + res.error.message); return; }
+          setKanbanListas(function(prev) { return prev.concat(res.data); });
+          setNovaListaNome('');
+        });
+      }
+
+      function adicionarCartao(listaId) {
+        var nome = novoCartaoNome.trim().toUpperCase();
+        if (!nome) return;
+        var ordem = kanbanCartoes.filter(function(c) { return c.lista_id === listaId; }).length;
+        supabase.from('kanban_cartoes').insert({lista_id: listaId, nome: nome, ordem: ordem}).select().then(function(res) {
+          if (res.error) { alert('Erro: ' + res.error.message); return; }
+          setKanbanCartoes(function(prev) { return prev.concat(res.data); });
+          setNovoCartaoListaId(null);
+          setNovoCartaoNome('');
+        });
+      }
+
+      function adicionarItem(cartaoId) {
+        var texto = novoItemTexto.trim();
+        if (!texto) return;
+        var ordem = kanbanItens.filter(function(i) { return i.cartao_id === cartaoId; }).length;
+        supabase.from('kanban_itens').insert({cartao_id: cartaoId, texto: texto, feito: false, ordem: ordem}).select().then(function(res) {
+          if (res.error) { alert('Erro: ' + res.error.message); return; }
+          setKanbanItens(function(prev) { return prev.concat(res.data); });
+          setNovoItemTexto('');
+        });
+      }
+
+      function toggleItem(item) {
+        var novoFeito = !item.feito;
+        supabase.from('kanban_itens').update({feito: novoFeito}).eq('id', item.id).then(function(res) {
+          if (res.error) { alert('Erro: ' + res.error.message); return; }
+          setKanbanItens(function(prev) {
+            return prev.map(function(i) {
+              return i.id === item.id ? Object.assign({}, i, {feito: novoFeito}) : i;
+            });
+          });
+        });
+      }
+
+      function excluirCartao(cartaoId) {
+        if (!confirm('Excluir este cartão e todos os seus itens?')) return;
+        supabase.from('kanban_cartoes').delete().eq('id', cartaoId).then(function(res) {
+          if (res.error) { alert('Erro: ' + res.error.message); return; }
+          setKanbanCartoes(function(prev) { return prev.filter(function(c) { return c.id !== cartaoId; }); });
+          setKanbanItens(function(prev) { return prev.filter(function(i) { return i.cartao_id !== cartaoId; }); });
+          setKanbanModalCartao(null);
+        });
+      }
+
+      function excluirLista(listaId) {
+        if (!confirm('Excluir esta lista e todos os cartões?')) return;
+        var cartaoIds = kanbanCartoes.filter(function(c) { return c.lista_id === listaId; }).map(function(c) { return c.id; });
+        supabase.from('kanban_listas').delete().eq('id', listaId).then(function(res) {
+          if (res.error) { alert('Erro: ' + res.error.message); return; }
+          setKanbanListas(function(prev) { return prev.filter(function(l) { return l.id !== listaId; }); });
+          setKanbanCartoes(function(prev) { return prev.filter(function(c) { return c.lista_id !== listaId; }); });
+          setKanbanItens(function(prev) { return prev.filter(function(i) { return cartaoIds.indexOf(i.cartao_id) === -1; }); });
+        });
+      }
+
       function salvarMarkupMarcaML(marca) {
         var edit = markupEditML[marca] || {};
         var markup = parseFloat(String(edit.markup || '60').replace(',', '.'));
@@ -1096,6 +1212,10 @@
               onClick: function() { setActiveTab('vendas'); },
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'vendas' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
             }, '💰 Vendas'),
+            e('button', {
+              onClick: function() { setActiveTab('tarefas'); },
+              className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'tarefas' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
+            }, '✅ Tarefas'),
             e('button', {
               onClick: function() { setActiveTab('importar'); },
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'importar' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
@@ -1890,6 +2010,182 @@
             })()
           ),
 
+          activeTab === 'tarefas' && (function() {
+            var modalItens = kanbanModalCartao ? kanbanItens.filter(function(i) { return i.cartao_id === kanbanModalCartao.id; }) : [];
+            var modalTotal = modalItens.length;
+            var modalFeitos = modalItens.filter(function(i) { return i.feito; }).length;
+            var modalPct = modalTotal > 0 ? Math.round(modalFeitos / modalTotal * 100) : 0;
+            var modalExibidos = kanbanOcultarMarcados ? modalItens.filter(function(i) { return !i.feito; }) : modalItens;
+
+            return e('div', null,
+              e('h2', {className: 'text-lg font-bold mb-4'}, '✅ Tarefas'),
+
+              kanbanModalCartao && e('div', {
+                className: 'fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50',
+                onClick: function(ev) { if (ev.target === ev.currentTarget) { setKanbanModalCartao(null); setNovoItemTexto(''); setKanbanOcultarMarcados(false); } }
+              },
+                e('div', {className: 'bg-slate-800 rounded-xl p-6 w-full max-w-md mx-4 shadow-2xl border border-slate-600'},
+                  e('div', {className: 'flex items-center justify-between mb-4'},
+                    e('div', {className: 'flex items-center gap-2'},
+                      e('input', {
+                        type: 'checkbox',
+                        checked: true,
+                        readOnly: true,
+                        className: 'w-4 h-4 accent-blue-500'
+                      }),
+                      e('span', {className: 'font-bold text-white text-base'}, kanbanModalCartao.nome)
+                    ),
+                    e('div', {className: 'flex gap-2'},
+                      e('button', {
+                        onClick: function() { setKanbanOcultarMarcados(function(v) { return !v; }); },
+                        className: 'text-xs px-3 py-1.5 rounded-lg border border-slate-500 text-slate-300 hover:bg-slate-700 transition-colors'
+                      }, kanbanOcultarMarcados ? 'Mostrar marcados' : 'Ocultar marcados'),
+                      e('button', {
+                        onClick: function() { excluirCartao(kanbanModalCartao.id); },
+                        className: 'text-xs px-3 py-1.5 rounded-lg border border-red-700 text-red-400 hover:bg-red-900 transition-colors'
+                      }, 'Excluir')
+                    )
+                  ),
+                  e('div', {className: 'mb-1 text-xs text-slate-400 font-semibold'}, modalPct + '%'),
+                  e('div', {className: 'w-full bg-slate-600 rounded-full h-2 mb-4'},
+                    e('div', {
+                      className: 'h-2 rounded-full transition-all ' + (modalPct === 100 ? 'bg-green-500' : 'bg-blue-500'),
+                      style: {width: modalPct + '%'}
+                    })
+                  ),
+                  e('div', {className: 'space-y-2 mb-4 max-h-64 overflow-y-auto'},
+                    modalExibidos.map(function(item) {
+                      return e('div', {key: item.id, className: 'flex items-center gap-3 py-1 group'},
+                        e('input', {
+                          type: 'checkbox',
+                          checked: item.feito,
+                          onChange: function() { toggleItem(item); },
+                          className: 'w-4 h-4 accent-green-500 cursor-pointer flex-shrink-0'
+                        }),
+                        e('span', {
+                          className: 'text-sm ' + (item.feito ? 'line-through text-slate-500' : 'text-slate-200')
+                        }, item.texto)
+                      );
+                    })
+                  ),
+                  e('div', {className: 'flex gap-2'},
+                    e('input', {
+                      type: 'text',
+                      placeholder: 'Adicionar um item...',
+                      value: novoItemTexto,
+                      onChange: function(ev) { setNovoItemTexto(ev.target.value); },
+                      onKeyDown: function(ev) { if (ev.key === 'Enter') adicionarItem(kanbanModalCartao.id); },
+                      className: 'flex-1 bg-slate-700 border border-slate-500 text-white text-sm px-3 py-2 rounded-lg focus:outline-none focus:border-blue-400'
+                    }),
+                    e('button', {
+                      onClick: function() { adicionarItem(kanbanModalCartao.id); },
+                      className: 'bg-blue-600 hover:bg-blue-500 text-white text-sm px-4 py-2 rounded-lg font-bold transition-colors'
+                    }, '+')
+                  )
+                )
+              ),
+
+              e('div', {className: 'flex gap-4 overflow-x-auto pb-4', style: {alignItems: 'flex-start'}},
+                kanbanListas.map(function(lista) {
+                  var cartoesLista = kanbanCartoes.filter(function(c) { return c.lista_id === lista.id; });
+                  var totalItensLista = kanbanItens.filter(function(i) {
+                    return cartoesLista.some(function(c) { return c.id === i.cartao_id; });
+                  }).length;
+
+                  return e('div', {key: lista.id, className: 'flex-shrink-0 w-64 bg-slate-800 rounded-xl p-3'},
+                    e('div', {className: 'flex items-center justify-between mb-3'},
+                      e('div', {className: 'flex items-center gap-2'},
+                        e('span', {className: 'font-bold text-white text-sm'}, lista.nome),
+                        e('span', {className: 'bg-slate-600 text-slate-300 text-xs font-bold px-2 py-0.5 rounded-full'}, cartoesLista.length)
+                      ),
+                      e('button', {
+                        onClick: function() { excluirLista(lista.id); },
+                        className: 'text-slate-500 hover:text-red-400 text-sm transition-colors',
+                        title: 'Excluir lista'
+                      }, '✕')
+                    ),
+                    e('div', {className: 'space-y-2 mb-3'},
+                      cartoesLista.map(function(cartao) {
+                        var itensCartao = kanbanItens.filter(function(i) { return i.cartao_id === cartao.id; });
+                        var feitosCartao = itensCartao.filter(function(i) { return i.feito; }).length;
+                        var totalCartao = itensCartao.length;
+                        var pctCartao = totalCartao > 0 ? Math.round(feitosCartao / totalCartao * 100) : 0;
+                        var tudo100 = totalCartao > 0 && feitosCartao === totalCartao;
+
+                        return e('div', {
+                          key: cartao.id,
+                          onClick: function() { setKanbanModalCartao(cartao); setNovoItemTexto(''); setKanbanOcultarMarcados(false); },
+                          className: 'bg-white rounded-lg p-3 cursor-pointer hover:shadow-md transition-shadow'
+                        },
+                          e('div', {className: 'flex items-center gap-2 mb-2'},
+                            e('div', {className: 'w-4 h-4 rounded-full border-2 flex-shrink-0 ' + (tudo100 ? 'bg-green-500 border-green-500' : 'border-slate-400')}),
+                            e('span', {className: 'text-slate-800 text-sm font-semibold'}, cartao.nome)
+                          ),
+                          totalCartao > 0 && e('div', null,
+                            pctCartao === 100 && e('div', {className: 'w-full bg-green-500 rounded-full h-1.5 mb-1'}),
+                            pctCartao < 100 && e('div', {className: 'w-full bg-slate-200 rounded-full h-1.5 mb-1'},
+                              e('div', {className: 'bg-green-500 h-1.5 rounded-full', style: {width: pctCartao + '%'}})
+                            ),
+                            e('div', {className: 'flex items-center gap-1'},
+                              e('span', {className: 'text-xs ' + (tudo100 ? 'text-green-600 font-bold' : 'text-slate-500')},
+                                (tudo100 ? '✓ ' : '') + feitosCartao + '/' + totalCartao
+                              )
+                            )
+                          )
+                        );
+                      })
+                    ),
+                    novoCartaoListaId === lista.id
+                      ? e('div', {className: 'space-y-2'},
+                          e('input', {
+                            type: 'text',
+                            placeholder: 'Nome do cartão...',
+                            value: novoCartaoNome,
+                            autoFocus: true,
+                            onChange: function(ev) { setNovoCartaoNome(ev.target.value); },
+                            onKeyDown: function(ev) {
+                              if (ev.key === 'Enter') adicionarCartao(lista.id);
+                              if (ev.key === 'Escape') { setNovoCartaoListaId(null); setNovoCartaoNome(''); }
+                            },
+                            className: 'w-full bg-slate-700 border border-blue-400 text-white text-sm px-3 py-2 rounded-lg focus:outline-none'
+                          }),
+                          e('div', {className: 'flex gap-2'},
+                            e('button', {
+                              onClick: function() { adicionarCartao(lista.id); },
+                              className: 'bg-blue-600 hover:bg-blue-500 text-white text-xs px-3 py-1.5 rounded-lg font-bold transition-colors'
+                            }, 'Adicionar'),
+                            e('button', {
+                              onClick: function() { setNovoCartaoListaId(null); setNovoCartaoNome(''); },
+                              className: 'text-slate-400 hover:text-white text-xs px-2 py-1.5 transition-colors'
+                            }, '✕')
+                          )
+                        )
+                      : e('button', {
+                          onClick: function() { setNovoCartaoListaId(lista.id); setNovoCartaoNome(''); },
+                          className: 'w-full text-slate-400 hover:text-white text-sm py-2 flex items-center gap-1 transition-colors'
+                        }, e('span', null, '+'), e('span', null, 'Adicionar um cartão'))
+                  );
+                }),
+
+                e('div', {className: 'flex-shrink-0 w-64'},
+                  novaListaNome !== null && e('div', {className: 'bg-slate-800 rounded-xl p-3'},
+                    e('input', {
+                      type: 'text',
+                      placeholder: 'Nome da lista...',
+                      value: novaListaNome,
+                      onChange: function(ev) { setNovaListaNome(ev.target.value); },
+                      onKeyDown: function(ev) { if (ev.key === 'Enter') adicionarLista(); },
+                      className: 'w-full bg-slate-700 border border-slate-500 text-white text-sm px-3 py-2 rounded-lg focus:outline-none focus:border-blue-400 mb-2'
+                    }),
+                    e('button', {
+                      onClick: adicionarLista,
+                      className: 'w-full bg-blue-600 hover:bg-blue-500 text-white text-sm py-2 rounded-lg font-bold transition-colors'
+                    }, '+ Adicionar lista')
+                  )
+                )
+              )
+            );
+          })()
         )
       );
     }
