@@ -2190,13 +2190,18 @@
                       return e('div', {
                         key: item.id,
                         draggable: true,
-                        onDragStart: function() { setDragItemId(item.id); },
+                        onDragStart: function(ev) { if (!window._kanbanDragOk) { ev.preventDefault(); return; } setDragItemId(item.id); },
                         onDragOver: function(ev) { ev.preventDefault(); setDragOverItemId(item.id); },
                         onDrop: function(ev) { ev.preventDefault(); reordenarItens(dragItemId, item.id); setDragItemId(null); setDragOverItemId(null); },
-                        onDragEnd: function() { setDragItemId(null); setDragOverItemId(null); },
+                        onDragEnd: function() { window._kanbanDragOk = false; setDragItemId(null); setDragOverItemId(null); },
                         className: 'flex items-center gap-2 py-1.5 px-1 rounded-lg transition-colors ' + (isDragOver ? 'bg-blue-900 border border-blue-500' : 'hover:bg-slate-700') + (dragItemId === item.id ? ' opacity-40' : '')
                       },
-                        e('span', {className: 'text-slate-500 cursor-grab active:cursor-grabbing select-none text-base flex-shrink-0', style: {lineHeight: 1}}, '⠿'),
+                        e('span', {
+                          className: 'text-slate-500 cursor-grab active:cursor-grabbing select-none text-base flex-shrink-0',
+                          style: {lineHeight: 1},
+                          onMouseDown: function() { window._kanbanDragOk = true; },
+                          onMouseUp: function() { window._kanbanDragOk = false; }
+                        }, '⠿'),
                         e('input', {
                           type: 'checkbox',
                           checked: item.feito,
