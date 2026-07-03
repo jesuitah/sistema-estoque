@@ -388,6 +388,10 @@
       var dragOverCartaoId = dragOverCartaoIdState[0];
       var setDragOverCartaoId = dragOverCartaoIdState[1];
 
+      var kanbanErroState = useState(false);
+      var kanbanErro = kanbanErroState[0];
+      var setKanbanErro = kanbanErroState[1];
+
       function carregarEstoque() {
         var batchSize = 1000;
         var allData = [];
@@ -840,15 +844,26 @@
         });
       }
 
-      function carregarKanban() {
-        supabase.from('kanban_listas').select('*').order('ordem').then(function(res) {
-          if (!res.error) setKanbanListas(res.data || []);
-        });
-        supabase.from('kanban_cartoes').select('*').order('ordem').then(function(res) {
-          if (!res.error) setKanbanCartoes(res.data || []);
-        });
-        supabase.from('kanban_itens').select('*').order('ordem').then(function(res) {
-          if (!res.error) setKanbanItens(res.data || []);
+      function carregarKanban(tentativa) {
+        tentativa = tentativa || 1;
+        Promise.all([
+          supabase.from('kanban_listas').select('*').order('ordem'),
+          supabase.from('kanban_cartoes').select('*').order('ordem'),
+          supabase.from('kanban_itens').select('*').order('ordem')
+        ]).then(function(results) {
+          var erro = results.find(function(r) { return r.error; });
+          if (erro) {
+            if (tentativa < 3) { setTimeout(function() { carregarKanban(tentativa + 1); }, 1500); return; }
+            setKanbanErro(true);
+            return;
+          }
+          setKanbanErro(false);
+          setKanbanListas(results[0].data || []);
+          setKanbanCartoes(results[1].data || []);
+          setKanbanItens(results[2].data || []);
+        }).catch(function() {
+          if (tentativa < 3) { setTimeout(function() { carregarKanban(tentativa + 1); }, 1500); return; }
+          setKanbanErro(true);
         });
       }
 
@@ -2212,6 +2227,14 @@
                     e('div', {className: 'text-xs opacity-90'}, 'últimos 7 dias')
                   )
                 )
+              ),
+
+              kanbanErro && e('div', {className: 'bg-red-900 border border-red-600 text-red-200 text-sm px-4 py-3 rounded-lg mb-4 flex items-center justify-between'},
+                e('span', null, '⚠ Não foi possível carregar as Tarefas. Verifique sua conexão.'),
+                e('button', {
+                  onClick: function() { setKanbanErro(false); carregarKanban(); },
+                  className: 'bg-red-700 hover:bg-red-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg'
+                }, 'Tentar novamente')
               ),
 
               kanbanModalCartao && e('div', {
