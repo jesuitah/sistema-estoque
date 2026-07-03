@@ -290,6 +290,26 @@
       var filtroSemPreco = filtroSemPrecoState[0];
       var setFiltroSemPreco = filtroSemPrecoState[1];
 
+      var mlPedidosState = useState([]);
+      var mlPedidos = mlPedidosState[0];
+      var setMlPedidos = mlPedidosState[1];
+
+      var mlPedidosCarregandoState = useState(false);
+      var mlPedidosCarregando = mlPedidosCarregandoState[0];
+      var setMlPedidosCarregando = mlPedidosCarregandoState[1];
+
+      var mlPedidosErroState = useState('');
+      var mlPedidosErro = mlPedidosErroState[0];
+      var setMlPedidosErro = mlPedidosErroState[1];
+
+      var mlSincronizandoState = useState(false);
+      var mlSincronizando = mlSincronizandoState[0];
+      var setMlSincronizando = mlSincronizandoState[1];
+
+      var mlBaixandoIdState = useState(null);
+      var mlBaixandoId = mlBaixandoIdState[0];
+      var setMlBaixandoId = mlBaixandoIdState[1];
+
       var adicionandoPrecoIdState = useState(null);
       var adicionandoPrecoId = adicionandoPrecoIdState[0];
       var setAdicionandoPrecoId = adicionandoPrecoIdState[1];
@@ -426,6 +446,87 @@
         });
       }
 
+      function carregarMlPedidos() {
+        setMlPedidosCarregando(true);
+        setMlPedidosErro('');
+        supabase.from('ml_pedidos')
+          .select('*')
+          .eq('processado', false)
+          .eq('is_full', false)
+          .order('data_criacao_ml', {ascending: false})
+          .then(function(result) {
+            setMlPedidosCarregando(false);
+            if (result.error) { setMlPedidosErro('Não foi possível carregar os pedidos. Verifique sua conexão.'); return; }
+            setMlPedidos(result.data || []);
+          });
+      }
+
+      function sincronizarPedidosML() {
+        setMlSincronizando(true);
+        setMlPedidosErro('');
+        fetch('https://pylkufhziohxvwbbaued.supabase.co/functions/v1/ml-pedidos')
+          .then(function(resp) { return resp.json(); })
+          .then(function() {
+            setMlSincronizando(false);
+            carregarMlPedidos();
+          }).catch(function(err) {
+            console.error('Erro ao sincronizar pedidos ML:', err);
+            setMlSincronizando(false);
+            setMlPedidosErro('Falha ao sincronizar com o Mercado Livre. Tente novamente.');
+          });
+      }
+
+      // seller_sku do ML vem no formato "MARCA: SKU" — separa os dois pra bater com a tabela estoque
+      function parseSellerSku(sellerSku) {
+        if (!sellerSku) return null;
+        var partes = sellerSku.split(':');
+        if (partes.length < 2) return null;
+        return { marca: partes[0].trim().toUpperCase(), sku: partes.slice(1).join(':').trim().toUpperCase() };
+      }
+
+      function darBaixaPedido(pedido) {
+        setMlBaixandoId(pedido.id);
+        var itens = pedido.itens || [];
+        var naoEncontrados = [];
+
+        var buscas = itens.map(function(it) {
+          var parsed = parseSellerSku(it.item && it.item.seller_sku);
+          if (!parsed) { naoEncontrados.push((it.item && it.item.seller_sku) || '(sem SKU)'); return Promise.resolve(null); }
+          return supabase.from('estoque').select('id, unidades, marca, sku').eq('marca', parsed.marca).eq('sku', parsed.sku).maybeSingle()
+            .then(function(result) {
+              if (!result.data) { naoEncontrados.push(parsed.marca + ': ' + parsed.sku); return null; }
+              return { registro: result.data, quantidade: it.quantity || 1 };
+            });
+        });
+
+        Promise.all(buscas).then(function(encontrados) {
+          var validos = encontrados.filter(function(x) { return x; });
+          var updates = validos.map(function(v) {
+            var novaQtd = Math.max(0, v.registro.unidades - v.quantidade);
+            return supabase.from('estoque').update({unidades: novaQtd}).eq('id', v.registro.id);
+          });
+          Promise.all(updates).then(function() {
+            supabase.from('ml_pedidos').update({processado: true}).eq('id', pedido.id).then(function(result) {
+              setMlBaixandoId(null);
+              if (result.error) { alert('Erro ao marcar pedido como processado.'); return; }
+              if (naoEncontrados.length > 0) {
+                alert('Baixa dada, mas os seguintes SKUs não foram encontrados no estoque e precisam de ajuste manual:\n' + naoEncontrados.join('\n'));
+              }
+              setMlPedidos(function(prev) { return prev.filter(function(p) { return p.id !== pedido.id; }); });
+              carregarEstoque();
+            });
+          });
+        });
+      }
+
+      function ignorarPedidoML(pedido) {
+        if (!confirm('Marcar este pedido como processado SEM dar baixa no estoque?')) return;
+        supabase.from('ml_pedidos').update({processado: true}).eq('id', pedido.id).then(function(result) {
+          if (result.error) { alert('Erro ao ignorar pedido.'); return; }
+          setMlPedidos(function(prev) { return prev.filter(function(p) { return p.id !== pedido.id; }); });
+        });
+      }
+
       useEffect(function() {
         carregarEstoque();
         carregarLojasML();
@@ -433,6 +534,7 @@
         carregarMarkups();
         carregarMarkupsML();
         carregarKanban();
+        carregarMlPedidos();
         var subscription = supabase
           .channel('estoque-realtime')
           .on('postgres_changes', {event: '*', schema: 'public', table: 'estoque'}, function() {
@@ -1471,7 +1573,11 @@
             e('button', {
               onClick: function() { setActiveTab('naoAnunciados'); },
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'naoAnunciados' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
-            }, '🏪 Lojas ML')
+            }, '🏪 Lojas ML'),
+            e('button', {
+              onClick: function() { setActiveTab('pedidosML'); },
+              className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap relative ' + (activeTab === 'pedidosML' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
+            }, '📦 Pedidos ML', mlPedidos.length > 0 && e('span', {className: 'ml-1 bg-red-600 text-white text-xs rounded-full px-1.5 py-0.5'}, mlPedidos.length))
           )
         ),
 
@@ -1782,6 +1888,60 @@
                   })
                 )
               )
+            )
+          ),
+
+          activeTab === 'pedidosML' && e('div', {className: 'space-y-4'},
+            e('div', {className: 'bg-slate-800 border border-slate-700 p-5 rounded-lg'},
+              e('div', {className: 'flex items-center justify-between mb-2'},
+                e('h2', {className: 'text-lg font-bold'}, '📦 Pedidos Mercado Livre — para despachar'),
+                e('button', {
+                  onClick: sincronizarPedidosML,
+                  disabled: mlSincronizando,
+                  className: 'flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors ' + (mlSincronizando ? 'opacity-60 cursor-wait' : '')
+                }, mlSincronizando ? '⏳ Sincronizando...' : '🔄 Sincronizar agora')
+              ),
+              e('p', {className: 'text-slate-400 text-sm'}, 'Mostra só os pedidos que a empresa precisa despachar (Flex, Turbo, Correio, etc). Pedidos Full não aparecem aqui pois o estoque deles fica no Mercado Livre, não aqui.'),
+              mlPedidosErro && e('div', {className: 'mt-3 bg-red-900 bg-opacity-40 border border-red-700 rounded-lg p-3 text-red-300 text-sm'}, '⚠ ' + mlPedidosErro)
+            ),
+
+            mlPedidosCarregando && e('div', {className: 'text-center text-slate-400 py-10'}, 'Carregando pedidos...'),
+
+            !mlPedidosCarregando && mlPedidos.length === 0 && e('div', {className: 'text-center text-slate-500 py-10 bg-slate-800 border border-slate-700 rounded-lg'},
+              '✅ Nenhum pedido pendente de baixa no momento.'
+            ),
+
+            !mlPedidosCarregando && mlPedidos.length > 0 && e('div', {className: 'grid grid-cols-1 md:grid-cols-2 gap-4'},
+              mlPedidos.map(function(pedido) {
+                var itens = pedido.itens || [];
+                return e('div', {key: pedido.id, className: 'bg-slate-800 border-2 border-slate-700 rounded-lg p-4'},
+                  e('div', {className: 'flex items-center justify-between mb-2'},
+                    e('span', {className: 'bg-blue-900 text-blue-300 px-2 py-0.5 rounded text-xs font-bold'}, pedido.conta),
+                    e('span', {className: 'text-xs text-slate-500'}, pedido.logistic_type || '—')
+                  ),
+                  e('div', {className: 'text-sm text-slate-300 mb-1'}, 'Comprador: ' + (pedido.comprador || '—')),
+                  e('div', {className: 'text-sm text-slate-300 mb-3'}, 'Total: ' + (pedido.valor_total ? 'R$ ' + Number(pedido.valor_total).toFixed(2) : '—')),
+                  e('div', {className: 'space-y-1 mb-3'},
+                    itens.map(function(it, idx) {
+                      return e('div', {key: idx, className: 'text-xs bg-slate-900 rounded px-2 py-1 flex justify-between'},
+                        e('span', null, (it.item && it.item.seller_sku) || '(sem SKU)'),
+                        e('span', {className: 'text-slate-400'}, 'x' + (it.quantity || 1))
+                      );
+                    })
+                  ),
+                  e('div', {className: 'flex gap-2'},
+                    e('button', {
+                      onClick: function() { darBaixaPedido(pedido); },
+                      disabled: mlBaixandoId === pedido.id,
+                      className: 'flex-1 bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-2 rounded-lg font-bold text-xs transition-colors ' + (mlBaixandoId === pedido.id ? 'opacity-60 cursor-wait' : '')
+                    }, mlBaixandoId === pedido.id ? '⏳ Baixando...' : '✅ Dar baixa no estoque'),
+                    e('button', {
+                      onClick: function() { ignorarPedidoML(pedido); },
+                      className: 'bg-slate-700 hover:bg-slate-600 text-slate-300 px-3 py-2 rounded-lg font-bold text-xs transition-colors'
+                    }, 'Ignorar')
+                  )
+                );
+              })
             )
           ),
 
