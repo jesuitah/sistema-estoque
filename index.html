@@ -5,17 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <!-- v2 -->
   <title>Sistema de Estoque</title>
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
   <script src="https://unpkg.com/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-  <script>
-    if (typeof pdfjsLib !== 'undefined') {
-      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-    }
-  </script>
   <style>
     body { background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%); min-height: 100vh; }
   </style>
@@ -1262,6 +1256,62 @@
         XLSX.writeFile(wb, 'estoque_completo.xlsx');
       }
 
+      var fazendoBackupState = useState(false);
+      var fazendoBackup = fazendoBackupState[0];
+      var setFazendoBackup = fazendoBackupState[1];
+
+      function backupCompleto() {
+        if (fazendoBackup) return;
+        setFazendoBackup(true);
+        // Busca TODAS as tabelas frescas do banco (não depende do que está na tela)
+        function puxarTudo(tabela) {
+          var batch = 1000, acc = [];
+          function ler(from) {
+            return supabase.from(tabela).select('*').range(from, from + batch - 1).then(function(r) {
+              if (r.error) throw new Error(tabela + ': ' + r.error.message);
+              acc = acc.concat(r.data || []);
+              if ((r.data || []).length === batch) return ler(from + batch);
+              return acc;
+            });
+          }
+          return ler(0);
+        }
+        var tabelas = ['estoque', 'precos', 'markup_marcas', 'ml_lojas', 'kanban_listas', 'kanban_cartoes', 'kanban_itens'];
+        Promise.all(tabelas.map(puxarTudo)).then(function(resultados) {
+          var wb = XLSX.utils.book_new();
+          tabelas.forEach(function(nome, i) {
+            var linhas = resultados[i];
+            var ws;
+            if (linhas.length === 0) {
+              ws = XLSX.utils.aoa_to_sheet([['(vazio)']]);
+            } else {
+              // ml_lojas tem sku_set (objeto gigante) — serializa como texto pra caber na planilha
+              var limpas = linhas.map(function(row) {
+                var novo = {};
+                Object.keys(row).forEach(function(k) {
+                  var v = row[k];
+                  novo[k] = (v !== null && typeof v === 'object') ? JSON.stringify(v) : v;
+                });
+                return novo;
+              });
+              ws = XLSX.utils.json_to_sheet(limpas);
+            }
+            XLSX.utils.book_append_sheet(wb, ws, nome.slice(0, 31));
+          });
+          var hoje = new Date();
+          var stamp = hoje.getFullYear() + '-' +
+            String(hoje.getMonth() + 1).padStart(2, '0') + '-' +
+            String(hoje.getDate()).padStart(2, '0') + '_' +
+            String(hoje.getHours()).padStart(2, '0') + 'h' +
+            String(hoje.getMinutes()).padStart(2, '0');
+          XLSX.writeFile(wb, 'backup_sistema_' + stamp + '.xlsx');
+          setFazendoBackup(false);
+        }).catch(function(err) {
+          alert('Erro ao gerar backup: ' + err.message + '\nNada foi alterado. Tente novamente.');
+          setFazendoBackup(false);
+        });
+      }
+
       function processarEnviosFull(file) {
         setImporting(true);
         setPendingChanges(null);
@@ -1371,10 +1421,18 @@
                 e('h1', {className: 'text-xl font-bold text-white'}, 'Sistema de Estoque'),
                 e('span', {className: 'text-slate-400 text-sm'}, '— Tempo real')
               ),
-              e('button', {
-                onClick: exportarEstoque,
-                className: 'flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors'
-              }, '⬇ Exportar Estoque')
+              e('div', {className: 'flex gap-2'},
+                e('button', {
+                  onClick: backupCompleto,
+                  disabled: fazendoBackup,
+                  className: 'flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors ' + (fazendoBackup ? 'opacity-60 cursor-wait' : ''),
+                  title: 'Baixa uma cópia de segurança de TODOS os dados (estoque, preços, tarefas, lojas ML) em um arquivo Excel'
+                }, fazendoBackup ? '⏳ Gerando...' : '🛟 Backup'),
+                e('button', {
+                  onClick: exportarEstoque,
+                  className: 'flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors'
+                }, '⬇ Exportar Estoque')
+              )
             ),
             e('div', {className: 'flex gap-3'},
               e(StatsCard, {numero: stats.total, label: 'SKUs', cor: 'bg-blue-600'}),
