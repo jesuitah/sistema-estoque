@@ -32,6 +32,8 @@
       );
     }
 
+    var CORES_ETIQUETA = ['#61bd4f', '#f2d600', '#ff9f1a', '#eb5a46', '#c377e0', '#0079bf', '#00c2e0', '#51e898', '#ff78cb', '#344563'];
+
     var LOJA_CORES_FALLBACK = [
       {bg: 'bg-blue-500',   text: 'text-white'},
       {bg: 'bg-orange-500', text: 'text-white'},
@@ -370,13 +372,41 @@
       var editandoCartaoValor = editandoCartaoValorState[0];
       var setEditandoCartaoValor = editandoCartaoValorState[1];
 
-      var dragItemIdState = useState(null);
-      var dragItemId = dragItemIdState[0];
-      var setDragItemId = dragItemIdState[1];
+      var kdragState = useState(null);
+      var kdrag = kdragState[0];
+      var setKdrag = kdragState[1];
 
-      var dragOverItemIdState = useState(null);
-      var dragOverItemId = dragOverItemIdState[0];
-      var setDragOverItemId = dragOverItemIdState[1];
+      var kdropState = useState(null);
+      var kdrop = kdropState[0];
+      var setKdrop = kdropState[1];
+
+      var kanbanEtiquetasState = useState([]);
+      var kanbanEtiquetas = kanbanEtiquetasState[0];
+      var setKanbanEtiquetas = kanbanEtiquetasState[1];
+
+      var cartaoEtiquetasState = useState([]);
+      var cartaoEtiquetas = cartaoEtiquetasState[0];
+      var setCartaoEtiquetas = cartaoEtiquetasState[1];
+
+      var etiquetaPopoverState = useState(false);
+      var etiquetaPopover = etiquetaPopoverState[0];
+      var setEtiquetaPopover = etiquetaPopoverState[1];
+
+      var editandoEtiquetaIdState = useState(null);
+      var editandoEtiquetaId = editandoEtiquetaIdState[0];
+      var setEditandoEtiquetaId = editandoEtiquetaIdState[1];
+
+      var editandoEtiquetaNomeState = useState('');
+      var editandoEtiquetaNome = editandoEtiquetaNomeState[0];
+      var setEditandoEtiquetaNome = editandoEtiquetaNomeState[1];
+
+      var novaEtiquetaCorState = useState(null);
+      var novaEtiquetaCor = novaEtiquetaCorState[0];
+      var setNovaEtiquetaCor = novaEtiquetaCorState[1];
+
+      var novaEtiquetaNomeState = useState('');
+      var novaEtiquetaNome = novaEtiquetaNomeState[0];
+      var setNovaEtiquetaNome = novaEtiquetaNomeState[1];
 
       var editandoItemIdState = useState(null);
       var editandoItemId = editandoItemIdState[0];
@@ -385,22 +415,6 @@
       var editandoItemTextoState = useState('');
       var editandoItemTexto = editandoItemTextoState[0];
       var setEditandoItemTexto = editandoItemTextoState[1];
-
-      var dragListaIdState = useState(null);
-      var dragListaId = dragListaIdState[0];
-      var setDragListaId = dragListaIdState[1];
-
-      var dragOverListaIdState = useState(null);
-      var dragOverListaId = dragOverListaIdState[0];
-      var setDragOverListaId = dragOverListaIdState[1];
-
-      var dragCartaoIdState = useState(null);
-      var dragCartaoId = dragCartaoIdState[0];
-      var setDragCartaoId = dragCartaoIdState[1];
-
-      var dragOverCartaoIdState = useState(null);
-      var dragOverCartaoId = dragOverCartaoIdState[0];
-      var setDragOverCartaoId = dragOverCartaoIdState[1];
 
       var kanbanErroState = useState(false);
       var kanbanErro = kanbanErroState[0];
@@ -541,11 +555,22 @@
             carregarEstoque();
           })
           .subscribe();
+        // Recarrega o kanban com debounce: várias mudanças seguidas (ex: reordenar 10 cartões)
+        // viram UMA recarga só, e nunca no meio de um drag (evita o board "pular" enquanto arrasta)
+        function recarregarKanbanDebounced() {
+          clearTimeout(window._kanbanReloadT);
+          window._kanbanReloadT = setTimeout(function() {
+            if (window._kDragAtivo) { recarregarKanbanDebounced(); return; }
+            carregarKanban();
+          }, 500);
+        }
         var kanbanSub = supabase
           .channel('kanban-realtime')
-          .on('postgres_changes', {event: '*', schema: 'public', table: 'kanban_listas'}, function() { carregarKanban(); })
-          .on('postgres_changes', {event: '*', schema: 'public', table: 'kanban_cartoes'}, function() { carregarKanban(); })
-          .on('postgres_changes', {event: '*', schema: 'public', table: 'kanban_itens'}, function() { carregarKanban(); })
+          .on('postgres_changes', {event: '*', schema: 'public', table: 'kanban_listas'}, recarregarKanbanDebounced)
+          .on('postgres_changes', {event: '*', schema: 'public', table: 'kanban_cartoes'}, recarregarKanbanDebounced)
+          .on('postgres_changes', {event: '*', schema: 'public', table: 'kanban_itens'}, recarregarKanbanDebounced)
+          .on('postgres_changes', {event: '*', schema: 'public', table: 'kanban_etiquetas'}, recarregarKanbanDebounced)
+          .on('postgres_changes', {event: '*', schema: 'public', table: 'kanban_cartao_etiquetas'}, recarregarKanbanDebounced)
           .subscribe();
         return function() { subscription.unsubscribe(); kanbanSub.unsubscribe(); };
       }, []);
@@ -945,7 +970,9 @@
         Promise.all([
           supabase.from('kanban_listas').select('*').order('ordem'),
           supabase.from('kanban_cartoes').select('*').order('ordem'),
-          supabase.from('kanban_itens').select('*').order('ordem')
+          supabase.from('kanban_itens').select('*').order('ordem'),
+          supabase.from('kanban_etiquetas').select('*').order('ordem'),
+          supabase.from('kanban_cartao_etiquetas').select('*')
         ]).then(function(results) {
           var erro = results.find(function(r) { return r.error; });
           if (erro) {
@@ -957,6 +984,8 @@
           setKanbanListas(results[0].data || []);
           setKanbanCartoes(results[1].data || []);
           setKanbanItens(results[2].data || []);
+          setKanbanEtiquetas(results[3].data || []);
+          setCartaoEtiquetas(results[4].data || []);
         }).catch(function() {
           if (tentativa < 3) { setTimeout(function() { carregarKanban(tentativa + 1); }, 1500); return; }
           setKanbanErro(true);
@@ -1018,29 +1047,139 @@
         });
       }
 
-      function moverCartao(cartaoId, destListaId, destCartaoId) {
-        if (!cartaoId || cartaoId === destCartaoId) return;
+      // ===== Motor de drag estilo Trello =====
+      // Segurar e mover (>6px) = arrastar (clone segue o mouse, placeholder mostra onde cai).
+      // Soltar sem mover = clique normal (abre/edita).
+      function kDragComecar(ev, cfg) {
+        if (ev.button !== 0) return;
+        if (ev.target.closest && ev.target.closest('input, button, textarea, select, a')) return;
+        var alvo = cfg.elemento || ev.currentTarget;
+        var startX = ev.clientX, startY = ev.clientY;
+        var rect = alvo.getBoundingClientRect();
+        var iniciou = false;
+        function aoMover(mev) {
+          var dx = mev.clientX - startX, dy = mev.clientY - startY;
+          if (!iniciou && (dx * dx + dy * dy) > 36) {
+            iniciou = true;
+            window._kDragAtivo = true;
+            var clone = alvo.cloneNode(true);
+            clone.style.position = 'fixed';
+            clone.style.left = rect.left + 'px';
+            clone.style.top = rect.top + 'px';
+            clone.style.width = rect.width + 'px';
+            clone.style.height = rect.height + 'px';
+            clone.style.zIndex = '9999';
+            clone.style.pointerEvents = 'none';
+            clone.style.transform = 'rotate(3deg)';
+            clone.style.boxShadow = '0 16px 32px rgba(0,0,0,0.5)';
+            clone.style.opacity = '0.95';
+            document.body.appendChild(clone);
+            window._kClone = clone;
+            window._kCloneBase = {left: rect.left, top: rect.top};
+            document.body.style.userSelect = 'none';
+            document.body.style.cursor = 'grabbing';
+            setKdrag({tipo: cfg.tipo, id: cfg.id, h: rect.height, w: rect.width});
+          }
+          if (iniciou) {
+            window._kClone.style.left = (window._kCloneBase.left + dx) + 'px';
+            window._kClone.style.top = (window._kCloneBase.top + dy) + 'px';
+            var drop = cfg.calcularDrop(mev.clientX, mev.clientY);
+            var prevDrop = window._kDrop;
+            if (JSON.stringify(prevDrop) !== JSON.stringify(drop)) {
+              window._kDrop = drop;
+              setKdrop(drop);
+            }
+          }
+        }
+        function aoSoltar() {
+          document.removeEventListener('mousemove', aoMover);
+          document.removeEventListener('mouseup', aoSoltar);
+          if (iniciou) {
+            if (window._kClone) { window._kClone.remove(); window._kClone = null; }
+            document.body.style.userSelect = '';
+            document.body.style.cursor = '';
+            var drop = window._kDrop;
+            window._kDrop = null;
+            window._kDragAtivo = false;
+            setKdrag(null);
+            setKdrop(null);
+            if (drop) cfg.aoSoltar(drop);
+          } else if (cfg.aoClicar) {
+            cfg.aoClicar();
+          }
+        }
+        document.addEventListener('mousemove', aoMover);
+        document.addEventListener('mouseup', aoSoltar);
+      }
+
+      function calcularDropCartao(x, y, cartaoId) {
+        var colunas = document.querySelectorAll('[data-klista]');
+        var melhor = null, melhorDist = Infinity;
+        colunas.forEach(function(col) {
+          var r = col.getBoundingClientRect();
+          var dist = (x >= r.left && x <= r.right) ? 0 : Math.min(Math.abs(x - r.left), Math.abs(x - r.right));
+          if (dist < melhorDist) { melhorDist = dist; melhor = col; }
+        });
+        if (!melhor) return null;
+        var listaId = melhor.getAttribute('data-klista');
+        var cards = melhor.querySelectorAll('[data-kcartao]');
+        var index = 0;
+        for (var i = 0; i < cards.length; i++) {
+          if (cards[i].getAttribute('data-kcartao') === String(cartaoId)) continue;
+          var cr = cards[i].getBoundingClientRect();
+          if (y > cr.top + cr.height / 2) index++;
+        }
+        return {listaId: listaId, index: index};
+      }
+
+      function calcularDropLista(x) {
+        var colunas = document.querySelectorAll('[data-klista]');
+        var index = 0;
+        colunas.forEach(function(col) {
+          if (col.getAttribute('data-kdragging') === '1') return;
+          var r = col.getBoundingClientRect();
+          if (x > r.left + r.width / 2) index++;
+        });
+        return {index: index};
+      }
+
+      function calcularDropItem(y) {
+        var linhas = document.querySelectorAll('[data-kitem]');
+        var antesDeId = null;
+        for (var i = 0; i < linhas.length; i++) {
+          if (linhas[i].getAttribute('data-kdragging') === '1') continue;
+          var r = linhas[i].getBoundingClientRect();
+          if (y < r.top + r.height / 2) { antesDeId = linhas[i].getAttribute('data-kitem'); break; }
+        }
+        return {antesDeId: antesDeId};
+      }
+
+      function moverCartaoIdx(cartaoId, destListaId, destIndex) {
         var cartao = kanbanCartoes.find(function(c) { return c.id === cartaoId; });
         if (!cartao) return;
         var srcListaId = cartao.lista_id;
         var dest = kanbanCartoes.filter(function(c) { return c.lista_id === destListaId && c.id !== cartaoId; })
           .sort(function(a, b) { return a.ordem - b.ordem; });
-        var insertIdx = destCartaoId ? dest.findIndex(function(c) { return c.id === destCartaoId; }) : dest.length;
-        if (insertIdx === -1) insertIdx = dest.length;
-        dest.splice(insertIdx, 0, Object.assign({}, cartao, {lista_id: destListaId}));
+        var idx = Math.max(0, Math.min(destIndex == null ? dest.length : destIndex, dest.length));
+        dest.splice(idx, 0, Object.assign({}, cartao, {lista_id: destListaId}));
         var atualizados = dest.map(function(c, i) { return Object.assign({}, c, {ordem: i}); });
         if (srcListaId !== destListaId) {
           var src = kanbanCartoes.filter(function(c) { return c.lista_id === srcListaId && c.id !== cartaoId; })
             .sort(function(a, b) { return a.ordem - b.ordem; });
           atualizados = atualizados.concat(src.map(function(c, i) { return Object.assign({}, c, {ordem: i}); }));
         }
+        var mudados = atualizados.filter(function(c) {
+          var antigo = kanbanCartoes.find(function(x) { return x.id === c.id; });
+          return !antigo || antigo.ordem !== c.ordem || antigo.lista_id !== c.lista_id;
+        });
+        if (mudados.length === 0) return;
         setKanbanCartoes(function(prev) {
           return prev.map(function(c) {
-            var u = atualizados.find(function(x) { return x.id === c.id; });
+            var u = mudados.find(function(x) { return x.id === c.id; });
             return u || c;
-          });
+          }).sort(function(a, b) { return a.ordem - b.ordem; });
         });
-        atualizados.forEach(function(c) {
+        mudados.forEach(function(c) {
           supabase.from('kanban_cartoes').update({lista_id: c.lista_id, ordem: c.ordem}).eq('id', c.id).then(function() {});
         });
       }
@@ -1067,40 +1206,92 @@
         });
       }
 
-      function reordenarListas(fromId, toId) {
-        if (!fromId || !toId || fromId === toId) return;
-        var fromIdx = kanbanListas.findIndex(function(l) { return l.id === fromId; });
-        var toIdx = kanbanListas.findIndex(function(l) { return l.id === toId; });
-        if (fromIdx === -1 || toIdx === -1) return;
+      function reordenarListasIdx(listaId, toIndex) {
+        var fromIdx = kanbanListas.findIndex(function(l) { return l.id === listaId; });
+        if (fromIdx === -1) return;
         var reordenadas = kanbanListas.slice();
         var removed = reordenadas.splice(fromIdx, 1)[0];
-        reordenadas.splice(toIdx, 0, removed);
-        var comOrdem = reordenadas.map(function(l, idx) { return Object.assign({}, l, {ordem: idx}); });
+        var idx = Math.max(0, Math.min(toIndex == null ? reordenadas.length : toIndex, reordenadas.length));
+        reordenadas.splice(idx, 0, removed);
+        var comOrdem = reordenadas.map(function(l, i) { return Object.assign({}, l, {ordem: i}); });
+        var mudados = comOrdem.filter(function(l) {
+          var antigo = kanbanListas.find(function(x) { return x.id === l.id; });
+          return antigo && antigo.ordem !== l.ordem;
+        });
+        if (mudados.length === 0) return;
         setKanbanListas(comOrdem);
-        comOrdem.forEach(function(l) {
+        mudados.forEach(function(l) {
           supabase.from('kanban_listas').update({ordem: l.ordem}).eq('id', l.id).then(function() {});
         });
       }
 
-      function reordenarItens(fromId, toId) {
-        if (!fromId || !toId || fromId === toId || !kanbanModalCartao) return;
-        var cartaoId = kanbanModalCartao.id;
-        var itensCartao = kanbanItens.filter(function(i) { return i.cartao_id === cartaoId; });
-        var fromIdx = itensCartao.findIndex(function(i) { return i.id === fromId; });
-        var toIdx = itensCartao.findIndex(function(i) { return i.id === toId; });
-        if (fromIdx === -1 || toIdx === -1) return;
-        var reordenados = itensCartao.slice();
-        var removed = reordenados.splice(fromIdx, 1)[0];
-        reordenados.splice(toIdx, 0, removed);
-        var comOrdem = reordenados.map(function(item, idx) { return Object.assign({}, item, {ordem: idx}); });
+      function reordenarItensIdx(itemId, antesDeId) {
+        if (!kanbanModalCartao || itemId === antesDeId) return;
+        var itensCartao = kanbanItens.filter(function(i) { return i.cartao_id === kanbanModalCartao.id; })
+          .sort(function(a, b) { return a.ordem - b.ordem; });
+        var fromIdx = itensCartao.findIndex(function(i) { return i.id === itemId; });
+        if (fromIdx === -1) return;
+        var removed = itensCartao.splice(fromIdx, 1)[0];
+        var toIdx = antesDeId ? itensCartao.findIndex(function(i) { return i.id === antesDeId; }) : itensCartao.length;
+        if (toIdx === -1) toIdx = itensCartao.length;
+        itensCartao.splice(toIdx, 0, removed);
+        var comOrdem = itensCartao.map(function(item, idx) { return Object.assign({}, item, {ordem: idx}); });
+        var mudados = comOrdem.filter(function(i) {
+          var antigo = kanbanItens.find(function(x) { return x.id === i.id; });
+          return antigo && antigo.ordem !== i.ordem;
+        });
+        if (mudados.length === 0) return;
         setKanbanItens(function(prev) {
           return prev.map(function(i) {
             var atualizado = comOrdem.find(function(n) { return n.id === i.id; });
             return atualizado || i;
-          });
+          }).sort(function(a, b) { return a.ordem - b.ordem; });
         });
-        comOrdem.forEach(function(item) {
+        mudados.forEach(function(item) {
           supabase.from('kanban_itens').update({ordem: item.ordem}).eq('id', item.id).then(function() {});
+        });
+      }
+
+      // ===== Etiquetas (estilo Trello) =====
+      function toggleEtiquetaCartao(cartaoId, etiquetaId) {
+        var existe = cartaoEtiquetas.some(function(ce) { return ce.cartao_id === cartaoId && ce.etiqueta_id === etiquetaId; });
+        if (existe) {
+          setCartaoEtiquetas(function(prev) { return prev.filter(function(ce) { return !(ce.cartao_id === cartaoId && ce.etiqueta_id === etiquetaId); }); });
+          supabase.from('kanban_cartao_etiquetas').delete().eq('cartao_id', cartaoId).eq('etiqueta_id', etiquetaId).then(function() {});
+        } else {
+          setCartaoEtiquetas(function(prev) { return prev.concat([{cartao_id: cartaoId, etiqueta_id: etiquetaId}]); });
+          supabase.from('kanban_cartao_etiquetas').insert({cartao_id: cartaoId, etiqueta_id: etiquetaId}).then(function() {});
+        }
+      }
+
+      function criarEtiqueta() {
+        if (!novaEtiquetaCor) { alert('Escolha uma cor para a etiqueta.'); return; }
+        var ordem = kanbanEtiquetas.length;
+        supabase.from('kanban_etiquetas').insert({nome: novaEtiquetaNome.trim(), cor: novaEtiquetaCor, ordem: ordem}).select().then(function(res) {
+          if (res.error) { alert('Erro: ' + res.error.message); return; }
+          setKanbanEtiquetas(function(prev) { return prev.concat(res.data); });
+          setNovaEtiquetaNome('');
+          setNovaEtiquetaCor(null);
+        });
+      }
+
+      function salvarNomeEtiqueta(etiquetaId) {
+        var nome = editandoEtiquetaNome.trim();
+        supabase.from('kanban_etiquetas').update({nome: nome}).eq('id', etiquetaId).then(function(res) {
+          if (res.error) { alert('Erro: ' + res.error.message); return; }
+          setKanbanEtiquetas(function(prev) {
+            return prev.map(function(et) { return et.id === etiquetaId ? Object.assign({}, et, {nome: nome}) : et; });
+          });
+          setEditandoEtiquetaId(null);
+        });
+      }
+
+      function excluirEtiqueta(etiquetaId) {
+        if (!confirm('Excluir esta etiqueta de todos os cartões?')) return;
+        supabase.from('kanban_etiquetas').delete().eq('id', etiquetaId).then(function(res) {
+          if (res.error) { alert('Erro: ' + res.error.message); return; }
+          setKanbanEtiquetas(function(prev) { return prev.filter(function(et) { return et.id !== etiquetaId; }); });
+          setCartaoEtiquetas(function(prev) { return prev.filter(function(ce) { return ce.etiqueta_id !== etiquetaId; }); });
         });
       }
 
@@ -2424,6 +2615,12 @@
             var modalFeitos = modalItens.filter(function(i) { return i.feito; }).length;
             var modalPct = modalTotal > 0 ? Math.round(modalFeitos / modalTotal * 100) : 0;
             var modalExibidos = kanbanOcultarMarcados ? modalItens.filter(function(i) { return !i.feito; }) : modalItens;
+            var modalEtiquetas = kanbanModalCartao
+              ? cartaoEtiquetas
+                  .filter(function(ce) { return ce.cartao_id === kanbanModalCartao.id; })
+                  .map(function(ce) { return kanbanEtiquetas.find(function(et) { return et.id === ce.etiqueta_id; }); })
+                  .filter(Boolean)
+              : [];
 
             var agora = new Date();
             var inicioHoje = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate()).getTime();
@@ -2498,6 +2695,100 @@
                       }, 'Excluir')
                     )
                   ),
+                  e('div', {className: 'mb-4 relative'},
+                    e('div', {className: 'text-xs text-slate-400 font-semibold mb-1.5'}, 'Etiquetas'),
+                    e('div', {className: 'flex flex-wrap gap-1.5 items-center'},
+                      modalEtiquetas.map(function(et) {
+                        return e('span', {
+                          key: et.id,
+                          className: 'h-7 min-w-[48px] px-3 rounded flex items-center text-xs font-bold text-white shadow',
+                          style: {backgroundColor: et.cor}
+                        }, et.nome || '');
+                      }),
+                      e('button', {
+                        onClick: function() { setEtiquetaPopover(function(v) { return !v; }); setEditandoEtiquetaId(null); },
+                        className: 'h-7 w-9 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 font-bold text-sm transition-colors',
+                        title: 'Gerenciar etiquetas'
+                      }, '+')
+                    ),
+                    etiquetaPopover && e('div', {className: 'absolute left-0 top-full mt-2 w-80 bg-slate-900 border border-slate-600 rounded-xl shadow-2xl z-50 p-3'},
+                      e('div', {className: 'flex items-center justify-between mb-2'},
+                        e('span', {className: 'text-sm font-bold text-slate-200'}, 'Etiquetas'),
+                        e('button', {
+                          onClick: function() { setEtiquetaPopover(false); setEditandoEtiquetaId(null); },
+                          className: 'text-slate-500 hover:text-white text-sm'
+                        }, '✕')
+                      ),
+                      e('div', {className: 'space-y-1.5 mb-3 max-h-64 overflow-y-auto'},
+                        kanbanEtiquetas.map(function(et) {
+                          var marcada = cartaoEtiquetas.some(function(ce) { return ce.cartao_id === kanbanModalCartao.id && ce.etiqueta_id === et.id; });
+                          return e('div', {key: et.id, className: 'flex items-center gap-2'},
+                            e('input', {
+                              type: 'checkbox',
+                              checked: marcada,
+                              onChange: function() { toggleEtiquetaCartao(kanbanModalCartao.id, et.id); },
+                              className: 'w-4 h-4 accent-blue-500 cursor-pointer flex-shrink-0'
+                            }),
+                            editandoEtiquetaId === et.id
+                              ? e('input', {
+                                  type: 'text',
+                                  autoFocus: true,
+                                  value: editandoEtiquetaNome,
+                                  onChange: function(ev) { setEditandoEtiquetaNome(ev.target.value); },
+                                  onKeyDown: function(ev) {
+                                    if (ev.key === 'Enter') salvarNomeEtiqueta(et.id);
+                                    if (ev.key === 'Escape') setEditandoEtiquetaId(null);
+                                  },
+                                  onBlur: function() { salvarNomeEtiqueta(et.id); },
+                                  className: 'flex-1 h-8 rounded px-2 text-xs font-bold text-white focus:outline-none border border-white',
+                                  style: {backgroundColor: et.cor}
+                                })
+                              : e('div', {
+                                  onClick: function() { toggleEtiquetaCartao(kanbanModalCartao.id, et.id); },
+                                  className: 'flex-1 h-8 rounded px-3 flex items-center text-xs font-bold text-white cursor-pointer hover:opacity-85 transition-opacity',
+                                  style: {backgroundColor: et.cor}
+                                }, et.nome || ''),
+                            e('button', {
+                              onClick: function() { setEditandoEtiquetaId(et.id); setEditandoEtiquetaNome(et.nome || ''); },
+                              className: 'text-slate-400 hover:text-white text-xs px-1 flex-shrink-0',
+                              title: 'Renomear etiqueta'
+                            }, '✏️'),
+                            e('button', {
+                              onClick: function() { excluirEtiqueta(et.id); },
+                              className: 'text-slate-500 hover:text-red-400 text-sm px-1 flex-shrink-0',
+                              title: 'Excluir etiqueta'
+                            }, '🗑')
+                          );
+                        })
+                      ),
+                      e('div', {className: 'border-t border-slate-700 pt-2'},
+                        e('div', {className: 'text-xs text-slate-400 font-semibold mb-1.5'}, 'Criar uma nova etiqueta'),
+                        e('input', {
+                          type: 'text',
+                          placeholder: 'Nome (opcional)...',
+                          value: novaEtiquetaNome,
+                          onChange: function(ev) { setNovaEtiquetaNome(ev.target.value); },
+                          onKeyDown: function(ev) { if (ev.key === 'Enter') criarEtiqueta(); },
+                          className: 'w-full bg-slate-800 border border-slate-600 text-white text-xs px-2 py-1.5 rounded-lg focus:outline-none focus:border-blue-400 mb-2'
+                        }),
+                        e('div', {className: 'flex flex-wrap gap-1.5 mb-2'},
+                          CORES_ETIQUETA.map(function(cor) {
+                            return e('button', {
+                              key: cor,
+                              onClick: function() { setNovaEtiquetaCor(cor); },
+                              className: 'w-9 h-7 rounded transition-transform ' + (novaEtiquetaCor === cor ? 'ring-2 ring-white scale-110' : 'hover:scale-105'),
+                              style: {backgroundColor: cor}
+                            });
+                          })
+                        ),
+                        e('button', {
+                          onClick: criarEtiqueta,
+                          className: 'w-full bg-blue-600 hover:bg-blue-500 text-white text-xs py-1.5 rounded-lg font-bold transition-colors'
+                        }, 'Criar')
+                      )
+                    )
+                  ),
+
                   e('div', {className: 'mb-1 text-xs text-slate-400 font-semibold'}, modalPct + '%'),
                   e('div', {className: 'w-full bg-slate-600 rounded-full h-2 mb-4'},
                     e('div', {
@@ -2506,55 +2797,64 @@
                     })
                   ),
                   e('div', {className: 'space-y-1 mb-4 max-h-96 overflow-y-auto'},
-                    modalExibidos.map(function(item) {
-                      var isDragOver = dragOverItemId === item.id && dragItemId !== item.id;
-                      return e('div', {
-                        key: item.id,
-                        draggable: true,
-                        onDragStart: function(ev) { if (!window._kanbanDragOk) { ev.preventDefault(); return; } setDragItemId(item.id); },
-                        onDragOver: function(ev) { ev.preventDefault(); setDragOverItemId(item.id); },
-                        onDrop: function(ev) { ev.preventDefault(); reordenarItens(dragItemId, item.id); setDragItemId(null); setDragOverItemId(null); },
-                        onDragEnd: function() { window._kanbanDragOk = false; setDragItemId(null); setDragOverItemId(null); },
-                        className: 'flex items-center gap-2 py-1.5 px-1 rounded-lg transition-colors ' + (isDragOver ? 'bg-blue-900 border border-blue-500' : 'hover:bg-slate-700') + (dragItemId === item.id ? ' opacity-40' : '')
-                      },
-                        e('span', {
-                          className: 'text-slate-500 cursor-grab active:cursor-grabbing select-none text-base flex-shrink-0',
-                          style: {lineHeight: 1},
-                          onMouseDown: function() { window._kanbanDragOk = true; },
-                          onMouseUp: function() { window._kanbanDragOk = false; }
-                        }, '⠿'),
-                        e('input', {
-                          type: 'checkbox',
-                          checked: item.feito,
-                          onChange: function() { toggleItem(item); },
-                          className: 'w-4 h-4 accent-green-500 cursor-pointer flex-shrink-0'
-                        }),
-                        editandoItemId === item.id
-                          ? e('input', {
-                              type: 'text',
-                              autoFocus: true,
-                              value: editandoItemTexto,
-                              onChange: function(ev) { setEditandoItemTexto(ev.target.value); },
-                              onKeyDown: function(ev) {
-                                if (ev.key === 'Enter') salvarTextoItem(item.id);
-                                if (ev.key === 'Escape') setEditandoItemId(null);
-                              },
-                              onBlur: function() { salvarTextoItem(item.id); },
-                              className: 'flex-1 bg-slate-700 border border-blue-400 text-white text-sm px-2 py-0.5 rounded focus:outline-none'
-                            })
-                          : e('span', {
-                              className: 'text-sm flex-1 cursor-pointer ' + (item.feito ? 'line-through text-slate-500' : 'text-slate-200 hover:text-blue-300'),
-                              onClick: function() { setEditandoItemId(item.id); setEditandoItemTexto(item.texto); },
-                              title: 'Clique para editar'
-                            }, item.texto),
-                        item.feito && item.feito_em && e('span', {className: 'text-xs text-slate-500 flex-shrink-0', title: new Date(item.feito_em).toLocaleString('pt-BR')}, '✓ ' + tempoRelativo(item.feito_em)),
-                        e('button', {
-                          onClick: function(ev) { ev.stopPropagation(); excluirItem(item); },
-                          className: 'text-slate-600 hover:text-red-400 text-sm flex-shrink-0 px-1 transition-colors',
-                          title: 'Excluir item'
-                        }, '✕')
-                      );
-                    })
+                    (function() {
+                      var linhas = [];
+                      var placeholderItem = kdrag && kdrag.tipo === 'item'
+                        ? e('div', {key: 'ph-item', className: 'rounded-lg bg-slate-700 border border-dashed border-slate-500', style: {height: kdrag.h + 'px'}})
+                        : null;
+                      modalExibidos.forEach(function(item) {
+                        var arrastando = kdrag && kdrag.tipo === 'item' && kdrag.id === item.id;
+                        if (arrastando) return;
+                        if (placeholderItem && kdrop && kdrop.antesDeId === item.id) linhas.push(placeholderItem);
+                        linhas.push(e('div', {
+                          key: item.id,
+                          'data-kitem': item.id,
+                          onMouseDown: function(ev) {
+                            if (editandoItemId === item.id) return;
+                            kDragComecar(ev, {
+                              tipo: 'item',
+                              id: item.id,
+                              calcularDrop: function(x, y) { return calcularDropItem(y); },
+                              aoSoltar: function(drop) { reordenarItensIdx(item.id, drop.antesDeId); },
+                              aoClicar: function() { setEditandoItemId(item.id); setEditandoItemTexto(item.texto); }
+                            });
+                          },
+                          className: 'flex items-center gap-2 py-1.5 px-2 rounded-lg cursor-grab hover:bg-slate-700 transition-colors'
+                        },
+                          e('input', {
+                            type: 'checkbox',
+                            checked: item.feito,
+                            onChange: function() { toggleItem(item); },
+                            className: 'w-4 h-4 accent-green-500 cursor-pointer flex-shrink-0'
+                          }),
+                          editandoItemId === item.id
+                            ? e('input', {
+                                type: 'text',
+                                autoFocus: true,
+                                value: editandoItemTexto,
+                                onChange: function(ev) { setEditandoItemTexto(ev.target.value); },
+                                onKeyDown: function(ev) {
+                                  if (ev.key === 'Enter') salvarTextoItem(item.id);
+                                  if (ev.key === 'Escape') setEditandoItemId(null);
+                                },
+                                onBlur: function() { salvarTextoItem(item.id); },
+                                className: 'flex-1 bg-slate-700 border border-blue-400 text-white text-sm px-2 py-0.5 rounded focus:outline-none'
+                              })
+                            : e('span', {
+                                className: 'text-sm flex-1 ' + (item.feito ? 'line-through text-slate-500' : 'text-slate-200'),
+                                title: 'Clique para editar, segure para mover'
+                              }, item.texto),
+                          item.feito && item.feito_em && e('span', {className: 'text-xs text-slate-500 flex-shrink-0', title: new Date(item.feito_em).toLocaleString('pt-BR')}, '✓ ' + tempoRelativo(item.feito_em)),
+                          e('button', {
+                            onClick: function(ev) { ev.stopPropagation(); excluirItem(item); },
+                            className: 'text-slate-600 hover:text-red-400 text-sm flex-shrink-0 px-1 transition-colors',
+                            title: 'Excluir item'
+                          }, '✕')
+                        ));
+                      });
+                      if (placeholderItem && kdrop && kdrop.antesDeId === null) linhas.push(placeholderItem);
+                      return linhas;
+                    })()
                   ),
                   e('div', {className: 'flex gap-2'},
                     e('input', {
@@ -2574,149 +2874,197 @@
               ),
 
               e('div', {className: 'flex gap-4 overflow-x-auto pb-4', style: {alignItems: 'flex-start'}},
-                kanbanListas.map(function(lista) {
-                  var cartoesLista = kanbanCartoes.filter(function(c) { return c.lista_id === lista.id; });
-                  var estaEditandoLista = editandoListaId === lista.id;
-
-                  var isDragOverLista = dragOverListaId === lista.id && dragListaId !== lista.id;
-                  var isCartaoOverLista = dragCartaoId && dragOverListaId === lista.id;
-                  return e('div', {
-                    key: lista.id,
-                    draggable: true,
-                    onDragStart: function(ev) { ev.stopPropagation(); setDragListaId(lista.id); },
-                    onDragOver: function(ev) { ev.preventDefault(); ev.stopPropagation(); setDragOverListaId(lista.id); },
-                    onDrop: function(ev) {
-                      ev.preventDefault(); ev.stopPropagation();
-                      if (dragCartaoId) {
-                        moverCartao(dragCartaoId, lista.id, null);
-                        setDragCartaoId(null); setDragOverCartaoId(null);
-                      } else {
-                        reordenarListas(dragListaId, lista.id);
-                        setDragListaId(null);
-                      }
-                      setDragOverListaId(null);
-                    },
-                    onDragEnd: function() { setDragListaId(null); setDragOverListaId(null); },
-                    className: 'flex-shrink-0 w-80 bg-slate-800 rounded-xl p-3 transition-all ' + ((isDragOverLista && !dragCartaoId) || isCartaoOverLista ? 'ring-2 ring-blue-500' : '') + (dragListaId === lista.id ? ' opacity-40' : '')
-                  },
-                    e('div', {className: 'flex items-center justify-between mb-3'},
-                      estaEditandoLista
-                        ? e('div', {className: 'flex items-center gap-2 flex-1 mr-2'},
-                            e('input', {
-                              type: 'text',
-                              autoFocus: true,
-                              value: editandoListaNome,
-                              onChange: function(ev) { setEditandoListaNome(ev.target.value); },
-                              onKeyDown: function(ev) {
-                                if (ev.key === 'Enter') salvarNomeLista(lista.id);
-                                if (ev.key === 'Escape') setEditandoListaId(null);
-                              },
-                              onBlur: function() { salvarNomeLista(lista.id); },
-                              className: 'flex-1 bg-slate-700 border border-blue-400 text-white text-sm font-bold px-2 py-1 rounded-lg focus:outline-none'
-                            })
-                          )
-                        : e('div', {className: 'flex items-center gap-2 cursor-pointer group', onClick: function() { setEditandoListaId(lista.id); setEditandoListaNome(lista.nome); }},
-                            e('span', {className: 'font-bold text-white text-sm group-hover:text-blue-300 transition-colors'}, lista.nome),
-                            e('span', {className: 'bg-slate-600 text-slate-300 text-xs font-bold px-2 py-0.5 rounded-full'}, cartoesLista.length),
-                            e('span', {className: 'opacity-0 group-hover:opacity-100 text-slate-500 text-xs transition-opacity'}, '✏️')
-                          ),
-                      e('button', {
-                        onClick: function() { excluirLista(lista.id); },
-                        className: 'text-slate-500 hover:text-red-400 text-sm transition-colors flex-shrink-0',
-                        title: 'Excluir lista'
-                      }, '✕')
-                    ),
-                    e('div', {className: 'space-y-2 mb-3'},
-                      cartoesLista.map(function(cartao) {
-                        var itensCartao = kanbanItens.filter(function(i) { return i.cartao_id === cartao.id; });
-                        var feitosCartao = itensCartao.filter(function(i) { return i.feito; }).length;
-                        var totalCartao = itensCartao.length;
-                        var pctCartao = totalCartao > 0 ? Math.round(feitosCartao / totalCartao * 100) : 0;
-                        var tudo100 = totalCartao > 0 && feitosCartao === totalCartao;
-
-                        var ultimoCheck = null;
-                        itensCartao.forEach(function(i) {
-                          if (i.feito && i.feito_em && (!ultimoCheck || i.feito_em > ultimoCheck)) ultimoCheck = i.feito_em;
-                        });
-                        var horasDesdeCheck = ultimoCheck ? (Date.now() - new Date(ultimoCheck).getTime()) / 3600000 : null;
-                        var corCheck = horasDesdeCheck === null ? 'text-slate-400'
-                          : horasDesdeCheck < 24 ? 'text-green-600'
-                          : horasDesdeCheck < 72 ? 'text-yellow-600'
-                          : 'text-red-500';
-
+                (function() {
+                  var colunas = [];
+                  var visLista = 0;
+                  var placeholderLista = kdrag && kdrag.tipo === 'lista'
+                    ? function(k) {
                         return e('div', {
-                          key: cartao.id,
-                          draggable: true,
-                          onDragStart: function(ev) { ev.stopPropagation(); setDragCartaoId(cartao.id); },
-                          onDragOver: function(ev) {
-                            if (!dragCartaoId) return;
-                            ev.preventDefault(); ev.stopPropagation();
-                            setDragOverCartaoId(cartao.id);
-                          },
-                          onDrop: function(ev) {
-                            if (!dragCartaoId) return;
-                            ev.preventDefault(); ev.stopPropagation();
-                            moverCartao(dragCartaoId, lista.id, cartao.id);
-                            setDragCartaoId(null); setDragOverCartaoId(null); setDragOverListaId(null);
-                          },
-                          onDragEnd: function() { setDragCartaoId(null); setDragOverCartaoId(null); setDragOverListaId(null); },
-                          onClick: function() { setKanbanModalCartao(cartao); setNovoItemTexto(''); setKanbanOcultarMarcados(false); },
-                          className: 'bg-white rounded-lg p-3 cursor-pointer hover:shadow-lg hover:-translate-y-0.5 transition-all ' +
-                            (dragOverCartaoId === cartao.id && dragCartaoId !== cartao.id ? 'ring-2 ring-blue-500 ' : '') +
-                            (dragCartaoId === cartao.id ? 'opacity-40' : '')
+                          key: 'ph-lista-' + k,
+                          className: 'flex-shrink-0 w-80 rounded-xl bg-slate-700 bg-opacity-60 border-2 border-dashed border-slate-500',
+                          style: {height: kdrag.h + 'px'}
+                        });
+                      }
+                    : null;
+
+                  kanbanListas.forEach(function(lista) {
+                    var arrastandoLista = kdrag && kdrag.tipo === 'lista' && kdrag.id === lista.id;
+                    if (arrastandoLista) return;
+                    if (placeholderLista && kdrop && kdrop.index === visLista) colunas.push(placeholderLista(visLista));
+                    visLista++;
+
+                    var cartoesLista = kanbanCartoes.filter(function(c) { return c.lista_id === lista.id; })
+                      .sort(function(a, b) { return a.ordem - b.ordem; });
+                    var estaEditandoLista = editandoListaId === lista.id;
+
+                    // Cartões (com placeholder de drop no meio, estilo Trello)
+                    var cartoesNodes = [];
+                    var visCartao = 0;
+                    var placeholderCartao = kdrag && kdrag.tipo === 'cartao'
+                      ? function(k) {
+                          return e('div', {
+                            key: 'ph-cartao-' + k,
+                            className: 'rounded-lg bg-slate-600 bg-opacity-70 border-2 border-dashed border-slate-500',
+                            style: {height: kdrag.h + 'px'}
+                          });
+                        }
+                      : null;
+                    var dropAqui = placeholderCartao && kdrop && kdrop.listaId === String(lista.id);
+
+                    cartoesLista.forEach(function(cartao) {
+                      var arrastandoCartao = kdrag && kdrag.tipo === 'cartao' && kdrag.id === cartao.id;
+                      if (arrastandoCartao) return;
+                      if (dropAqui && kdrop.index === visCartao) cartoesNodes.push(placeholderCartao(visCartao));
+                      visCartao++;
+
+                      var itensCartao = kanbanItens.filter(function(i) { return i.cartao_id === cartao.id; });
+                      var feitosCartao = itensCartao.filter(function(i) { return i.feito; }).length;
+                      var totalCartao = itensCartao.length;
+                      var pctCartao = totalCartao > 0 ? Math.round(feitosCartao / totalCartao * 100) : 0;
+                      var tudo100 = totalCartao > 0 && feitosCartao === totalCartao;
+
+                      var ultimoCheck = null;
+                      itensCartao.forEach(function(i) {
+                        if (i.feito && i.feito_em && (!ultimoCheck || i.feito_em > ultimoCheck)) ultimoCheck = i.feito_em;
+                      });
+                      var horasDesdeCheck = ultimoCheck ? (Date.now() - new Date(ultimoCheck).getTime()) / 3600000 : null;
+                      var corCheck = horasDesdeCheck === null ? 'text-slate-400'
+                        : horasDesdeCheck < 24 ? 'text-green-600'
+                        : horasDesdeCheck < 72 ? 'text-yellow-600'
+                        : 'text-red-500';
+
+                      var etiquetasDoCartao = cartaoEtiquetas
+                        .filter(function(ce) { return ce.cartao_id === cartao.id; })
+                        .map(function(ce) { return kanbanEtiquetas.find(function(et) { return et.id === ce.etiqueta_id; }); })
+                        .filter(Boolean);
+
+                      cartoesNodes.push(e('div', {
+                        key: cartao.id,
+                        'data-kcartao': cartao.id,
+                        onMouseDown: function(ev) {
+                          kDragComecar(ev, {
+                            tipo: 'cartao',
+                            id: cartao.id,
+                            calcularDrop: function(x, y) { return calcularDropCartao(x, y, cartao.id); },
+                            aoSoltar: function(drop) { moverCartaoIdx(cartao.id, drop.listaId, drop.index); },
+                            aoClicar: function() { setKanbanModalCartao(cartao); setNovoItemTexto(''); setKanbanOcultarMarcados(false); }
+                          });
                         },
-                          e('div', {className: 'flex items-center gap-2 mb-2'},
-                            e('div', {className: 'w-4 h-4 rounded-full border-2 flex-shrink-0 ' + (tudo100 ? 'bg-green-500 border-green-500' : 'border-slate-400')}),
-                            e('span', {className: 'text-slate-800 text-sm font-semibold'}, cartao.nome)
+                        className: 'bg-white rounded-lg p-3 cursor-pointer hover:ring-2 hover:ring-blue-300 transition-shadow shadow'
+                      },
+                        etiquetasDoCartao.length > 0 && e('div', {className: 'flex flex-wrap gap-1 mb-2'},
+                          etiquetasDoCartao.map(function(et) {
+                            return e('span', {
+                              key: et.id,
+                              title: et.nome || '',
+                              className: 'h-2 w-10 rounded-full',
+                              style: {backgroundColor: et.cor}
+                            });
+                          })
+                        ),
+                        e('div', {className: 'flex items-center gap-2 mb-2'},
+                          e('div', {className: 'w-4 h-4 rounded-full border-2 flex-shrink-0 ' + (tudo100 ? 'bg-green-500 border-green-500' : 'border-slate-400')}),
+                          e('span', {className: 'text-slate-800 text-sm font-semibold'}, cartao.nome)
+                        ),
+                        totalCartao > 0 && e('div', null,
+                          pctCartao === 100 && e('div', {className: 'w-full bg-green-500 rounded-full h-1.5 mb-1'}),
+                          pctCartao < 100 && e('div', {className: 'w-full bg-slate-200 rounded-full h-1.5 mb-1'},
+                            e('div', {className: 'bg-green-500 h-1.5 rounded-full', style: {width: pctCartao + '%'}})
                           ),
-                          totalCartao > 0 && e('div', null,
-                            pctCartao === 100 && e('div', {className: 'w-full bg-green-500 rounded-full h-1.5 mb-1'}),
-                            pctCartao < 100 && e('div', {className: 'w-full bg-slate-200 rounded-full h-1.5 mb-1'},
-                              e('div', {className: 'bg-green-500 h-1.5 rounded-full', style: {width: pctCartao + '%'}})
+                          e('div', {className: 'flex items-center justify-between gap-1'},
+                            e('span', {className: 'text-xs ' + (tudo100 ? 'text-green-600 font-bold' : 'text-slate-500')},
+                              (tudo100 ? '✓ ' : '') + feitosCartao + '/' + totalCartao
                             ),
-                            e('div', {className: 'flex items-center justify-between gap-1'},
-                              e('span', {className: 'text-xs ' + (tudo100 ? 'text-green-600 font-bold' : 'text-slate-500')},
-                                (tudo100 ? '✓ ' : '') + feitosCartao + '/' + totalCartao
-                              ),
-                              ultimoCheck && e('span', {className: 'text-xs font-semibold ' + corCheck},
-                                '⏱ ' + tempoRelativo(ultimoCheck)
-                              )
+                            ultimoCheck && e('span', {className: 'text-xs font-semibold ' + corCheck},
+                              '⏱ ' + tempoRelativo(ultimoCheck)
                             )
                           )
-                        );
-                      })
-                    ),
-                    novoCartaoListaId === lista.id
-                      ? e('div', {className: 'space-y-2'},
-                          e('input', {
-                            type: 'text',
-                            placeholder: 'Nome do cartão...',
-                            value: novoCartaoNome,
-                            autoFocus: true,
-                            onChange: function(ev) { setNovoCartaoNome(ev.target.value); },
-                            onKeyDown: function(ev) {
-                              if (ev.key === 'Enter') adicionarCartao(lista.id);
-                              if (ev.key === 'Escape') { setNovoCartaoListaId(null); setNovoCartaoNome(''); }
-                            },
-                            className: 'w-full bg-slate-700 border border-blue-400 text-white text-sm px-3 py-2 rounded-lg focus:outline-none'
-                          }),
-                          e('div', {className: 'flex gap-2'},
-                            e('button', {
-                              onClick: function() { adicionarCartao(lista.id); },
-                              className: 'bg-blue-600 hover:bg-blue-500 text-white text-xs px-3 py-1.5 rounded-lg font-bold transition-colors'
-                            }, 'Adicionar'),
-                            e('button', {
-                              onClick: function() { setNovoCartaoListaId(null); setNovoCartaoNome(''); },
-                              className: 'text-slate-400 hover:text-white text-xs px-2 py-1.5 transition-colors'
-                            }, '✕')
-                          )
                         )
-                      : e('button', {
-                          onClick: function() { setNovoCartaoListaId(lista.id); setNovoCartaoNome(''); },
-                          className: 'w-full text-slate-400 hover:text-white text-sm py-2 flex items-center gap-1 transition-colors'
-                        }, e('span', null, '+'), e('span', null, 'Adicionar um cartão'))
-                  );
-                }),
+                      ));
+                    });
+                    if (dropAqui && kdrop.index >= visCartao) cartoesNodes.push(placeholderCartao('fim'));
+
+                    colunas.push(e('div', {
+                      key: lista.id,
+                      'data-klista': lista.id,
+                      className: 'flex-shrink-0 w-80 bg-slate-800 rounded-xl p-3'
+                    },
+                      e('div', {
+                        className: 'flex items-center justify-between mb-3 ' + (estaEditandoLista ? '' : 'cursor-grab'),
+                        onMouseDown: function(ev) {
+                          if (estaEditandoLista) return;
+                          var colEl = ev.currentTarget.closest('[data-klista]');
+                          kDragComecar(ev, {
+                            tipo: 'lista',
+                            id: lista.id,
+                            elemento: colEl,
+                            calcularDrop: function(x) { return calcularDropLista(x); },
+                            aoSoltar: function(drop) { reordenarListasIdx(lista.id, drop.index); },
+                            aoClicar: function() { setEditandoListaId(lista.id); setEditandoListaNome(lista.nome); }
+                          });
+                        }
+                      },
+                        estaEditandoLista
+                          ? e('div', {className: 'flex items-center gap-2 flex-1 mr-2'},
+                              e('input', {
+                                type: 'text',
+                                autoFocus: true,
+                                value: editandoListaNome,
+                                onChange: function(ev) { setEditandoListaNome(ev.target.value); },
+                                onKeyDown: function(ev) {
+                                  if (ev.key === 'Enter') salvarNomeLista(lista.id);
+                                  if (ev.key === 'Escape') setEditandoListaId(null);
+                                },
+                                onBlur: function() { salvarNomeLista(lista.id); },
+                                className: 'flex-1 bg-slate-700 border border-blue-400 text-white text-sm font-bold px-2 py-1 rounded-lg focus:outline-none'
+                              })
+                            )
+                          : e('div', {className: 'flex items-center gap-2 group'},
+                              e('span', {className: 'font-bold text-white text-sm group-hover:text-blue-300 transition-colors'}, lista.nome),
+                              e('span', {className: 'bg-slate-600 text-slate-300 text-xs font-bold px-2 py-0.5 rounded-full'}, cartoesLista.length),
+                              e('span', {className: 'opacity-0 group-hover:opacity-100 text-slate-500 text-xs transition-opacity'}, '✏️')
+                            ),
+                        e('button', {
+                          onClick: function() { excluirLista(lista.id); },
+                          className: 'text-slate-500 hover:text-red-400 text-sm transition-colors flex-shrink-0',
+                          title: 'Excluir lista'
+                        }, '✕')
+                      ),
+                      e('div', {className: 'space-y-2 mb-3'}, cartoesNodes),
+                      novoCartaoListaId === lista.id
+                        ? e('div', {className: 'space-y-2'},
+                            e('input', {
+                              type: 'text',
+                              placeholder: 'Nome do cartão...',
+                              value: novoCartaoNome,
+                              autoFocus: true,
+                              onChange: function(ev) { setNovoCartaoNome(ev.target.value); },
+                              onKeyDown: function(ev) {
+                                if (ev.key === 'Enter') adicionarCartao(lista.id);
+                                if (ev.key === 'Escape') { setNovoCartaoListaId(null); setNovoCartaoNome(''); }
+                              },
+                              className: 'w-full bg-slate-700 border border-blue-400 text-white text-sm px-3 py-2 rounded-lg focus:outline-none'
+                            }),
+                            e('div', {className: 'flex gap-2'},
+                              e('button', {
+                                onClick: function() { adicionarCartao(lista.id); },
+                                className: 'bg-blue-600 hover:bg-blue-500 text-white text-xs px-3 py-1.5 rounded-lg font-bold transition-colors'
+                              }, 'Adicionar'),
+                              e('button', {
+                                onClick: function() { setNovoCartaoListaId(null); setNovoCartaoNome(''); },
+                                className: 'text-slate-400 hover:text-white text-xs px-2 py-1.5 transition-colors'
+                              }, '✕')
+                            )
+                          )
+                        : e('button', {
+                            onClick: function() { setNovoCartaoListaId(lista.id); setNovoCartaoNome(''); },
+                            className: 'w-full text-slate-400 hover:text-white text-sm py-2 flex items-center gap-1 transition-colors'
+                          }, e('span', null, '+'), e('span', null, 'Adicionar um cartão'))
+                    ));
+                  });
+                  if (placeholderLista && kdrop && kdrop.index >= visLista) colunas.push(placeholderLista('fim'));
+                  return colunas;
+                })(),
 
                 e('div', {className: 'flex-shrink-0 w-80'},
                   novaListaNome !== null && e('div', {className: 'bg-slate-800 rounded-xl p-3'},
