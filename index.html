@@ -543,7 +543,27 @@
 
       function imprimirEtiquetaML(pedido) {
         if (!pedido.shipping_id) return;
-        window.open('https://pylkufhziohxvwbbaued.supabase.co/functions/v1/ml-etiqueta?pedido=' + pedido.ml_order_id, '_blank');
+        // Abre a aba já (senão o navegador bloqueia popup depois do fetch assíncrono)
+        // e só navega pro PDF de fato depois de confirmar que deu certo.
+        var aba = window.open('', '_blank');
+        if (aba) aba.document.write('<p style="font-family:sans-serif;padding:20px;">Carregando etiqueta...</p>');
+        fetch('https://pylkufhziohxvwbbaued.supabase.co/functions/v1/ml-etiqueta?pedido=' + pedido.ml_order_id)
+          .then(function(resp) {
+            if (resp.ok) {
+              return resp.blob().then(function(blob) {
+                var blobUrl = URL.createObjectURL(blob);
+                if (aba) aba.location.href = blobUrl; else window.open(blobUrl, '_blank');
+              });
+            }
+            return resp.json().then(function(dados) {
+              if (aba) aba.close();
+              alert(dados.erro || 'Não foi possível gerar a etiqueta.');
+            });
+          })
+          .catch(function() {
+            if (aba) aba.close();
+            alert('Falha de conexão ao buscar a etiqueta. Tente novamente.');
+          });
       }
 
       useEffect(function() {
