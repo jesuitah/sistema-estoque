@@ -2136,6 +2136,9 @@
             !mlPedidosCarregando && mlPedidos.length > 0 && e('div', {className: 'grid grid-cols-1 md:grid-cols-2 gap-4'},
               mlPedidos.map(function(pedido) {
                 var itens = pedido.itens || [];
+                var motivoEspera = pedido.envio_substatus === 'buffered' ? '⏳ Aguardando liberação do Mercado Livre (Cross Docking/Turbo)'
+                  : (pedido.envio_substatus === 'invoice_pending' || pedido.envio_substatus === 'invoice_missing') ? '📄 Aguardando emissão da Nota Fiscal (NF-e)'
+                  : null;
                 return e('div', {key: pedido.id, className: 'bg-slate-800 border-2 border-slate-700 rounded-lg p-4'},
                   e('div', {className: 'flex items-center justify-between mb-2'},
                     e('span', {className: 'bg-blue-900 text-blue-300 px-2 py-0.5 rounded text-xs font-bold'}, pedido.conta),
@@ -2151,13 +2154,19 @@
                       );
                     })
                   ),
+                  motivoEspera && e('div', {className: 'bg-amber-900 bg-opacity-40 border border-amber-700 rounded-lg px-3 py-2 mb-2 text-xs text-amber-300'}, motivoEspera),
                   e('div', {className: 'flex gap-2'},
-                    e('button', {
-                      onClick: function() { imprimirEtiquetaEDarBaixa(pedido); },
-                      disabled: !pedido.shipping_id || mlBaixandoId === pedido.id,
-                      title: pedido.shipping_id ? 'Imprime a etiqueta e, se der certo, já dá baixa no estoque' : 'Etiqueta ainda não disponível, sincronize novamente',
-                      className: 'flex-1 bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-2 rounded-lg font-bold text-xs transition-colors ' + (!pedido.shipping_id || mlBaixandoId === pedido.id ? 'opacity-50 cursor-not-allowed' : '')
-                    }, mlBaixandoId === pedido.id ? '⏳ Processando...' : '🖨️ Imprimir etiqueta e dar baixa'),
+                    motivoEspera
+                      ? e('div', {
+                          className: 'flex-1 bg-amber-700 bg-opacity-30 border border-amber-600 text-amber-200 px-3 py-2 rounded-lg font-bold text-xs text-center',
+                          title: 'Separe fisicamente essa unidade — a peça já está vendida, só falta o Mercado Livre liberar a etiqueta'
+                        }, '🔒 Reservado / Aguardando')
+                      : e('button', {
+                          onClick: function() { imprimirEtiquetaEDarBaixa(pedido); },
+                          disabled: !pedido.shipping_id || mlBaixandoId === pedido.id,
+                          title: pedido.shipping_id ? 'Imprime a etiqueta e, se der certo, já dá baixa no estoque' : 'Etiqueta ainda não disponível, sincronize novamente',
+                          className: 'flex-1 bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-2 rounded-lg font-bold text-xs transition-colors ' + (!pedido.shipping_id || mlBaixandoId === pedido.id ? 'opacity-50 cursor-not-allowed' : '')
+                        }, mlBaixandoId === pedido.id ? '⏳ Processando...' : '🖨️ Imprimir etiqueta e dar baixa'),
                     e('button', {
                       onClick: function() { ignorarPedidoML(pedido); },
                       className: 'bg-slate-700 hover:bg-slate-600 text-slate-300 px-3 py-2 rounded-lg font-bold text-xs transition-colors'
