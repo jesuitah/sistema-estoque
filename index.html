@@ -498,8 +498,9 @@
         return { marca: partes[0].trim().toUpperCase(), sku: partes.slice(1).join(':').trim().toUpperCase() };
       }
 
-      function darBaixaPedido(pedido) {
-        setMlBaixandoId(pedido.id);
+      // Retorna uma Promise (não mexe em mlBaixandoId sozinha) pra poder ser encadeada
+      // depois da etiqueta no fluxo combinado, e também usada isoladamente se precisar.
+      function darBaixaPedidoPromise(pedido) {
         var itens = pedido.itens || [];
         var naoEncontrados = [];
 
@@ -513,15 +514,14 @@
             });
         });
 
-        Promise.all(buscas).then(function(encontrados) {
+        return Promise.all(buscas).then(function(encontrados) {
           var validos = encontrados.filter(function(x) { return x; });
           var updates = validos.map(function(v) {
             var novaQtd = Math.max(0, v.registro.unidades - v.quantidade);
             return supabase.from('estoque').update({unidades: novaQtd}).eq('id', v.registro.id);
           });
-          Promise.all(updates).then(function() {
-            supabase.from('ml_pedidos').update({processado: true}).eq('id', pedido.id).then(function(result) {
-              setMlBaixandoId(null);
+          return Promise.all(updates).then(function() {
+            return supabase.from('ml_pedidos').update({processado: true}).eq('id', pedido.id).then(function(result) {
               if (result.error) { alert('Erro ao marcar pedido como processado.'); return; }
               if (naoEncontrados.length > 0) {
                 alert('Baixa dada, mas os seguintes SKUs não foram encontrados no estoque e precisam de ajuste manual:\n' + naoEncontrados.join('\n'));
@@ -541,8 +541,12 @@
         });
       }
 
-      function imprimirEtiquetaML(pedido) {
+      // Busca a etiqueta e, se der certo, abre pra impressão e JÁ dá baixa no estoque em seguida.
+      // Se a etiqueta falhar (NF-e pendente, buffer do ML etc), a baixa NÃO acontece — fica tudo
+      // intacto pra tentar de novo depois.
+      function imprimirEtiquetaEDarBaixa(pedido) {
         if (!pedido.shipping_id) return;
+        setMlBaixandoId(pedido.id);
         // Abre a aba já (senão o navegador bloqueia popup depois do fetch assíncrono)
         // e só navega pro PDF de fato depois de confirmar que deu certo.
         var aba = window.open('', '_blank');
@@ -553,17 +557,19 @@
               return resp.blob().then(function(blob) {
                 var blobUrl = URL.createObjectURL(blob);
                 if (aba) aba.location.href = blobUrl; else window.open(blobUrl, '_blank');
+                return darBaixaPedidoPromise(pedido);
               });
             }
             return resp.json().then(function(dados) {
               if (aba) aba.close();
-              alert(dados.erro || 'Não foi possível gerar a etiqueta.');
+              alert((dados.erro || 'Não foi possível gerar a etiqueta.') + '\n\nO estoque NÃO foi baixado — corrija o motivo acima e tente de novo.');
             });
           })
           .catch(function() {
             if (aba) aba.close();
-            alert('Falha de conexão ao buscar a etiqueta. Tente novamente.');
-          });
+            alert('Falha de conexão ao buscar a etiqueta. Tente novamente. O estoque NÃO foi baixado.');
+          })
+          .finally(function() { setMlBaixandoId(null); });
       }
 
       useEffect(function() {
@@ -2147,16 +2153,11 @@
                   ),
                   e('div', {className: 'flex gap-2'},
                     e('button', {
-                      onClick: function() { darBaixaPedido(pedido); },
-                      disabled: mlBaixandoId === pedido.id,
-                      className: 'flex-1 bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-2 rounded-lg font-bold text-xs transition-colors ' + (mlBaixandoId === pedido.id ? 'opacity-60 cursor-wait' : '')
-                    }, mlBaixandoId === pedido.id ? '⏳ Baixando...' : '✅ Dar baixa no estoque'),
-                    e('button', {
-                      onClick: function() { imprimirEtiquetaML(pedido); },
-                      disabled: !pedido.shipping_id,
-                      title: pedido.shipping_id ? 'Abrir etiqueta para imprimir' : 'Etiqueta ainda não disponível, sincronize novamente',
-                      className: 'bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-lg font-bold text-xs transition-colors ' + (!pedido.shipping_id ? 'opacity-40 cursor-not-allowed' : '')
-                    }, '🖨️ Etiqueta'),
+                      onClick: function() { imprimirEtiquetaEDarBaixa(pedido); },
+                      disabled: !pedido.shipping_id || mlBaixandoId === pedido.id,
+                      title: pedido.shipping_id ? 'Imprime a etiqueta e, se der certo, já dá baixa no estoque' : 'Etiqueta ainda não disponível, sincronize novamente',
+                      className: 'flex-1 bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-2 rounded-lg font-bold text-xs transition-colors ' + (!pedido.shipping_id || mlBaixandoId === pedido.id ? 'opacity-50 cursor-not-allowed' : '')
+                    }, mlBaixandoId === pedido.id ? '⏳ Processando...' : '🖨️ Imprimir etiqueta e dar baixa'),
                     e('button', {
                       onClick: function() { ignorarPedidoML(pedido); },
                       className: 'bg-slate-700 hover:bg-slate-600 text-slate-300 px-3 py-2 rounded-lg font-bold text-xs transition-colors'
