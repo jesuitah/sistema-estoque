@@ -34,6 +34,14 @@
 
     var CORES_ETIQUETA = ['#61bd4f', '#f2d600', '#ff9f1a', '#eb5a46', '#c377e0', '#0079bf', '#00c2e0', '#51e898', '#ff78cb', '#344563'];
 
+    function getCorContaML(conta) {
+      var c = (conta || '').toUpperCase();
+      if (c.indexOf('KMP') !== -1) return 'bg-blue-900 text-blue-300';
+      if (c.indexOf('ERP') !== -1) return 'bg-orange-900 text-orange-300';
+      if (c.indexOf('LTS') !== -1) return 'bg-green-900 text-green-300';
+      return 'bg-slate-700 text-slate-300';
+    }
+
     var LOJA_CORES_FALLBACK = [
       {bg: 'bg-blue-500',   text: 'text-white'},
       {bg: 'bg-orange-500', text: 'text-white'},
@@ -1769,6 +1777,10 @@
         e('div', {className: 'bg-slate-800 border-b border-slate-700'},
           e('div', {className: 'max-w-7xl mx-auto px-4 flex overflow-x-auto'},
             e('button', {
+              onClick: function() { setActiveTab('pedidosML'); },
+              className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap relative ' + (activeTab === 'pedidosML' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
+            }, '📦 Pedidos ML', mlPedidos.length > 0 && e('span', {className: 'ml-1 bg-red-600 text-white text-xs rounded-full px-1.5 py-0.5'}, mlPedidos.length)),
+            e('button', {
               onClick: function() { setActiveTab('sku'); },
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'sku' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
             }, '> Busca'),
@@ -1795,11 +1807,7 @@
             e('button', {
               onClick: function() { setActiveTab('naoAnunciados'); },
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'naoAnunciados' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
-            }, '🏪 Lojas ML'),
-            e('button', {
-              onClick: function() { setActiveTab('pedidosML'); },
-              className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap relative ' + (activeTab === 'pedidosML' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
-            }, '📦 Pedidos ML', mlPedidos.length > 0 && e('span', {className: 'ml-1 bg-red-600 text-white text-xs rounded-full px-1.5 py-0.5'}, mlPedidos.length))
+            }, '🏪 Lojas ML')
           )
         ),
 
@@ -2141,7 +2149,7 @@
                   : null;
                 return e('div', {key: pedido.id, className: 'bg-slate-800 border-2 border-slate-700 rounded-lg p-4'},
                   e('div', {className: 'flex items-center justify-between mb-2'},
-                    e('span', {className: 'bg-blue-900 text-blue-300 px-2 py-0.5 rounded text-xs font-bold'}, pedido.conta),
+                    e('span', {className: getCorContaML(pedido.conta) + ' px-2 py-0.5 rounded text-xs font-bold'}, pedido.conta),
                     e('span', {className: 'text-xs text-slate-500'}, pedido.logistic_type || '—')
                   ),
                   e('div', {className: 'text-sm text-slate-300 mb-1'}, 'Comprador: ' + (pedido.comprador || '—')),
