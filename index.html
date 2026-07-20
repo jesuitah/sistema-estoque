@@ -549,33 +549,48 @@
         });
       }
 
-      // Busca a etiqueta e, se der certo, abre pra impressão e JÁ dá baixa no estoque em seguida.
-      // Se a etiqueta falhar (NF-e pendente, buffer do ML etc), a baixa NÃO acontece — fica tudo
-      // intacto pra tentar de novo depois.
+      // Manda o texto ZPL direto pra Zebra via Browser Print (programa local instalado no PC
+      // da expedição, escuta em localhost:9100). Sem isso instalado/aberto, a promise rejeita.
+      function enviarParaZebra(zpl) {
+        return fetch('http://localhost:9100/default?type=printer')
+          .then(function(resp) {
+            if (!resp.ok) throw new Error('Browser Print não respondeu');
+            return resp.json();
+          })
+          .then(function(device) {
+            return fetch('http://localhost:9100/write', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({device: device, data: zpl})
+            });
+          })
+          .then(function(resp) {
+            if (!resp.ok) throw new Error('Falha ao mandar a etiqueta pra impressora');
+          });
+      }
+
+      // Busca a etiqueta em formato térmico (já vem com a DANFE simplificada junto, quando
+      // aplicável) e manda direto pra Zebra via Browser Print. Só dá baixa no estoque se a
+      // impressão realmente sair — se a etiqueta falhar (NF-e pendente, buffer do ML, Browser
+      // Print não encontrado etc), a baixa NÃO acontece e o pedido fica intacto na fila.
       function imprimirEtiquetaEDarBaixa(pedido) {
         if (!pedido.shipping_id) return;
         setMlBaixandoId(pedido.id);
-        // Abre a aba já (senão o navegador bloqueia popup depois do fetch assíncrono)
-        // e só navega pro PDF de fato depois de confirmar que deu certo.
-        var aba = window.open('', '_blank');
-        if (aba) aba.document.write('<p style="font-family:sans-serif;padding:20px;">Carregando etiqueta...</p>');
         fetch('https://pylkufhziohxvwbbaued.supabase.co/functions/v1/ml-etiqueta?pedido=' + pedido.ml_order_id)
           .then(function(resp) {
             if (resp.ok) {
-              return resp.blob().then(function(blob) {
-                var blobUrl = URL.createObjectURL(blob);
-                if (aba) aba.location.href = blobUrl; else window.open(blobUrl, '_blank');
-                return darBaixaPedidoPromise(pedido);
+              return resp.json().then(function(dados) {
+                return enviarParaZebra(dados.zpl).then(function() {
+                  return darBaixaPedidoPromise(pedido);
+                });
               });
             }
             return resp.json().then(function(dados) {
-              if (aba) aba.close();
               alert((dados.erro || 'Não foi possível gerar a etiqueta.') + '\n\nO estoque NÃO foi baixado — corrija o motivo acima e tente de novo.');
             });
           })
-          .catch(function() {
-            if (aba) aba.close();
-            alert('Falha de conexão ao buscar a etiqueta. Tente novamente. O estoque NÃO foi baixado.');
+          .catch(function(err) {
+            alert('Não consegui mandar a etiqueta pra Zebra. Verifique se o programa "Zebra Browser Print" está aberto neste computador (' + (err && err.message ? err.message : 'falha de conexão') + '). O estoque NÃO foi baixado.');
           })
           .finally(function() { setMlBaixandoId(null); });
       }
