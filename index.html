@@ -558,14 +558,18 @@
             return resp.json();
           })
           .then(function(device) {
+            if (!device || (!device.name && !device.uid)) {
+              throw new Error('Browser Print está rodando, mas não achou nenhuma impressora Zebra configurada. Confira se ela está ligada e conectada por USB.');
+            }
             return fetch('http://localhost:9100/write', {
               method: 'POST',
               headers: {'Content-Type': 'application/json'},
               body: JSON.stringify({device: device, data: zpl})
+            }).then(function(resp) {
+              return resp.text().then(function(corpo) {
+                if (!resp.ok) throw new Error('Impressora recusou a etiqueta: ' + (corpo || ('HTTP ' + resp.status)));
+              });
             });
-          })
-          .then(function(resp) {
-            if (!resp.ok) throw new Error('Falha ao mandar a etiqueta pra impressora');
           });
       }
 
