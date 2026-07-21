@@ -506,20 +506,37 @@
         return { marca: partes[0].trim().toUpperCase(), sku: partes.slice(1).join(':').trim().toUpperCase() };
       }
 
+      // Kit vem como "KIT: MARCA1: SKU1 + MARCA2: SKU2 + ..." — cada componente sai 1 unidade
+      // (multiplicada pela quantidade vendida do kit). Retorna uma lista de {marca, sku}.
+      function parseComponentesSku(sellerSku) {
+        if (!sellerSku) return [];
+        if (/^\s*KIT\s*:/i.test(sellerSku)) {
+          var resto = sellerSku.replace(/^\s*KIT\s*:\s*/i, '');
+          return resto.split('+').map(function(parte) { return parseSellerSku(parte.trim()); }).filter(Boolean);
+        }
+        var unico = parseSellerSku(sellerSku);
+        return unico ? [unico] : [];
+      }
+
       // Retorna uma Promise (não mexe em mlBaixandoId sozinha) pra poder ser encadeada
       // depois da etiqueta no fluxo combinado, e também usada isoladamente se precisar.
       function darBaixaPedidoPromise(pedido) {
         var itens = pedido.itens || [];
         var naoEncontrados = [];
 
-        var buscas = itens.map(function(it) {
-          var parsed = parseSellerSku(it.item && it.item.seller_sku);
-          if (!parsed) { naoEncontrados.push((it.item && it.item.seller_sku) || '(sem SKU)'); return Promise.resolve(null); }
-          return supabase.from('estoque').select('id, unidades, marca, sku').eq('marca', parsed.marca).eq('sku', parsed.sku).maybeSingle()
-            .then(function(result) {
-              if (!result.data) { naoEncontrados.push(parsed.marca + ': ' + parsed.sku); return null; }
-              return { registro: result.data, quantidade: it.quantity || 1 };
-            });
+        var buscas = [];
+        itens.forEach(function(it) {
+          var componentes = parseComponentesSku(it.item && it.item.seller_sku);
+          if (componentes.length === 0) { naoEncontrados.push((it.item && it.item.seller_sku) || '(sem SKU)'); return; }
+          componentes.forEach(function(parsed) {
+            buscas.push(
+              supabase.from('estoque').select('id, unidades, marca, sku').eq('marca', parsed.marca).eq('sku', parsed.sku).maybeSingle()
+                .then(function(result) {
+                  if (!result.data) { naoEncontrados.push(parsed.marca + ': ' + parsed.sku); return null; }
+                  return { registro: result.data, quantidade: it.quantity || 1 };
+                })
+            );
+          });
         });
 
         return Promise.all(buscas).then(function(encontrados) {
