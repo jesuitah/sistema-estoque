@@ -320,6 +320,14 @@
       var mlBaixandoId = mlBaixandoIdState[0];
       var setMlBaixandoId = mlBaixandoIdState[1];
 
+      var mlSelecionadosState = useState({});
+      var mlSelecionados = mlSelecionadosState[0];
+      var setMlSelecionados = mlSelecionadosState[1];
+
+      var mlImprimindoLoteState = useState(false);
+      var mlImprimindoLote = mlImprimindoLoteState[0];
+      var setMlImprimindoLote = mlImprimindoLoteState[1];
+
       var adicionandoPrecoIdState = useState(null);
       var adicionandoPrecoId = adicionandoPrecoIdState[0];
       var setAdicionandoPrecoId = adicionandoPrecoIdState[1];
@@ -594,26 +602,80 @@
       // aplicável) e manda direto pra Zebra via Browser Print. Só dá baixa no estoque se a
       // impressão realmente sair — se a etiqueta falhar (NF-e pendente, buffer do ML, Browser
       // Print não encontrado etc), a baixa NÃO acontece e o pedido fica intacto na fila.
-      function imprimirEtiquetaEDarBaixa(pedido) {
-        if (!pedido.shipping_id) return;
-        setMlBaixandoId(pedido.id);
-        fetch('https://pylkufhziohxvwbbaued.supabase.co/functions/v1/ml-etiqueta?pedido=' + pedido.ml_order_id)
+      // Versão que retorna Promise (não mexe em mlBaixandoId sozinha), pra poder ser
+      // encadeada na impressão em lote. `silencioso` evita popup de alert por pedido
+      // quando está imprimindo vários de uma vez (junta tudo num resumo no final).
+      function imprimirEtiquetaEDarBaixaPromise(pedido, silencioso) {
+        if (!pedido.shipping_id) return Promise.resolve({ok: false, motivo: 'Etiqueta ainda não disponível'});
+        return fetch('https://pylkufhziohxvwbbaued.supabase.co/functions/v1/ml-etiqueta?pedido=' + pedido.ml_order_id)
           .then(function(resp) {
             if (resp.ok) {
               return resp.json().then(function(dados) {
                 return enviarParaZebra(dados.zpl).then(function() {
                   return darBaixaPedidoPromise(pedido);
+                }).then(function() {
+                  return {ok: true};
                 });
               });
             }
             return resp.json().then(function(dados) {
-              alert((dados.erro || 'Não foi possível gerar a etiqueta.') + '\n\nO estoque NÃO foi baixado — corrija o motivo acima e tente de novo.');
+              var motivo = dados.erro || 'Não foi possível gerar a etiqueta.';
+              if (!silencioso) alert(motivo + '\n\nO estoque NÃO foi baixado — corrija o motivo acima e tente de novo.');
+              return {ok: false, motivo: motivo};
             });
           })
           .catch(function(err) {
-            alert('Não consegui mandar a etiqueta pra Zebra. Verifique se o programa "Zebra Browser Print" está aberto neste computador (' + (err && err.message ? err.message : 'falha de conexão') + '). O estoque NÃO foi baixado.');
-          })
-          .finally(function() { setMlBaixandoId(null); });
+            var motivo = 'Não consegui mandar a etiqueta pra Zebra (' + (err && err.message ? err.message : 'falha de conexão') + ').';
+            if (!silencioso) alert(motivo + ' Verifique se o programa "Zebra Browser Print" está aberto neste computador. O estoque NÃO foi baixado.');
+            return {ok: false, motivo: motivo};
+          });
+      }
+
+      function imprimirEtiquetaEDarBaixa(pedido) {
+        setMlBaixandoId(pedido.id);
+        imprimirEtiquetaEDarBaixaPromise(pedido, false).finally(function() { setMlBaixandoId(null); });
+      }
+
+      function toggleSelecaoPedido(pedidoId) {
+        setMlSelecionados(function(prev) {
+          var novo = Object.assign({}, prev);
+          if (novo[pedidoId]) delete novo[pedidoId]; else novo[pedidoId] = true;
+          return novo;
+        });
+      }
+
+      // Imprime + dá baixa em todos os pedidos marcados, UM DE CADA VEZ (a Zebra só imprime
+      // um trabalho por vez, e assim cada baixa fica isolada da anterior). No final mostra um
+      // resumo único: quantos deram certo e quais falharam (e por quê), em vez de um alerta
+      // por pedido.
+      function imprimirSelecionadosEmLote() {
+        var idsSelecionados = Object.keys(mlSelecionados).filter(function(id) { return mlSelecionados[id]; });
+        var pedidosSelecionados = mlPedidos.filter(function(p) { return idsSelecionados.indexOf(String(p.id)) !== -1; });
+        if (pedidosSelecionados.length === 0) return;
+
+        setMlImprimindoLote(true);
+        var resultados = [];
+        var promise = Promise.resolve();
+        pedidosSelecionados.forEach(function(pedido) {
+          promise = promise.then(function() {
+            return imprimirEtiquetaEDarBaixaPromise(pedido, true).then(function(r) {
+              resultados.push({pedido: pedido, resultado: r});
+            });
+          });
+        });
+        promise.then(function() {
+          var certos = resultados.filter(function(r) { return r.resultado.ok; });
+          var falhas = resultados.filter(function(r) { return !r.resultado.ok; });
+          var msg = '✅ ' + certos.length + ' impressa(s) e baixada(s) com sucesso.';
+          if (falhas.length > 0) {
+            msg += '\n\n⚠ ' + falhas.length + ' falharam:\n' + falhas.map(function(f) {
+              return '#' + f.pedido.ml_order_id + ': ' + f.resultado.motivo;
+            }).join('\n');
+          }
+          alert(msg);
+          setMlSelecionados({});
+          setMlImprimindoLote(false);
+        });
       }
 
       useEffect(function() {
@@ -2159,13 +2221,20 @@
 
           activeTab === 'pedidosML' && e('div', {className: 'space-y-4'},
             e('div', {className: 'bg-slate-800 border border-slate-700 p-5 rounded-lg'},
-              e('div', {className: 'flex items-center justify-between mb-2'},
+              e('div', {className: 'flex items-center justify-between mb-2 flex-wrap gap-2'},
                 e('h2', {className: 'text-lg font-bold'}, '📦 Pedidos Mercado Livre — para despachar'),
-                e('button', {
-                  onClick: sincronizarPedidosML,
-                  disabled: mlSincronizando,
-                  className: 'flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors ' + (mlSincronizando ? 'opacity-60 cursor-wait' : '')
-                }, mlSincronizando ? '⏳ Sincronizando...' : '🔄 Sincronizar agora')
+                e('div', {className: 'flex gap-2'},
+                  Object.keys(mlSelecionados).filter(function(id) { return mlSelecionados[id]; }).length > 0 && e('button', {
+                    onClick: imprimirSelecionadosEmLote,
+                    disabled: mlImprimindoLote,
+                    className: 'flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors ' + (mlImprimindoLote ? 'opacity-60 cursor-wait' : '')
+                  }, mlImprimindoLote ? '⏳ Imprimindo...' : '🖨️ Imprimir selecionados (' + Object.keys(mlSelecionados).filter(function(id) { return mlSelecionados[id]; }).length + ')'),
+                  e('button', {
+                    onClick: sincronizarPedidosML,
+                    disabled: mlSincronizando,
+                    className: 'flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors ' + (mlSincronizando ? 'opacity-60 cursor-wait' : '')
+                  }, mlSincronizando ? '⏳ Sincronizando...' : '🔄 Sincronizar agora')
+                )
               ),
               e('p', {className: 'text-slate-400 text-sm'}, 'Mostra só os pedidos que a empresa precisa despachar (Flex, Turbo, Correio, etc). Pedidos Full não aparecem aqui pois o estoque deles fica no Mercado Livre, não aqui.'),
               mlPedidosErro && e('div', {className: 'mt-3 bg-red-900 bg-opacity-40 border border-red-700 rounded-lg p-3 text-red-300 text-sm'}, '⚠ ' + mlPedidosErro)
@@ -2185,11 +2254,20 @@
                   : null;
                 return e('div', {key: pedido.id, className: 'bg-slate-800 border-2 border-slate-700 rounded-lg p-4'},
                   e('div', {className: 'flex items-center justify-between mb-2'},
-                    e('span', {className: getCorContaML(pedido.conta) + ' px-2 py-0.5 rounded text-xs font-bold'}, pedido.conta),
+                    e('div', {className: 'flex items-center gap-2'},
+                      e('input', {
+                        type: 'checkbox',
+                        checked: !!mlSelecionados[pedido.id],
+                        onChange: function() { toggleSelecaoPedido(pedido.id); },
+                        className: 'w-4 h-4 accent-emerald-500 cursor-pointer flex-shrink-0',
+                        title: 'Selecionar para imprimir em lote'
+                      }),
+                      e('span', {className: getCorContaML(pedido.conta) + ' px-2 py-0.5 rounded text-xs font-bold'}, pedido.conta)
+                    ),
                     e('span', {className: 'text-xs text-slate-500'}, pedido.logistic_type || '—')
                   ),
                   e('div', {className: 'text-sm text-slate-300 mb-1'}, 'Comprador: ' + (pedido.comprador || '—')),
-                  e('div', {className: 'text-sm text-slate-300 mb-3'}, 'Total: ' + (pedido.valor_total ? 'R$ ' + Number(pedido.valor_total).toFixed(2) : '—')),
+                  e('div', {className: 'text-sm text-slate-300 mb-3'}, 'Nº da venda: ' + pedido.ml_order_id),
                   e('div', {className: 'space-y-1 mb-3'},
                     itens.map(function(it, idx) {
                       return e('div', {key: idx, className: 'text-xs bg-slate-900 rounded px-2 py-1 flex justify-between'},
