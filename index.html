@@ -1931,10 +1931,6 @@
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap relative ' + (activeTab === 'pedidosML' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
             }, '📦 Pedidos ML', mlPedidos.length > 0 && e('span', {className: 'ml-1 bg-red-600 text-white text-xs rounded-full px-1.5 py-0.5'}, mlPedidos.length)),
             e('button', {
-              onClick: function() { setActiveTab('anuncios'); if (anunciosGaps.length === 0) carregarAnunciosGaps(); },
-              className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'anuncios' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
-            }, '📢 Anúncios'),
-            e('button', {
               onClick: function() { setActiveTab('sku'); },
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'sku' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
             }, '> Busca'),
@@ -1954,6 +1950,10 @@
               onClick: function() { setActiveTab('tarefas'); },
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'tarefas' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
             }, '✅ Tarefas'),
+            e('button', {
+              onClick: function() { setActiveTab('anuncios'); if (anunciosGaps.length === 0) carregarAnunciosGaps(); },
+              className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'anuncios' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
+            }, '📢 Anúncios'),
             e('button', {
               onClick: function() { setActiveTab('importar'); },
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'importar' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
