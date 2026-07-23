@@ -344,6 +344,20 @@
       var anunciosBusca = anunciosBuscaState[0];
       var setAnunciosBusca = anunciosBuscaState[1];
 
+      // Qual origem foi escolhida quando o produto existe em mais de 1 loja (chave: marca|sku -> conta)
+      var anunciosOrigemEscolhidaState = useState({});
+      var anunciosOrigemEscolhida = anunciosOrigemEscolhidaState[0];
+      var setAnunciosOrigemEscolhida = anunciosOrigemEscolhidaState[1];
+
+      // Qual card está clonando agora (chave: marca|sku|destino) e o resultado de cada clonagem já feita
+      var anunciosClonandoState = useState(null);
+      var anunciosClonando = anunciosClonandoState[0];
+      var setAnunciosClonando = anunciosClonandoState[1];
+
+      var anunciosResultadosState = useState({});
+      var anunciosResultados = anunciosResultadosState[0];
+      var setAnunciosResultados = anunciosResultadosState[1];
+
       var mlSelecionadosState = useState({});
       var mlSelecionados = mlSelecionadosState[0];
       var setMlSelecionados = mlSelecionadosState[1];
@@ -556,6 +570,43 @@
           setAnunciosSincronizando(false);
           setAnunciosErro('Falha ao sincronizar anúncios com o Mercado Livre. Tente novamente.');
         });
+      }
+
+      function clonarAnuncio(gap, contaOrigem, contaDestino) {
+        var chave = gap.marca + '|' + gap.sku;
+        var itemIdOrigem = contaOrigem === 'KMP' ? gap.item_id_kmp : contaOrigem === 'ERP' ? gap.item_id_erp : gap.item_id_lts;
+        if (!confirm('Clonar o anúncio da ' + contaOrigem + ' pra ' + contaDestino + '?\n\nProduto: ' + gap.marca + ' ' + gap.sku + '\nQuantidade: ' + gap.unidades + ' un\n\nO anúncio será criado PAUSADO — você revisa e ativa manualmente.')) return;
+
+        setAnunciosClonando(chave + '|' + contaDestino);
+        fetch('https://pylkufhziohxvwbbaued.supabase.co/functions/v1/ml-clonar-anuncio', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            conta_origem: contaOrigem,
+            item_id_origem: itemIdOrigem,
+            conta_destino: contaDestino,
+            unidades: gap.unidades
+          })
+        })
+          .then(function(resp) { return resp.json().then(function(dados) { return {ok: resp.ok, dados: dados}; }); })
+          .then(function(r) {
+            setAnunciosClonando(null);
+            setAnunciosResultados(function(prev) {
+              var novo = Object.assign({}, prev);
+              novo[chave + '|' + contaDestino] = r.ok
+                ? {ok: true, item_id: r.dados.item_id, permalink: r.dados.permalink}
+                : {ok: false, erro: r.dados.erro || 'Falha ao clonar anúncio.'};
+              return novo;
+            });
+          })
+          .catch(function() {
+            setAnunciosClonando(null);
+            setAnunciosResultados(function(prev) {
+              var novo = Object.assign({}, prev);
+              novo[chave + '|' + contaDestino] = {ok: false, erro: 'Falha de conexão. Tente novamente.'};
+              return novo;
+            });
+          });
       }
 
       // seller_sku do ML vem no formato "MARCA: SKU" — separa os dois pra bater com a tabela estoque
@@ -2409,18 +2460,64 @@
 
               !anunciosCarregando && filtrados.length > 0 && e('div', {className: 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3'},
                 filtrados.map(function(g) {
-                  return e('div', {key: g.marca + '|' + g.sku, className: 'bg-slate-800 border border-slate-700 rounded-lg p-3'},
+                  var chave = g.marca + '|' + g.sku;
+                  var origensDisponiveis = contas.filter(function(c) { return temConta(g, c); });
+                  return e('div', {key: chave, className: 'bg-slate-800 border border-slate-700 rounded-lg p-3'},
                     e('div', {className: 'text-xs text-slate-500 font-semibold uppercase'}, g.marca),
                     e('div', {className: 'text-sm font-bold text-white mb-1'}, g.sku),
                     e('div', {className: 'text-xs text-slate-400 mb-2 line-clamp-2'}, g.title_referencia || '—'),
                     e('div', {className: 'text-xs text-slate-500 mb-2'}, (g.unidades > 0 ? g.unidades + ' un em estoque' : 'sem estoque no momento')),
-                    e('div', {className: 'flex gap-1.5'},
+                    e('div', {className: 'flex flex-wrap gap-1.5'},
                       contas.map(function(c) {
                         var tem = temConta(g, c);
-                        return e('span', {
+                        if (tem) {
+                          return e('span', {key: c, className: getCorContaML(c) + ' px-2 py-0.5 rounded text-xs font-bold'}, c);
+                        }
+
+                        var chaveDestino = chave + '|' + c;
+                        var resultado = anunciosResultados[chaveDestino];
+                        var escolhendo = anunciosOrigemEscolhida[chaveDestino];
+                        var clonandoAgora = anunciosClonando === chaveDestino;
+
+                        if (resultado && resultado.ok) {
+                          return e('button', {
+                            key: c,
+                            onClick: function() { navigator.clipboard.writeText(String(resultado.item_id).replace(/^MLB/i, '')); },
+                            title: 'Clique pra copiar o número do anúncio criado',
+                            className: 'bg-green-900 text-green-300 border border-green-700 px-2 py-0.5 rounded text-xs font-bold'
+                          }, '✅ ' + c + ' criado — copiar nº');
+                        }
+                        if (resultado && !resultado.ok) {
+                          return e('button', {
+                            key: c,
+                            onClick: function() {
+                              setAnunciosResultados(function(prev) { var n = Object.assign({}, prev); delete n[chaveDestino]; return n; });
+                            },
+                            title: resultado.erro,
+                            className: 'bg-red-900 text-red-300 border border-red-700 px-2 py-0.5 rounded text-xs font-bold'
+                          }, '⚠ falhou — tentar de novo');
+                        }
+                        if (escolhendo && origensDisponiveis.length > 1) {
+                          return e('div', {key: c, className: 'flex items-center gap-1 bg-slate-900 border border-dashed border-slate-600 rounded px-1.5 py-0.5'},
+                            e('span', {className: 'text-xs text-slate-500'}, 'de:'),
+                            origensDisponiveis.map(function(origem) {
+                              return e('button', {
+                                key: origem,
+                                onClick: function() { clonarAnuncio(g, origem, c); },
+                                className: getCorContaML(origem) + ' px-1.5 py-0.5 rounded text-xs font-bold'
+                              }, origem);
+                            })
+                          );
+                        }
+                        return e('button', {
                           key: c,
-                          className: (tem ? getCorContaML(c) : 'bg-slate-900 text-slate-600 border border-dashed border-slate-700') + ' px-2 py-0.5 rounded text-xs font-bold'
-                        }, tem ? c : c + ' falta');
+                          disabled: clonandoAgora,
+                          onClick: function() {
+                            if (origensDisponiveis.length === 1) { clonarAnuncio(g, origensDisponiveis[0], c); return; }
+                            setAnunciosOrigemEscolhida(function(prev) { var n = Object.assign({}, prev); n[chaveDestino] = true; return n; });
+                          },
+                          className: 'bg-slate-900 text-slate-400 border border-dashed border-slate-700 px-2 py-0.5 rounded text-xs font-bold hover:border-blue-400 hover:text-blue-300 transition-colors ' + (clonandoAgora ? 'opacity-60 cursor-wait' : '')
+                        }, clonandoAgora ? '⏳ clonando...' : '+ clonar pra ' + c);
                       })
                     )
                   );
