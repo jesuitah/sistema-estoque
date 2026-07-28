@@ -2022,17 +2022,17 @@
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'precos' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
             }, '💰 Preços'),
             e('button', {
-              onClick: function() { setActiveTab('vendas'); },
-              className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'vendas' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
-            }, '💰 Vendas'),
+              onClick: function() { setActiveTab('anuncios'); if (anunciosGaps.length === 0) carregarAnunciosGaps(); },
+              className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'anuncios' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
+            }, '📢 Anúncios'),
             e('button', {
               onClick: function() { setActiveTab('tarefas'); },
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'tarefas' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
             }, '✅ Tarefas'),
             e('button', {
-              onClick: function() { setActiveTab('anuncios'); if (anunciosGaps.length === 0) carregarAnunciosGaps(); },
-              className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'anuncios' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
-            }, '📢 Anúncios'),
+              onClick: function() { setActiveTab('vendas'); },
+              className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'vendas' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
+            }, '💰 Vendas'),
             e('button', {
               onClick: function() { setActiveTab('importar'); },
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'importar' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
@@ -2047,7 +2047,7 @@
         e('main', {className: 'max-w-7xl mx-auto px-4 py-6'},
           activeTab === 'sku' && e('div', null,
             e('div', {className: 'bg-slate-800 border border-slate-700 p-6 rounded-lg mb-5'},
-              e('h2', {className: 'text-lg font-bold mb-4'}, 'Adicionar SKU Individual'),
+              e('h2', {className: 'text-lg font-bold mb-4'}, 'Registro de SKU'),
               e('div', {className: 'grid grid-cols-1 md:grid-cols-5 gap-3'},
                 e('input', {
                   type: 'text',
