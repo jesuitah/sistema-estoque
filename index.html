@@ -2018,10 +2018,6 @@
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'sku' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
             }, '> Busca'),
             e('button', {
-              onClick: function() { setActiveTab('registro'); },
-              className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'registro' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
-            }, '+ Registro'),
-            e('button', {
               onClick: function() { setActiveTab('precos'); },
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'precos' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
             }, '💰 Preços'),
@@ -2050,6 +2046,44 @@
 
         e('main', {className: 'max-w-7xl mx-auto px-4 py-6'},
           activeTab === 'sku' && e('div', null,
+            e('div', {className: 'bg-slate-800 border border-slate-700 p-6 rounded-lg mb-5'},
+              e('h2', {className: 'text-lg font-bold mb-4'}, 'Adicionar SKU Individual'),
+              e('div', {className: 'grid grid-cols-1 md:grid-cols-5 gap-3'},
+                e('input', {
+                  type: 'text',
+                  placeholder: 'MARCA',
+                  value: novaMarca,
+                  onChange: function(ev) { setNovaMarca(ev.target.value); },
+                  className: 'bg-slate-700 text-white px-4 py-2 rounded border border-slate-600 focus:border-blue-400 focus:outline-none text-sm'
+                }),
+                e('input', {
+                  type: 'text',
+                  placeholder: 'SKU',
+                  value: novoSku,
+                  onChange: function(ev) { setNovoSku(ev.target.value); },
+                  className: 'bg-slate-700 text-white px-4 py-2 rounded border border-slate-600 focus:border-blue-400 focus:outline-none text-sm'
+                }),
+                e('input', {
+                  type: 'number',
+                  placeholder: 'Unidades',
+                  value: novasUnidades,
+                  onChange: function(ev) { setNovasUnidades(parseInt(ev.target.value) || 0); },
+                  className: 'bg-slate-700 text-white px-4 py-2 rounded border border-slate-600 focus:border-blue-400 focus:outline-none text-sm'
+                }),
+                e('input', {
+                  type: 'text',
+                  inputMode: 'numeric',
+                  placeholder: 'Custo (R$)',
+                  value: novoCusto,
+                  onChange: function(ev) { setNovoCusto(ev.target.value); },
+                  className: 'bg-slate-700 text-white px-4 py-2 rounded border border-slate-600 focus:border-blue-400 focus:outline-none text-sm'
+                }),
+                e('button', {
+                  onClick: adicionarSKU,
+                  className: 'bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-bold text-sm transition'
+                }, '+ Adicionar')
+              )
+            ),
             e('div', {className: 'mb-5'},
               e('div', {className: 'flex gap-3 mb-3'},
                 e('input', {
@@ -2090,47 +2124,6 @@
                     });
                   })
                 )
-          ),
-
-          activeTab === 'registro' && e('div', {className: 'space-y-5'},
-            e('div', {className: 'bg-slate-800 border border-slate-700 p-6 rounded-lg'},
-              e('h2', {className: 'text-lg font-bold mb-4'}, 'Adicionar SKU Individual'),
-              e('div', {className: 'grid grid-cols-1 md:grid-cols-5 gap-3'},
-                e('input', {
-                  type: 'text',
-                  placeholder: 'MARCA',
-                  value: novaMarca,
-                  onChange: function(ev) { setNovaMarca(ev.target.value); },
-                  className: 'bg-slate-700 text-white px-4 py-2 rounded border border-slate-600 focus:border-blue-400 focus:outline-none text-sm'
-                }),
-                e('input', {
-                  type: 'text',
-                  placeholder: 'SKU',
-                  value: novoSku,
-                  onChange: function(ev) { setNovoSku(ev.target.value); },
-                  className: 'bg-slate-700 text-white px-4 py-2 rounded border border-slate-600 focus:border-blue-400 focus:outline-none text-sm'
-                }),
-                e('input', {
-                  type: 'number',
-                  placeholder: 'Unidades',
-                  value: novasUnidades,
-                  onChange: function(ev) { setNovasUnidades(parseInt(ev.target.value) || 0); },
-                  className: 'bg-slate-700 text-white px-4 py-2 rounded border border-slate-600 focus:border-blue-400 focus:outline-none text-sm'
-                }),
-                e('input', {
-                  type: 'text',
-                  inputMode: 'numeric',
-                  placeholder: 'Custo (R$)',
-                  value: novoCusto,
-                  onChange: function(ev) { setNovoCusto(ev.target.value); },
-                  className: 'bg-slate-700 text-white px-4 py-2 rounded border border-slate-600 focus:border-blue-400 focus:outline-none text-sm'
-                }),
-                e('button', {
-                  onClick: adicionarSKU,
-                  className: 'bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-bold text-sm transition'
-                }, '+ Adicionar')
-              )
-            )
           ),
 
           activeTab === 'importar' && e('div', {className: 'space-y-5'},
