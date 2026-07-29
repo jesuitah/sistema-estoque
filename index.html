@@ -2078,8 +2078,10 @@
       }
 
       var estoquesFiltrados = estoque.filter(function(item) {
-        var termo = searchTerm.toUpperCase();
-        return item.marca.toUpperCase().includes(termo) || item.sku.toUpperCase().includes(termo);
+        var termo = searchTerm.trim().toUpperCase();
+        var marca = (item.marca || '').trim().toUpperCase();
+        var sku = (item.sku || '').trim().toUpperCase();
+        return marca.includes(termo) || sku.includes(termo);
       }).slice().sort(function(a, b) {
         if (sortOrder === 'maior') return (b.unidades || 0) - (a.unidades || 0);
         if (sortOrder === 'menor') return (a.unidades || 0) - (b.unidades || 0);
