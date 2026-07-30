@@ -465,6 +465,10 @@
       var anunciosBusca = anunciosBuscaState[0];
       var setAnunciosBusca = anunciosBuscaState[1];
 
+      var anunciosOrdenacaoState = useState('az');
+      var anunciosOrdenacao = anunciosOrdenacaoState[0];
+      var setAnunciosOrdenacao = anunciosOrdenacaoState[1];
+
       var anunciosSubTabState = useState('gaps');
       var anunciosSubTab = anunciosSubTabState[0];
       var setAnunciosSubTab = anunciosSubTabState[1];
@@ -2750,6 +2754,11 @@
                      (g.sku || '').toUpperCase().indexOf(termo) !== -1 ||
                      (g.title_referencia || '').toUpperCase().indexOf(termo) !== -1;
             });
+            filtrados = filtrados.sort(function(a, b) {
+              if (anunciosOrdenacao === 'maior') return (b.unidades || 0) - (a.unidades || 0);
+              if (anunciosOrdenacao === 'menor') return (a.unidades || 0) - (b.unidades || 0);
+              return (a.marca + a.sku).localeCompare(b.marca + b.sku);
+            });
             var contas = ['KMP', 'ERP', 'LTS'];
             function temConta(g, c) { return c === 'KMP' ? g.tem_kmp : c === 'ERP' ? g.tem_erp : g.tem_lts; }
 
@@ -3062,6 +3071,15 @@
                   onChange: function(ev) { setAnunciosBusca(ev.target.value); },
                   className: 'flex-1 bg-slate-800 text-white px-4 py-2 rounded-lg border border-slate-600 focus:border-blue-400 focus:outline-none text-sm'
                 }),
+                e('select', {
+                  value: anunciosOrdenacao,
+                  onChange: function(ev) { setAnunciosOrdenacao(ev.target.value); },
+                  className: 'bg-slate-800 text-white px-3 py-2 rounded-lg border border-slate-600 focus:border-blue-400 focus:outline-none text-sm cursor-pointer'
+                },
+                  e('option', {value: 'az'}, 'A → Z'),
+                  e('option', {value: 'maior'}, '↓ Maior estoque'),
+                  e('option', {value: 'menor'}, '↑ Menor estoque')
+                ),
                 e('label', {className: 'flex items-center gap-2 text-sm text-slate-300 cursor-pointer whitespace-nowrap'},
                   e('input', {
                     type: 'checkbox',
