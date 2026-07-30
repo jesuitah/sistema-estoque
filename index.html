@@ -526,6 +526,10 @@
       var fotosSelecionadas = fotosSelecionadasState[0];
       var setFotosSelecionadas = fotosSelecionadasState[1];
 
+      var dragFotoIdxState = useState(null);
+      var dragFotoIdx = dragFotoIdxState[0];
+      var setDragFotoIdx = dragFotoIdxState[1];
+
       var novoAnuncioAlturaState = useState('10');
       var novoAnuncioAltura = novoAnuncioAlturaState[0];
       var setNovoAnuncioAltura = novoAnuncioAlturaState[1];
@@ -538,7 +542,7 @@
       var novoAnuncioComprimento = novoAnuncioComprimentoState[0];
       var setNovoAnuncioComprimento = novoAnuncioComprimentoState[1];
 
-      var novoAnuncioPesoState = useState('300');
+      var novoAnuncioPesoState = useState('0,3');
       var novoAnuncioPeso = novoAnuncioPesoState[0];
       var setNovoAnuncioPeso = novoAnuncioPesoState[1];
 
@@ -640,7 +644,7 @@
               comprimento: novoAnuncioComprimento,
               largura: novoAnuncioLargura,
               altura: novoAnuncioAltura,
-              peso: novoAnuncioPeso,
+              peso: Math.round(precoParaNumero(novoAnuncioPeso) * 1000),
             }),
           }).then(function(r) { return r.json(); });
         }).then(function(dados) {
@@ -2860,8 +2864,8 @@
                       e('input', { type: 'number', value: novoAnuncioComprimento, onChange: function(ev) { setNovoAnuncioComprimento(ev.target.value); }, className: 'w-full bg-slate-700 text-white px-3 py-2 rounded border border-slate-600 text-sm' })
                     ),
                     e('div', null,
-                      e('label', {className: 'text-xs text-slate-400 block mb-1'}, 'Peso (gramas)'),
-                      e('input', { type: 'number', value: novoAnuncioPeso, onChange: function(ev) { setNovoAnuncioPeso(ev.target.value); }, className: 'w-full bg-slate-700 text-white px-3 py-2 rounded border border-slate-600 text-sm' })
+                      e('label', {className: 'text-xs text-slate-400 block mb-1'}, 'Peso (kg)'),
+                      e('input', { type: 'text', inputMode: 'decimal', value: novoAnuncioPeso, placeholder: 'Ex: 0,3', onChange: function(ev) { setNovoAnuncioPeso(ev.target.value); }, className: 'w-full bg-slate-700 text-white px-3 py-2 rounded border border-slate-600 text-sm' })
                     )
                   ),
 
@@ -2901,29 +2905,26 @@
                     }),
                     fotosSelecionadas.length > 0 && e('div', {className: 'space-y-1 mt-2'},
                       fotosSelecionadas.map(function(file, idx) {
-                        return e('div', {key: idx, className: 'flex items-center gap-2 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-xs'},
+                        return e('div', {
+                          key: idx,
+                          draggable: true,
+                          onDragStart: function(ev) { setDragFotoIdx(idx); ev.dataTransfer.effectAllowed = 'move'; },
+                          onDragOver: function(ev) { ev.preventDefault(); },
+                          onDrop: function(ev) {
+                            ev.preventDefault();
+                            if (dragFotoIdx === null || dragFotoIdx === idx) return;
+                            var arr = fotosSelecionadas.slice();
+                            var movido = arr.splice(dragFotoIdx, 1)[0];
+                            arr.splice(idx, 0, movido);
+                            setFotosSelecionadas(arr);
+                            setDragFotoIdx(null);
+                          },
+                          onDragEnd: function() { setDragFotoIdx(null); },
+                          className: 'flex items-center gap-2 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-xs cursor-move ' + (dragFotoIdx === idx ? 'opacity-40' : '')
+                        },
+                          e('span', {className: 'text-slate-500'}, '⠿'),
                           e('span', {className: 'text-slate-500 w-4'}, (idx + 1) + '.'),
                           e('span', {className: 'flex-1 truncate text-slate-200'}, file.name),
-                          e('button', {
-                            onClick: function() {
-                              if (idx === 0) return;
-                              var arr = fotosSelecionadas.slice();
-                              var tmp = arr[idx - 1]; arr[idx - 1] = arr[idx]; arr[idx] = tmp;
-                              setFotosSelecionadas(arr);
-                            },
-                            disabled: idx === 0,
-                            className: 'text-slate-300 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed px-1'
-                          }, '▲'),
-                          e('button', {
-                            onClick: function() {
-                              if (idx === fotosSelecionadas.length - 1) return;
-                              var arr = fotosSelecionadas.slice();
-                              var tmp = arr[idx + 1]; arr[idx + 1] = arr[idx]; arr[idx] = tmp;
-                              setFotosSelecionadas(arr);
-                            },
-                            disabled: idx === fotosSelecionadas.length - 1,
-                            className: 'text-slate-300 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed px-1'
-                          }, '▼'),
                           e('button', {
                             onClick: function() {
                               var arr = fotosSelecionadas.slice();
