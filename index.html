@@ -526,6 +526,35 @@
       var fotosSelecionadas = fotosSelecionadasState[0];
       var setFotosSelecionadas = fotosSelecionadasState[1];
 
+      var novoAnuncioAlturaState = useState('10');
+      var novoAnuncioAltura = novoAnuncioAlturaState[0];
+      var setNovoAnuncioAltura = novoAnuncioAlturaState[1];
+
+      var novoAnuncioLarguraState = useState('10');
+      var novoAnuncioLargura = novoAnuncioLarguraState[0];
+      var setNovoAnuncioLargura = novoAnuncioLarguraState[1];
+
+      var novoAnuncioComprimentoState = useState('15');
+      var novoAnuncioComprimento = novoAnuncioComprimentoState[0];
+      var setNovoAnuncioComprimento = novoAnuncioComprimentoState[1];
+
+      var novoAnuncioPesoState = useState('300');
+      var novoAnuncioPeso = novoAnuncioPesoState[0];
+      var setNovoAnuncioPeso = novoAnuncioPesoState[1];
+
+      function formatarMoedaDigitando(valorDigitado) {
+        var digitos = valorDigitado.replace(/\D/g, '');
+        if (!digitos) return '';
+        digitos = digitos.replace(/^0+(?=\d)/, '');
+        while (digitos.length < 3) digitos = '0' + digitos;
+        var centavos = digitos.slice(-2);
+        var inteiro = digitos.slice(0, -2).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+        return inteiro + ',' + centavos;
+      }
+      function precoParaNumero(valorFormatado) {
+        return parseFloat(String(valorFormatado || '').replace(/\./g, '').replace(',', '.')) || 0;
+      }
+
       var criandoAnuncioState = useState(false);
       var criandoAnuncio = criandoAnuncioState[0];
       var setCriandoAnuncio = criandoAnuncioState[1];
@@ -603,11 +632,15 @@
               conta: novoAnuncioConta,
               titulo: novoAnuncioTitulo,
               categoria_id: categoriaEscolhida.category_id,
-              preco: parseFloat(String(novoAnuncioPreco).replace(',', '.')),
+              preco: precoParaNumero(novoAnuncioPreco),
               quantidade: parseInt(novoAnuncioQuantidade),
               sku: novoAnuncioSku,
               atributos: atributosPayload,
               picture_ids: pictureIds,
+              comprimento: novoAnuncioComprimento,
+              largura: novoAnuncioLargura,
+              altura: novoAnuncioAltura,
+              peso: novoAnuncioPeso,
             }),
           }).then(function(r) { return r.json(); });
         }).then(function(dados) {
@@ -2790,9 +2823,9 @@
                     e('div', null,
                       e('label', {className: 'text-xs text-slate-400 block mb-1'}, 'Preço (R$)'),
                       e('input', {
-                        type: 'text', inputMode: 'decimal', value: novoAnuncioPreco,
-                        onChange: function(ev) { setNovoAnuncioPreco(ev.target.value); },
-                        placeholder: 'Ex: 58,78',
+                        type: 'text', inputMode: 'numeric', value: novoAnuncioPreco,
+                        onChange: function(ev) { setNovoAnuncioPreco(formatarMoedaDigitando(ev.target.value)); },
+                        placeholder: '0,00',
                         className: 'w-full bg-slate-700 text-white px-3 py-2 rounded border border-slate-600 text-sm'
                       })
                     ),
@@ -2812,6 +2845,23 @@
                         placeholder: 'Ex: GBM: DKITGMCRUZE',
                         className: 'w-full bg-slate-700 text-white px-3 py-2 rounded border border-slate-600 text-sm'
                       })
+                    ),
+                    e('div', {className: 'col-span-2 text-xs text-slate-400 font-bold uppercase pt-1'}, 'Dimensões da embalagem (pro cálculo de frete)'),
+                    e('div', null,
+                      e('label', {className: 'text-xs text-slate-400 block mb-1'}, 'Altura (cm)'),
+                      e('input', { type: 'number', value: novoAnuncioAltura, onChange: function(ev) { setNovoAnuncioAltura(ev.target.value); }, className: 'w-full bg-slate-700 text-white px-3 py-2 rounded border border-slate-600 text-sm' })
+                    ),
+                    e('div', null,
+                      e('label', {className: 'text-xs text-slate-400 block mb-1'}, 'Largura (cm)'),
+                      e('input', { type: 'number', value: novoAnuncioLargura, onChange: function(ev) { setNovoAnuncioLargura(ev.target.value); }, className: 'w-full bg-slate-700 text-white px-3 py-2 rounded border border-slate-600 text-sm' })
+                    ),
+                    e('div', null,
+                      e('label', {className: 'text-xs text-slate-400 block mb-1'}, 'Comprimento (cm)'),
+                      e('input', { type: 'number', value: novoAnuncioComprimento, onChange: function(ev) { setNovoAnuncioComprimento(ev.target.value); }, className: 'w-full bg-slate-700 text-white px-3 py-2 rounded border border-slate-600 text-sm' })
+                    ),
+                    e('div', null,
+                      e('label', {className: 'text-xs text-slate-400 block mb-1'}, 'Peso (gramas)'),
+                      e('input', { type: 'number', value: novoAnuncioPeso, onChange: function(ev) { setNovoAnuncioPeso(ev.target.value); }, className: 'w-full bg-slate-700 text-white px-3 py-2 rounded border border-slate-600 text-sm' })
                     )
                   ),
 
