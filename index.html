@@ -603,7 +603,7 @@
               conta: novoAnuncioConta,
               titulo: novoAnuncioTitulo,
               categoria_id: categoriaEscolhida.category_id,
-              preco: parseFloat(novoAnuncioPreco),
+              preco: parseFloat(String(novoAnuncioPreco).replace(',', '.')),
               quantidade: parseInt(novoAnuncioQuantidade),
               sku: novoAnuncioSku,
               atributos: atributosPayload,
@@ -2790,8 +2790,9 @@
                     e('div', null,
                       e('label', {className: 'text-xs text-slate-400 block mb-1'}, 'Preço (R$)'),
                       e('input', {
-                        type: 'text', inputMode: 'numeric', value: novoAnuncioPreco,
+                        type: 'text', inputMode: 'decimal', value: novoAnuncioPreco,
                         onChange: function(ev) { setNovoAnuncioPreco(ev.target.value); },
+                        placeholder: 'Ex: 58,78',
                         className: 'w-full bg-slate-700 text-white px-3 py-2 rounded border border-slate-600 text-sm'
                       })
                     ),
@@ -2838,13 +2839,52 @@
                   ),
 
                   categoriaEscolhida && e('div', null,
-                    e('label', {className: 'text-xs text-slate-400 block mb-1'}, 'Fotos do produto'),
+                    e('label', {className: 'text-xs text-slate-400 block mb-1'}, 'Fotos do produto (a ordem aqui é a ordem no anúncio; as fotos de template da loja entram depois, automaticamente)'),
                     e('input', {
                       type: 'file', accept: 'image/*', multiple: true,
-                      onChange: function(ev) { setFotosSelecionadas(Array.from(ev.target.files || [])); },
+                      onChange: function(ev) {
+                        var novas = Array.from(ev.target.files || []);
+                        setFotosSelecionadas(fotosSelecionadas.concat(novas));
+                        ev.target.value = '';
+                      },
                       className: 'text-sm text-slate-300'
                     }),
-                    fotosSelecionadas.length > 0 && e('div', {className: 'text-xs text-slate-400 mt-1'}, fotosSelecionadas.length + ' foto(s) selecionada(s)')
+                    fotosSelecionadas.length > 0 && e('div', {className: 'space-y-1 mt-2'},
+                      fotosSelecionadas.map(function(file, idx) {
+                        return e('div', {key: idx, className: 'flex items-center gap-2 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-xs'},
+                          e('span', {className: 'text-slate-500 w-4'}, (idx + 1) + '.'),
+                          e('span', {className: 'flex-1 truncate text-slate-200'}, file.name),
+                          e('button', {
+                            onClick: function() {
+                              if (idx === 0) return;
+                              var arr = fotosSelecionadas.slice();
+                              var tmp = arr[idx - 1]; arr[idx - 1] = arr[idx]; arr[idx] = tmp;
+                              setFotosSelecionadas(arr);
+                            },
+                            disabled: idx === 0,
+                            className: 'text-slate-300 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed px-1'
+                          }, '▲'),
+                          e('button', {
+                            onClick: function() {
+                              if (idx === fotosSelecionadas.length - 1) return;
+                              var arr = fotosSelecionadas.slice();
+                              var tmp = arr[idx + 1]; arr[idx + 1] = arr[idx]; arr[idx] = tmp;
+                              setFotosSelecionadas(arr);
+                            },
+                            disabled: idx === fotosSelecionadas.length - 1,
+                            className: 'text-slate-300 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed px-1'
+                          }, '▼'),
+                          e('button', {
+                            onClick: function() {
+                              var arr = fotosSelecionadas.slice();
+                              arr.splice(idx, 1);
+                              setFotosSelecionadas(arr);
+                            },
+                            className: 'text-red-400 hover:text-red-300 px-1 font-bold'
+                          }, 'x')
+                        );
+                      })
+                    )
                   ),
 
                   categoriaEscolhida && e('button', {
