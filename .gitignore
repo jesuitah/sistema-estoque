@@ -1,0 +1,10 @@
+node_modules/
+package-lock.json
+
+# NUNCA versionar: contém cookies de sessão logada do Mercado Livre
+robo/sessoes/
+
+# Prints de tela das execuções do robô
+robo/prints/
+
+.claude/

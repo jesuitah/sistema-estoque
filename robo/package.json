@@ -1,0 +1,14 @@
+{
+  "name": "robo-ml",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Robô de automação do Mercado Livre — faz o que a API oficial não faz",
+  "type": "commonjs",
+  "scripts": {
+    "login": "node login.js",
+    "testar": "node testar.js"
+  },
+  "dependencies": {
+    "playwright": "1.62.1"
+  }
+}
