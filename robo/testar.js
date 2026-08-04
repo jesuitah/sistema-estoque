@@ -8,10 +8,12 @@
 // Rode duas vezes, em dias diferentes. Se funcionar nas duas, a sessão dura e a
 // base do projeto está provada.
 
+const fs = require('fs');
 const path = require('path');
-const { abrirNavegador, validarConta, sessaoExiste } = require('./navegador');
+const { abrirNavegador, validarConta, sessaoExiste, verificarLogin } = require('./navegador');
 
-const URL_MINHA_CONTA = 'https://myaccount.mercadolivre.com.br/';
+// Mesma página usada no login como teste de autenticação.
+// Medido na prática: deslogado = HTTP 403, logado = HTTP 200.
 const URL_ANUNCIOS = 'https://www.mercadolivre.com.br/anuncios/lista';
 
 function agora() {
@@ -20,6 +22,17 @@ function agora() {
 
 function carimbo() {
   return new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+}
+
+function idadeDaSessao(conta) {
+  try {
+    const arquivo = path.join(__dirname, 'sessoes', `${conta}.info.json`);
+    const info = JSON.parse(fs.readFileSync(arquivo, 'utf8'));
+    const dias = (Date.now() - new Date(info.criada_em).getTime()) / 86400000;
+    return { dias: Math.floor(dias), criada_em: info.criada_em, userId: info.userId };
+  } catch (_e) {
+    return null;
+  }
 }
 
 async function main() {
@@ -35,56 +48,45 @@ async function main() {
   console.log('');
   console.log(`  Teste de sessão — conta ${conta}`);
   console.log(`  ${agora()}`);
+  const idade = idadeDaSessao(conta);
+  if (idade) {
+    console.log(`  Sessão criada há ${idade.dias} dia(s)` + (idade.userId ? ` — user id ${idade.userId}` : ''));
+  }
   console.log('  ─────────────────────────────────────────────');
   console.log('');
 
   const navegador = await abrirNavegador(conta);
-  const pagina = navegador.pages()[0] || (await navegador.newPage());
-
   const problemas = [];
 
-  // ── Checagem 1: a sessão ainda é válida? ────────────────────────────────────
-  // Perguntamos ao próprio Mercado Livre quem somos, usando os cookies do perfil.
-  // Não dependemos de ler a tela, então isso não quebra se o ML mudar o layout.
-  console.log('  1) Verificando se a sessão ainda está válida...');
-  let identidade = null;
-  try {
-    const resposta = await pagina.request.get('https://api.mercadolibre.com/users/me');
-    if (resposta.ok()) {
-      identidade = await resposta.json();
-      console.log(`     ✅ Sessão válida — logado como ${identidade.nickname} (id ${identidade.id})`);
-    } else {
-      problemas.push(`sessão inválida (o ML respondeu ${resposta.status()})`);
-      console.log(`     ❌ Sessão expirada ou inválida (HTTP ${resposta.status()})`);
-    }
-  } catch (erro) {
-    problemas.push(`não deu pra verificar a sessão: ${erro.message}`);
-    console.log(`     ❌ Falhou: ${erro.message}`);
-  }
+  // ── Checagem: a sessão ainda autentica? ─────────────────────────────────────
+  // Navegação de verdade até a área do vendedor. Deslogado, o ML redireciona pra
+  // tela de login — é esse desvio que denuncia o estado, não o código HTTP
+  // (já testado: o status sozinho dá falso positivo, porque a própria tela de
+  // login responde 200).
+  console.log('  Abrindo a área do vendedor pra ver se a sessão ainda vale...');
+  const resultado = await verificarLogin(navegador);
 
-  // ── Checagem 2: a área de vendedor abre? ────────────────────────────────────
-  console.log('');
-  console.log('  2) Abrindo a página de anúncios (área do vendedor)...');
-  await pagina.goto(URL_ANUNCIOS, { waitUntil: 'domcontentloaded' });
-  await pagina.waitForTimeout(3000);
-
-  const urlFinal = pagina.url();
-  const caiuNoLogin = /login|registration/i.test(urlFinal);
-
-  if (caiuNoLogin) {
-    problemas.push('a área do vendedor pediu login de novo');
-    console.log(`     ❌ Fui redirecionado pra tela de login: ${urlFinal}`);
+  if (resultado.logado) {
+    console.log('     ✅ Autenticado — a área do vendedor abriu normalmente');
+    console.log(`        Título: "${resultado.titulo}"`);
+  } else if (resultado.indefinido) {
+    problemas.push('não deu pra concluir — o Mercado Livre não respondeu direito (bloqueio ou lentidão)');
+    console.log('     ⚠  Resposta inconclusiva do ML — não dá pra afirmar nada');
+    if (resultado.erro) console.log(`        (${resultado.erro})`);
   } else {
-    console.log(`     ✅ Abriu sem pedir login`);
-    console.log(`        URL: ${urlFinal}`);
-    console.log(`        Título: ${await pagina.title()}`);
+    problemas.push('sessão expirada — o ML mandou pra tela de login');
+    console.log('     ❌ Deslogado — fui redirecionado pra tela de login');
+    console.log(`        Título: "${resultado.titulo}"`);
   }
 
   // ── Evidência: print da tela ────────────────────────────────────────────────
+  const pagina = navegador.pages()[0] || (await navegador.newPage());
+  await pagina.goto(URL_ANUNCIOS, { waitUntil: 'domcontentloaded' }).catch(() => {});
+  await pagina.waitForTimeout(3000);
   const arquivoPrint = path.join(__dirname, 'prints', `teste-${conta}-${carimbo()}.png`);
-  await pagina.screenshot({ path: arquivoPrint, fullPage: false });
+  await pagina.screenshot({ path: arquivoPrint, fullPage: false }).catch(() => {});
   console.log('');
-  console.log(`  📸 Print salvo em: ${path.relative(process.cwd(), arquivoPrint)}`);
+  console.log(`  📸 Print salvo em: robo/prints/${path.basename(arquivoPrint)}`);
 
   // ── Veredito ────────────────────────────────────────────────────────────────
   console.log('');
@@ -102,7 +104,7 @@ async function main() {
   }
   console.log('');
 
-  await navegador.close();
+  await navegador.close().catch(() => {});
   process.exit(problemas.length === 0 ? 0 : 1);
 }
 

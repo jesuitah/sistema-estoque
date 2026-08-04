@@ -58,4 +58,57 @@ async function abrirNavegador(conta, opcoes = {}) {
   }
 }
 
-module.exports = { abrirNavegador, validarConta, sessaoExiste, pastaDaSessao, CONTAS_VALIDAS };
+// ── Verificação de login ─────────────────────────────────────────────────────
+//
+// Página da área do vendedor usada como teste. Deslogado, o ML redireciona pra
+// tela de login; logado, a página abre normalmente.
+const URL_TESTE_LOGIN = 'https://www.mercadolivre.com.br/anuncios/lista';
+
+// Reconhece as URLs da tela de login do ML (ela usa o caminho /lgz/).
+function ehUrlDeLogin(url) {
+  return /\/login|\/lgz\//i.test(String(url || ''));
+}
+
+// Descobre, com navegação de verdade, se a sessão está autenticada.
+//
+// Duas armadilhas que já custaram caro aqui e que este código evita de propósito:
+//
+// 1. NÃO use `contexto.request.get()` — requisição crua não carrega a impressão
+//    digital completa do navegador e o firewall do ML responde de forma
+//    inconsistente (ora 403, ora redireciona). Deu falso positivo em teste.
+//
+// 2. NÃO rode em modo invisível (headless) — o firewall bloqueia e devolve uma
+//    página vazia, indistinguível de erro. Só navegador visível responde direito.
+//
+// Retorna { logado, indefinido, url, titulo }. `indefinido: true` significa
+// "não deu pra saber" (bloqueio/timeout) — nesses casos NÃO se conclui nada,
+// tenta de novo depois. O robô nunca chuta.
+async function verificarLogin(navegador) {
+  const aba = await navegador.newPage();
+  try {
+    await aba.goto(URL_TESTE_LOGIN, { waitUntil: 'domcontentloaded', timeout: 40000 });
+    await aba.waitForTimeout(4000);
+
+    const url = aba.url();
+    const titulo = await aba.title().catch(() => '');
+
+    if (ehUrlDeLogin(url)) {
+      return { logado: false, indefinido: false, url, titulo };
+    }
+    // Título vazio + sem redirecionamento = página de bloqueio do firewall.
+    // Não dá pra concluir nada daí.
+    if (!titulo.trim()) {
+      return { logado: false, indefinido: true, url, titulo };
+    }
+    return { logado: true, indefinido: false, url, titulo };
+  } catch (erro) {
+    return { logado: false, indefinido: true, url: null, titulo: '', erro: erro.message };
+  } finally {
+    await aba.close().catch(() => {});
+  }
+}
+
+module.exports = {
+  abrirNavegador, validarConta, sessaoExiste, pastaDaSessao, CONTAS_VALIDAS,
+  verificarLogin, ehUrlDeLogin, URL_TESTE_LOGIN,
+};

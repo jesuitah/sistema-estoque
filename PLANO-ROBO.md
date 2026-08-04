@@ -93,6 +93,33 @@ Passos:
 **Critério de aprovação:** rodar o passo 3 duas vezes em dias diferentes e funcionar
 nas duas. Isso prova que a sessão dura.
 
+### Aprendizados técnicos (medidos, não supostos) — 2026-08-04
+
+Três armadilhas descobertas testando. Estão comentadas no código pra não voltarem:
+
+1. **`api.mercadolibre.com/users/me` não serve pra saber quem está logado.** Com cookies
+   de navegador responde `403 PA_UNAUTHORIZED_RESULT_FROM_POLICIES` — aquele endpoint só
+   aceita token OAuth. Foi o primeiro detector, estava quebrado desde o início.
+
+2. **Status HTTP sozinho dá FALSO POSITIVO.** Deslogado, o ML redireciona pra tela de
+   login, e a tela de login responde `200`. O detector dizia "autenticado" enquanto o
+   navegador exibia o formulário de senha. O sinal correto é a **URL final** depois dos
+   redirecionamentos (a tela de login usa o caminho `/lgz/`).
+
+3. **Modo invisível (headless) é bloqueado pelo firewall do ML.** Devolve página vazia,
+   sem redirecionar — indistinguível de erro. Também não usar `contexto.request.get()`:
+   requisição crua não carrega a impressão digital do navegador e o firewall responde de
+   forma inconsistente (ora 403, ora redireciona, com o mesmo estado de sessão).
+
+**Detector correto e validado:** navegador **visível**, navegação de verdade até
+`mercadolivre.com.br/anuncios/lista`, e então:
+- URL final contém `/lgz/` ou `/login` → **deslogado**
+- Título vazio e sem redirecionamento → **inconclusivo** (bloqueio do firewall) — não se
+  conclui nada, tenta de novo
+- Caso contrário → **logado**
+
+Vive em `robo/navegador.js`, função `verificarLogin()`, usada pelos dois scripts.
+
 ---
 
 ## FASE 2 — Primeira ação real, com você assistindo
