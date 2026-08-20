@@ -164,6 +164,52 @@ Vive em `robo/navegador.js`, função `verificarLogin()`, usada pelos dois scrip
 
 ---
 
+### Mapa da área do Full — levantado em 2026-08-20 (só leitura)
+
+Ferramentas: `robo/explorar.js` (mapeia links do painel) e `robo/explorar-full.js`
+(lê os números do Full; aceita `KMP`/`ERP`/`LTS`/`todas`). Nenhuma delas altera nada.
+
+**A tela que interessa** é a aba "Gestão de estoque Full", e ela TEM URL própria — não
+precisa clicar em aba nenhuma:
+
+```
+https://vendedores.mercadolivre.com.br/anuncios/lista/space_management
+```
+
+**As três ações que o Mercado Livre oferece ali** (e que a API oficial não expõe):
+
+| botão | para que serve |
+|---|---|
+| **Retirar ou descartar produtos** | tirar unidades do Full |
+| **Oferecer Full novamente** | religar o Full pra quem parou de oferecer |
+| **Reativar anúncios** | reativar anúncio inativo do Full ← o objetivo original |
+
+Todos funcionam por **seleção em massa**: marca-se os produtos na lista e o botão libera.
+Isso é ótimo pra nós — permite agir num produto por vez com precisão.
+
+Outras URLs úteis mapeadas:
+- Envios pro Full: `/shipping/inbounds`
+- Retiradas criadas: `/fulfillment/withdrawals`
+- Espaço/cota de armazenamento: `/metricas/stock-full`
+- Promoções: `/metricas/beneficios`
+- Editar preço de um item: `www.mercadolivre.com.br/syi/core/modify?taskId=prices_task&itemId=...`
+
+**Números lidos em 2026-08-20:**
+
+| | KMP | ERP | LTS |
+|---|---|---|---|
+| produtos no Full | 376 | 244 | 191 |
+| espaço P/M usado | 756 / 4.320 | 496 / 1.750 | 555 / 1.920 |
+| espaço G/XG usado | 55 / 190 | 18 / 100 | 0 / 100 |
+| sem vendas, para retirar | 23 un. | 19 un. | 9 un. |
+| inativos | 1 un. | — | — |
+| **não oferecem Full** | 1 un. | 1 un. | 3 un. |
+| em transferência | 123 un. | 1 un. | 103 un. |
+
+Observação: a categoria **"não oferecem Full"** (5 unidades somadas) é exatamente o caso
+que o Matheus resolve na mão hoje. É o alvo natural da Fase 2 — volume pequeno, o que
+torna o primeiro teste seguro.
+
 ## FASE 2 — Primeira ação real, com você assistindo
 
 **Objetivo:** tirar UM anúncio do Full, com o navegador visível na tela.

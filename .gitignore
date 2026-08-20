@@ -4,10 +4,7 @@ package-lock.json
 # NUNCA versionar: contém cookies de sessão logada do Mercado Livre
 robo/sessoes/
 
-# Prints de tela das execuções do robô
+# Prints de tela e dados lidos pelo robô — ficam só na máquina
 robo/prints/
 
 .claude/
-
-# Exploração do robô (dados de leitura, ficam só na máquina)
-robo/prints/
