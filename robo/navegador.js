@@ -95,6 +95,11 @@ async function verificarLogin(navegador) {
     if (ehUrlDeLogin(url)) {
       return { logado: false, indefinido: false, url, titulo };
     }
+    // Prova positiva: logado, o ML redireciona pra Central de Vendedores, num
+    // domínio próprio que só existe autenticado.
+    if (url.indexOf('vendedores.mercadolivre.com.br') !== -1) {
+      return { logado: true, indefinido: false, url, titulo };
+    }
     // Título vazio + sem redirecionamento = página de bloqueio do firewall.
     // Não dá pra concluir nada daí.
     if (!titulo.trim()) {

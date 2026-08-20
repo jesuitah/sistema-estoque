@@ -93,6 +93,19 @@ Passos:
 **Critério de aprovação:** rodar o passo 3 duas vezes em dias diferentes e funcionar
 nas duas. Isso prova que a sessão dura.
 
+### Situação em 2026-08-20 — primeira metade APROVADA ✅
+
+Login manual da **KMP** concluído e sessão reutilizada com sucesso: `npm run testar -- KMP`
+abriu a Central de Vendedores logada como **KARMAPEC**, com os 1.514 anúncios carregados
+(print em `robo/prints/`). A premissa central do projeto — reusar sessão sem automatizar
+login — **está provada**.
+
+Falta só repetir o teste daqui a alguns dias pra confirmar que a sessão DURA. Aí a
+Fase 1 fecha e vamos pra Fase 2.
+
+Descoberta útil pra Fase 2: a área que precisamos fica em **"Gestão de estoque Full"**,
+uma das abas da própria tela de Anúncios da Central de Vendedores.
+
 ### Aprendizados técnicos (medidos, não supostos) — 2026-08-04
 
 Três armadilhas descobertas testando. Estão comentadas no código pra não voltarem:
@@ -110,6 +123,17 @@ Três armadilhas descobertas testando. Estão comentadas no código pra não vol
    sem redirecionar — indistinguível de erro. Também não usar `contexto.request.get()`:
    requisição crua não carrega a impressão digital do navegador e o firewall responde de
    forma inconsistente (ora 403, ora redireciona, com o mesmo estado de sessão).
+
+4. **Logado, o ML TROCA DE DOMÍNIO.** `www.mercadolivre.com.br/anuncios/lista` redireciona
+   pra `vendedores.mercadolivre.com.br/anuncios` (Central de Vendedores). Procurar pelo
+   caminho `/anuncios/lista` nunca batia — o login funcionava e passava despercebido.
+   O sinal positivo certo é o **domínio** `vendedores.mercadolivre.com.br`, que só é
+   alcançável autenticado.
+
+5. **Nunca abrir abas enquanto o usuário digita a senha.** A primeira versão do laço de
+   espera abria uma aba de verificação a cada 2 segundos; isso rouba o foco do teclado e
+   inviabiliza o login (aconteceu de verdade). Agora o script só OBSERVA a URL das abas
+   existentes — zero abas novas, zero requisições, durante todo o login.
 
 **Detector correto e validado:** navegador **visível**, navegação de verdade até
 `mercadolivre.com.br/anuncios/lista`, e então:

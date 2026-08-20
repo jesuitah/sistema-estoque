@@ -17,7 +17,18 @@ const { abrirNavegador, validarConta, ehUrlDeLogin } = require('./navegador');
 // assim que o login termina, ele traz de volta pra ESTA página sozinho. É esse retorno
 // que serve de sinal — não precisamos abrir aba nenhuma nem ficar consultando o ML.
 const URL_ALVO = 'https://www.mercadolivre.com.br/anuncios/lista';
-const MARCA_DA_PAGINA_ALVO = '/anuncios/lista';
+
+// MEDIDO NA PRÁTICA: uma vez logado, o Mercado Livre não fica em
+// `www.mercadolivre.com.br/anuncios/lista` — ele redireciona pra OUTRO domínio,
+// `vendedores.mercadolivre.com.br/anuncios` (a Central de Vendedores).
+// Esse domínio só é alcançável autenticado, então chegar nele é a prova do login.
+// (Procurar por "/anuncios/lista" foi um bug real: nunca batia, e o login válido
+// ficava sem ser detectado.)
+const DOMINIO_PAINEL_VENDEDOR = 'vendedores.mercadolivre.com.br';
+
+function ehPainelDoVendedor(url) {
+  return String(url || '').indexOf(DOMINIO_PAINEL_VENDEDOR) !== -1;
+}
 
 const MINUTOS_DE_ESPERA = 15;
 const INTERVALO_MS = 2000;
@@ -87,7 +98,7 @@ async function main() {
     for (const aba of navegador.pages()) {
       const url = aba.url();
       if (ehUrlDeLogin(url)) continue;
-      if (url.indexOf(MARCA_DA_PAGINA_ALVO) === -1) continue;
+      if (!ehPainelDoVendedor(url)) continue;
 
       // Voltou pra página do vendedor. Confere que ela carregou de verdade
       // (título vazio = página de bloqueio, não conclui nada).
