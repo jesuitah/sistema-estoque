@@ -11,7 +11,9 @@
 
 const fs = require('fs');
 const path = require('path');
-const { abrirNavegador, validarConta, ehUrlDeLogin } = require('./navegador');
+const {
+  abrirNavegador, validarConta, ehUrlDeLogin, identificarConta, USER_IDS_ESPERADOS,
+} = require('./navegador');
 
 // Mandamos direto pra área do vendedor. Deslogado, o ML desvia pra tela de login e,
 // assim que o login termina, ele traz de volta pra ESTA página sozinho. É esse retorno
@@ -33,21 +35,6 @@ function ehPainelDoVendedor(url) {
 const MINUTOS_DE_ESPERA = 15;
 const INTERVALO_MS = 2000;
 
-// Depois de logado, tenta descobrir QUAL conta é, pra você conferir que é a certa.
-// Best-effort: se não conseguir, não impede o sucesso (você confere na tela).
-async function descobrirConta(navegador) {
-  const pistas = {};
-  try {
-    const cookies = await navegador.cookies();
-    for (const c of cookies) {
-      // Cookies do ML que costumam carregar o id do vendedor.
-      if (/^(orguseridp|user_id|userid)$/i.test(c.name) && /^\d{6,}$/.test(String(c.value))) {
-        pistas.userId = c.value;
-      }
-    }
-  } catch (_e) { /* informativo apenas */ }
-  return pistas;
-}
 
 async function main() {
   const conta = validarConta(process.argv[2]);
@@ -129,21 +116,41 @@ async function main() {
     process.exit(1);
   }
 
-  const pistas = await descobrirConta(navegador);
+  // TRAVA DE SEGURANÇA: confere se a conta que logou é MESMO a que foi pedida.
+  // Sem isso, logar na conta errada passa despercebido e o robô acaba agindo na loja
+  // errada depois — erro que já aconteceu neste projeto.
+  const identidade = await identificarConta(navegador);
+  const esperado = USER_IDS_ESPERADOS[conta];
+
+  if (identidade.userId && identidade.userId !== esperado) {
+    const contaReal = Object.keys(USER_IDS_ESPERADOS)
+      .find((k) => USER_IDS_ESPERADOS[k] === identidade.userId) || 'desconhecida';
+    console.log('');
+    console.log('  ⛔ CONTA ERRADA — sessão NÃO foi aceita.');
+    console.log('');
+    console.log(`     Você pediu pra salvar como : ${conta}  (id ${esperado})`);
+    console.log(`     Mas quem logou foi         : ${identidade.apelido || '?'}  (id ${identidade.userId} = ${contaReal})`);
+    console.log('');
+    console.log('     Saia dessa conta no navegador e rode de novo logando na conta certa.');
+    console.log('');
+    await navegador.close().catch(() => {});
+    process.exit(1);
+  }
 
   console.log('');
   console.log('  ✅ Login detectado! Sessão salva.');
   console.log('');
-  console.log(`     Salvo como: ${conta}`);
-  if (pistas.userId) {
-    console.log(`     User id do Mercado Livre: ${pistas.userId}`);
-    console.log('     >>> CONFIRA se esse id bate com a conta que você queria.');
+  console.log(`     Conta : ${identidade.apelido || '(apelido não identificado)'}`);
+  console.log(`     Id    : ${identidade.userId || '?'}`);
+  if (identidade.userId === esperado) {
+    console.log(`     ✅ Confere com a ${conta} — conta certa.`);
   } else {
-    console.log('     >>> CONFIRA na janela do navegador se é a conta certa antes de seguir.');
+    console.log(`     ⚠  Não deu pra confirmar o id. Confira na janela se é a ${conta}.`);
   }
   console.log('');
   console.log(`     Próximo passo:  npm run testar -- ${conta}`);
   console.log('');
+  const pistas = { userId: identidade.userId, apelido: identidade.apelido };
 
   // Registro simples de quando a sessão foi criada — útil pra saber quanto ela dura.
   try {

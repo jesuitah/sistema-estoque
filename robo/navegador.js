@@ -12,6 +12,32 @@ const { chromium } = require('playwright');
 
 const CONTAS_VALIDAS = ['KMP', 'ERP', 'LTS'];
 
+// User id de cada loja no Mercado Livre (os mesmos gravados em `ml_tokens`).
+// Serve pra travar o erro de logar na conta errada sem perceber — já aconteceu antes
+// no projeto, quando a LTS foi conectada com o user_id da KMP porque o navegador tinha
+// ficado logado na conta anterior.
+const USER_IDS_ESPERADOS = {
+  KMP: '422927430',
+  ERP: '1639940717',
+  LTS: '712625474',
+};
+
+// Descobre QUEM está logado no perfil, lendo os cookies que o próprio ML grava.
+// `orguseridp` traz o user id e `orgnickp` o apelido da conta. É informação de fato,
+// não leitura de tela — não quebra se o layout mudar.
+async function identificarConta(navegador) {
+  const cookies = await navegador.cookies().catch(() => []);
+  function valor(nome) {
+    const c = cookies.find((x) => x.name === nome && /mercadolivre\.com\.br$/.test(x.domain));
+    if (!c) {
+      const outro = cookies.find((x) => x.name === nome);
+      return outro ? decodeURIComponent(outro.value) : null;
+    }
+    return decodeURIComponent(c.value);
+  }
+  return { userId: valor('orguseridp'), apelido: valor('orgnickp') };
+}
+
 function pastaDaSessao(conta) {
   return path.join(__dirname, 'sessoes', conta);
 }
@@ -116,4 +142,5 @@ async function verificarLogin(navegador) {
 module.exports = {
   abrirNavegador, validarConta, sessaoExiste, pastaDaSessao, CONTAS_VALIDAS,
   verificarLogin, ehUrlDeLogin, URL_TESTE_LOGIN,
+  identificarConta, USER_IDS_ESPERADOS,
 };
