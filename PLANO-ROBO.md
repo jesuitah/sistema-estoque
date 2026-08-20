@@ -95,16 +95,34 @@ nas duas. Isso prova que a sessão dura.
 
 ### Situação em 2026-08-20 — primeira metade APROVADA ✅
 
-Login manual da **KMP** concluído e sessão reutilizada com sucesso: `npm run testar -- KMP`
-abriu a Central de Vendedores logada como **KARMAPEC**, com os 1.514 anúncios carregados
-(print em `robo/prints/`). A premissa central do projeto — reusar sessão sem automatizar
-login — **está provada**.
+**As TRÊS contas** com login manual feito e sessão reutilizada com sucesso:
+
+| conta | apelido no ML | user id | sessão |
+|---|---|---|---|
+| KMP | KARMAPECDISTRIBUIDORA | 422927430 | autenticada |
+| ERP | ERUPCAOAUTOPARTS | 1639940717 | autenticada |
+| LTS | MJLEMOSCOMERCIODEPECAS | 712625474 | autenticada |
+
+`npm run testar -- <conta>` abre a Central de Vendedores já logada nas três (prints em
+`robo/prints/`). A premissa central do projeto — reusar sessão sem automatizar login —
+**está provada**.
 
 Falta só repetir o teste daqui a alguns dias pra confirmar que a sessão DURA. Aí a
 Fase 1 fecha e vamos pra Fase 2.
 
 Descoberta útil pra Fase 2: a área que precisamos fica em **"Gestão de estoque Full"**,
 uma das abas da própria tela de Anúncios da Central de Vendedores.
+
+**Trava de conta errada (implementada):** `identificarConta()` lê os cookies `orguseridp`
+(user id) e `orgnickp` (apelido) que o próprio ML grava, e compara com o esperado em
+`USER_IDS_ESPERADOS`. Se o login for numa conta diferente da pedida, o script **recusa a
+sessão** em vez de salvar errado — fecha o buraco que já causou a LTS ser conectada com o
+id da KMP no passado.
+
+**Limite de tentativas de login:** o ML bloqueia temporariamente após várias tentativas
+seguidas ("Você alcançou o limite de tentativas", URL `.../no-feasible-authenticators`).
+Não é problema do robô e não adianta insistir — insistir estende o bloqueio. Esperar
+algumas horas resolve (aconteceu com a LTS e liberou no mesmo dia).
 
 ### Aprendizados técnicos (medidos, não supostos) — 2026-08-04
 
