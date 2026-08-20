@@ -8,3 +8,6 @@ robo/sessoes/
 robo/prints/
 
 .claude/
+
+# Exploração do robô (dados de leitura, ficam só na máquina)
+robo/prints/
