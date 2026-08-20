@@ -11,9 +11,13 @@
 
 const fs = require('fs');
 const path = require('path');
-const { abrirNavegador, validarConta, verificarLogin, ehUrlDeLogin } = require('./navegador');
+const { abrirNavegador, validarConta, ehUrlDeLogin } = require('./navegador');
 
-const URL_INICIAL = 'https://www.mercadolivre.com.br/hub';
+// Mandamos direto pra área do vendedor. Deslogado, o ML desvia pra tela de login e,
+// assim que o login termina, ele traz de volta pra ESTA página sozinho. É esse retorno
+// que serve de sinal — não precisamos abrir aba nenhuma nem ficar consultando o ML.
+const URL_ALVO = 'https://www.mercadolivre.com.br/anuncios/lista';
+const MARCA_DA_PAGINA_ALVO = '/anuncios/lista';
 
 const MINUTOS_DE_ESPERA = 15;
 const INTERVALO_MS = 2000;
@@ -43,7 +47,7 @@ async function main() {
   const navegador = await abrirNavegador(conta);
   const pagina = navegador.pages()[0] || (await navegador.newPage());
 
-  await pagina.goto(URL_INICIAL, { waitUntil: 'domcontentloaded' }).catch(() => {});
+  await pagina.goto(URL_ALVO, { waitUntil: 'domcontentloaded' }).catch(() => {});
 
   console.log('');
   console.log('  ┌───────────────────────────────────────────────────────────────┐');
@@ -59,15 +63,16 @@ async function main() {
   let logado = false;
   let ciclos = 0;
 
-  // Estratégia em dois estágios, pra não ficar martelando o Mercado Livre:
+  // Só OBSERVAMOS a URL da aba do Matheus. Nada de abrir abas nem consultar o ML
+  // enquanto ele digita — a versão anterior fazia isso a cada 2 segundos e roubava o
+  // foco do teclado, atrapalhando o login (bug real, relatado na prática).
   //
-  //  1. Observar a URL da aba onde o Matheus está logando. Isso é de graça — não
-  //     gera nenhuma requisição — e enquanto ele estiver na tela de login, a URL
-  //     continua com a cara de login.
-  //  2. Quando ele SAIR da tela de login, aí sim fazer UMA verificação de verdade
-  //     pra confirmar. Se não confirmar, volta a observar.
+  // Como o navegador foi aberto já apontando pra área do vendedor, o próprio Mercado
+  // Livre devolve o Matheus pra essa página quando o login termina. Chegar de volta
+  // nela É o sinal de que logou — não precisa de mais nada.
   //
-  // Assim o número de requisições é mínimo: uma por tentativa real de login.
+  // Detectar só a página-alvo (e não "qualquer URL que não seja de login") também
+  // evita atrapalhar etapas intermediárias do login, como verificação em duas etapas.
   while (Date.now() < limite) {
     // Se a janela foi fechada, para de esperar em vez de travar até o limite.
     if (navegador.pages().length === 0) {
@@ -78,21 +83,21 @@ async function main() {
       process.exit(1);
     }
 
-    const urlAtual = pagina.url();
-    const aindaNaTelaDeLogin = ehUrlDeLogin(urlAtual);
+    // Olha todas as abas: o ML às vezes conclui o login numa aba nova.
+    for (const aba of navegador.pages()) {
+      const url = aba.url();
+      if (ehUrlDeLogin(url)) continue;
+      if (url.indexOf(MARCA_DA_PAGINA_ALVO) === -1) continue;
 
-    if (!aindaNaTelaDeLogin) {
-      const resultado = await verificarLogin(navegador);
-      if (resultado.logado) {
+      // Voltou pra página do vendedor. Confere que ela carregou de verdade
+      // (título vazio = página de bloqueio, não conclui nada).
+      const titulo = await aba.title().catch(() => '');
+      if (titulo.trim()) {
         logado = true;
         break;
       }
-      if (resultado.indefinido) {
-        // Bloqueio momentâneo ou timeout — não concluímos nada, só tentamos depois.
-        await new Promise((r) => setTimeout(r, 5000));
-        continue;
-      }
     }
+    if (logado) break;
 
     ciclos++;
     if (ciclos % 30 === 0) {
