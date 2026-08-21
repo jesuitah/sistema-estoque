@@ -210,6 +210,48 @@ Observação: a categoria **"não oferecem Full"** (5 unidades somadas) é exata
 que o Matheus resolve na mão hoje. É o alvo natural da Fase 2 — volume pequeno, o que
 torna o primeiro teste seguro.
 
+### Mapa COMPLETO da Central de Vendedores — 2026-08-21 (51 páginas, só leitura)
+
+Ferramenta: `robo/mapear.js` — **não contém nenhum clique** (só `goto` + `evaluate`).
+Conferir com: `grep -n "click" robo/mapear.js` → não deve achar nada.
+Relatório completo em `robo/prints/MAPA-<conta>-*.json`.
+
+#### Área do Full (prioridade)
+
+| endereço | o que é | ações disponíveis |
+|---|---|---|
+| `/anuncios/lista/space_management` | Controle de estoque Full | **Retirar ou descartar produtos**, **Oferecer Full novamente**, **Reativar anúncios**, Baixar relatórios |
+| ↳ sub-abas | Controle de estoque · Planejamento de envios · **Custos por estoque antigo** | |
+| `/shipping/inbounds` | Gestão de envios pro Full | |
+| `/fulfillment/withdrawals` | Retiradas criadas | |
+| `/metricas/stock-full` | Cota de armazenamento | |
+| `/metricas/custos` → aba "Custos do Mercado Envios Full" | quanto o Full está custando | |
+
+#### Demais áreas mapeadas
+
+| endereço | o que é | destaque |
+|---|---|---|
+| `/anuncios` | lista de anúncios | ações: Pausar, Reativar, Excluir, Editar |
+| `/vendas/omni/lista` | vendas | Baixar documentos fiscais · Baixar Excel de vendas |
+| `/metricas/negocio/visao-geral` | métricas de negócio | Baixar relatório · Criar oferta |
+| `/metricas/beneficios` | promoções + **cupons** | Baixar relatório |
+| `/metricas/custos` | custos | Desempenho · Tarifas de devolução · Custos Full |
+| `/metricas/meu-atendimento/resumo` | atendimento | reclamações, cancelamentos, devoluções |
+| `/metricas/desempenho-em-envios` | envios | Baixar relatório de envios |
+| `/metricas/concorrentes` | **análise de mercado** | Concorrência · Tendências por categoria · **Oportunidades de venda** · Sua posição · Melhores vendedores |
+| `/metricas/minha-pagina` | tráfego e audiências | |
+| `/catalogo/sugerencias` | produtos do catálogo | Minhas sugestões · Explorar catálogo |
+| `/preferencias-de-venda` | preferências | **é aqui que fica o ajuste de DANFE junto da etiqueta** |
+| `/seller-affiliates/*` | afiliados | campanhas, métricas, pedidos |
+| `/anuncios/{MLBU...}/modificar/...` | formulário de edição do anúncio | inclui **"Gerar fotos com IA"** |
+
+#### Descoberta estratégica: relatórios prontos
+
+Várias telas têm botão **"Baixar relatório"** (vendas, envios, promoções, estoque Full,
+negócio). Puxar o arquivo pronto é **muito mais robusto do que raspar tabela HTML** —
+não quebra quando o Mercado Livre mexe no layout. Sempre que existir relatório, preferir
+essa via.
+
 ## FASE 2 — Primeira ação real, com você assistindo
 
 **Objetivo:** tirar UM anúncio do Full, com o navegador visível na tela.
