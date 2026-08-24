@@ -72,7 +72,17 @@ pasta já desfaz tudo do lado do site.
 
 ---
 
-## FASE 1 — Provar que a sessão emprestada funciona (risco zero)
+## FASE 1 — Provar que a sessão emprestada funciona ✅ APROVADA (2026-08-24)
+
+**Resultado:** as três sessões (KMP, ERP, LTS), criadas em 2026-08-20, continuavam
+**autenticadas 4 dias depois**, sem nenhum login novo. O critério de aprovação era
+exatamente esse: funcionar em dias diferentes. A premissa central do projeto — reusar
+sessão sem automatizar login — está provada na prática.
+
+Manutenção esperada: quando uma sessão expirar, o `testar.js` acusa "DESLOGADA" e basta
+rodar `npm run login -- <conta>` de novo (2 minutos, manual).
+
+
 
 **A pergunta que essa fase responde:** dá pra reusar uma sessão logada, sem login
 automatizado, e navegar pelo painel do ML como se fosse o Matheus?
