@@ -262,6 +262,47 @@ negócio). Puxar o arquivo pronto é **muito mais robusto do que raspar tabela H
 não quebra quando o Mercado Livre mexe no layout. Sempre que existir relatório, preferir
 essa via.
 
+### 🔑 A CHAMADA DO "DEIXAR DE OFERECER FULL" — capturada em 2026-08-24
+
+Este é o achado central do projeto. O Matheus executou a operação **uma vez, na mão**,
+com `robo/gravar.js` escutando a rede. O painel não faz mágica: dispara duas chamadas
+limpas. Ou seja, **o robô não precisa imitar cliques** — faz a mesma chamada direto,
+o que é muito mais robusto (não quebra quando o layout muda).
+
+**O processo manual que isso substitui** (descrito pelo Matheus):
+1. aba 1: Gestão de anúncios → filtro "Sem estoque" → copia o número do anúncio
+2. aba 2: Gestão de estoque Full → Controle de Estoque → cola o número na busca → Enter
+3. três pontinhos da linha → "Deixar de oferecer Full" → OK
+
+**As duas chamadas:**
+
+```
+POST https://vendedores.mercadolivre.com.br/stock-management/space-management/api/actions
+Content-Type: application/json
+x-csrf-token: <token>
+
+  1º) {"actionId":"MAKE_NO_OFFER_FULL_VALIDATE","ids":["MLBU3016918457"]}
+      → 200, devolve o texto de confirmação do modal
+
+  2º) {"actionId":"MAKE_NO_OFFER_FULL_ACTION","ids":["MLBU3016918457"]}
+      → 200 {"snackbar":{"message":"Você deixou de oferecer Full no seu produto..."}}
+```
+
+**Três detalhes que fazem a diferença:**
+
+1. **O id NÃO é o do anúncio.** É o `user_product_id` (`MLBU...`), não o `MLB...`.
+   Obtém-se pela API oficial: `GET /items/{MLB...}` devolve o campo `user_product_id`.
+2. **O `x-csrf-token` é obrigatório** e sai de uma `<meta>` da própria página do painel
+   (`meta[name*=csrf]`). Basta abrir a página e ler antes de disparar.
+3. **A busca aceita parâmetro na URL**: `?search=3978655435`. Útil pra conferência.
+
+Autenticação é por **cookie de sessão** (o mesmo perfil do robô), não por OAuth — é
+justamente por isso que a API oficial não expõe esta operação.
+
+**Outros actionId prováveis** (mesmo padrão, ainda NÃO confirmados — não usar sem gravar
+primeiro): `MAKE_SINGLE_OFFER_FULL_*` e `MAKE_SINGLE_REACTIVATE_ITEM_*`, vistos numa
+inspeção anterior. Confirmar com `gravar.js` antes de automatizar qualquer um deles.
+
 ## FASE 2 — Primeira ação real, com você assistindo
 
 **Objetivo:** tirar UM anúncio do Full, com o navegador visível na tela.
