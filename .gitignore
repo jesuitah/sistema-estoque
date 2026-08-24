@@ -8,3 +8,6 @@ robo/sessoes/
 robo/prints/
 
 .claude/
+
+# Tokens do Mercado Livre gerados localmente — NUNCA versionar
+robo/.tokens.json
