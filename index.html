@@ -911,6 +911,19 @@
           });
       }
 
+      // Botão de pânico. Não mata o programa (o site não tem esse poder) — levanta uma
+      // bandeira no banco que o robô consulta antes de pegar cada tarefa. Ele continua
+      // vivo, só para de trabalhar até você retomar.
+      function pararOuRetomarRobo() {
+        var vaiParar = !(roboStatus && roboStatus.parar);
+        if (vaiParar && !confirm('Parar o robô?\n\nEle deixa de executar tarefas até você retomar. As tarefas ficam esperando na fila, nada se perde.')) return;
+
+        supabase.from('robo_status').update({ parar: vaiParar }).eq('id', 1).then(function(r) {
+          if (r.error) { alert('Não consegui alterar: ' + r.error.message); return; }
+          carregarStatusRobo();
+        });
+      }
+
       function enviarParaRobo(item, conta) {
         if (!confirm(
           'Mandar pro robô tirar este anúncio do Full?\n\n' +
@@ -2859,19 +2872,36 @@
             function temConta(g, c) { return c === 'KMP' ? g.tem_kmp : c === 'ERP' ? g.tem_erp : g.tem_lts; }
 
             return e('div', {className: 'space-y-4'},
-              e('div', {className: 'flex gap-2'},
-                e('button', {
-                  onClick: function() { setAnunciosSubTab('gaps'); },
-                  className: 'px-4 py-2 rounded-lg text-sm font-bold transition-colors ' + (anunciosSubTab === 'gaps' ? 'bg-blue-600 text-white' : 'bg-slate-800 border border-slate-600 text-slate-300 hover:border-slate-400')
-                }, '🔁 Clonar entre lojas'),
+              e('div', {className: 'flex gap-2 items-center flex-wrap'},
                 e('button', {
                   onClick: function() { setAnunciosSubTab('reativar'); carregarStatusRobo(); },
                   className: 'px-4 py-2 rounded-lg text-sm font-bold transition-colors ' + (anunciosSubTab === 'reativar' ? 'bg-blue-600 text-white' : 'bg-slate-800 border border-slate-600 text-slate-300 hover:border-slate-400')
-                }, '📦 Reativar sem estoque'),
+                }, '📦 Reativar anúncios'),
+                e('button', {
+                  onClick: function() { setAnunciosSubTab('gaps'); },
+                  className: 'px-4 py-2 rounded-lg text-sm font-bold transition-colors ' + (anunciosSubTab === 'gaps' ? 'bg-blue-600 text-white' : 'bg-slate-800 border border-slate-600 text-slate-300 hover:border-slate-400')
+                }, '🔁 Clonar anúncios'),
                 e('button', {
                   onClick: function() { setAnunciosSubTab('criar'); },
                   className: 'px-4 py-2 rounded-lg text-sm font-bold transition-colors ' + (anunciosSubTab === 'criar' ? 'bg-blue-600 text-white' : 'bg-slate-800 border border-slate-600 text-slate-300 hover:border-slate-400')
-                }, '➕ Criar novo anúncio')
+                }, '➕ Criar novo anúncio'),
+
+                // Sinalização do robô, sempre visível na aba Anúncios — não é botão de
+                // ligar (uma página da web não consegue iniciar programa no computador),
+                // é o estado dele mais o comando de parar.
+                e('div', {className: 'ml-auto flex items-center gap-2'},
+                  roboEstaOnline(roboStatus)
+                    ? e('span', {className: 'bg-emerald-900 bg-opacity-50 border border-emerald-600 text-emerald-300 px-3 py-1.5 rounded-lg text-sm font-bold'}, '🟢 Robô ligado')
+                    : e('span', {className: 'bg-red-900 bg-opacity-50 border border-red-600 text-red-300 px-3 py-1.5 rounded-lg text-sm font-bold'}, '🔴 Robô desligado'),
+                  roboEstaOnline(roboStatus) && e('button', {
+                    onClick: pararOuRetomarRobo,
+                    title: roboStatus && roboStatus.parar ? 'Deixar o robô voltar a pegar tarefas' : 'Faz o robô parar de pegar tarefas',
+                    className: (roboStatus && roboStatus.parar
+                      ? 'bg-amber-600 hover:bg-amber-500 '
+                      : 'bg-slate-700 hover:bg-slate-600 border border-slate-500 ') +
+                      'text-white px-3 py-1.5 rounded-lg text-sm font-bold transition-colors'
+                  }, roboStatus && roboStatus.parar ? '▶ Retomar robô' : '⏸ Parar robô')
+                )
               ),
 
               anunciosSubTab === 'criar' && e('div', {className: 'space-y-4 max-w-2xl'},
@@ -3070,21 +3100,12 @@
                   ),
                   e('p', {className: 'text-slate-400 text-sm'}, 'Confere todos os anúncios pausados por falta de estoque nas 3 lojas. Se tiver estoque físico aqui e não for Full, reativa sozinho com 89 unidades. Se não tiver estoque real e não for Full, move sozinho pra Inativos. Full com estoque físico você manda pro robô, que tira do Full sozinho.'),
 
-                  // Estado do robô. Ele roda no PC do Matheus, então o site precisa
-                  // avisar quando não está de pé — senão a tarefa fica na fila sem
-                  // ninguém executar, e parece que o botão não funcionou.
-                  e('div', {className: 'mt-3 flex items-center gap-2 flex-wrap text-sm'},
-                    roboEstaOnline(roboStatus)
-                      ? e('span', {className: 'bg-emerald-900 bg-opacity-40 border border-emerald-700 text-emerald-300 px-2 py-1 rounded font-bold'}, '🟢 Robô ligado')
-                      : e('span', {className: 'bg-slate-900 border border-slate-600 text-slate-400 px-2 py-1 rounded font-bold'}, '⚪ Robô desligado'),
-                    !roboEstaOnline(roboStatus) && e('span', {className: 'text-slate-500 text-xs'},
-                      'as tarefas ficam na fila e rodam quando você abrir o robô no seu PC'),
-                    roboStatus && roboStatus.parar && e('span', {className: 'bg-red-900 bg-opacity-40 border border-red-700 text-red-300 px-2 py-1 rounded font-bold'}, '⏸ parada solicitada'),
-                    e('button', {
-                      onClick: carregarStatusRobo,
-                      className: 'text-slate-400 underline hover:text-slate-200 text-xs'
-                    }, 'atualizar')
-                  ),
+                  // Avisos que só fazem sentido quando algo está fora do normal —
+                  // o estado do robô em si fica no topo da aba, sempre visível.
+                  !roboEstaOnline(roboStatus) && e('div', {className: 'mt-3 text-xs text-red-300 bg-red-900 bg-opacity-25 border border-red-800 rounded px-3 py-2'},
+                    'O robô está desligado. Você pode mandar tarefas normalmente — elas ficam na fila e rodam sozinhas assim que ele voltar.'),
+                  roboStatus && roboStatus.parar && roboEstaOnline(roboStatus) && e('div', {className: 'mt-3 text-xs text-amber-300 bg-amber-900 bg-opacity-25 border border-amber-800 rounded px-3 py-2'},
+                    'O robô está pausado por você. Clique em "Retomar robô" quando quiser que ele volte a trabalhar.'),
 
                   anunciosReativarErro && e('div', {className: 'mt-3 bg-red-900 bg-opacity-40 border border-red-700 rounded-lg p-3 text-red-300 text-sm'}, '⚠ ' + anunciosReativarErro)
                 ),

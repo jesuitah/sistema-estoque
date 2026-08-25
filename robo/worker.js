@@ -170,17 +170,35 @@ async function devoParar() {
   return !!data?.parar;
 }
 
-async function proximaTarefa() {
-  const { data } = await sb.from('ml_tarefas_robo')
-    .select('*').eq('status', 'pendente').order('criado_em', { ascending: true }).limit(1);
-  return data?.[0] ?? null;
+// Pega a próxima tarefa RESERVANDO-A no mesmo passo.
+//
+// O update filtra por status='pendente': se dois robôs tentarem a mesma tarefa ao
+// mesmo tempo, só um consegue alterar a linha — o outro recebe vazio e vai pra
+// próxima. Sem isso, o robô automático e um aberto na mão poderiam executar a
+// mesma ação duas vezes.
+async function reservarProximaTarefa() {
+  const { data: candidatas } = await sb.from('ml_tarefas_robo')
+    .select('id').eq('status', 'pendente').order('criado_em', { ascending: true }).limit(5);
+  if (!candidatas || !candidatas.length) return null;
+
+  for (const { id } of candidatas) {
+    const { data: reservada } = await sb.from('ml_tarefas_robo')
+      .update({ status: 'rodando', iniciado_em: new Date().toISOString() })
+      .eq('id', id)
+      .eq('status', 'pendente')   // <- a corrida é decidida aqui
+      .select()
+      .maybeSingle();
+    if (reservada) return reservada;
+  }
+  return null;
 }
 
 async function processar(tarefa, navegadores) {
   log(`▶ tarefa #${tarefa.id} — ${tarefa.tipo} · ${tarefa.conta} · ${tarefa.params?.item_id ?? ''}`);
 
+  // a tarefa já veio reservada (status 'rodando'); aqui só contamos a tentativa
   await sb.from('ml_tarefas_robo')
-    .update({ status: 'rodando', iniciado_em: new Date().toISOString(), tentativas: tarefa.tentativas + 1 })
+    .update({ tentativas: (tarefa.tentativas ?? 0) + 1 })
     .eq('id', tarefa.id);
 
   try {
@@ -257,7 +275,7 @@ async function main() {
         continue;
       }
 
-      const tarefa = await proximaTarefa();
+      const tarefa = await reservarProximaTarefa();
       if (!tarefa) {
         if (umaVez) break;
         await new Promise((r) => setTimeout(r, INTERVALO_FILA_MS));
