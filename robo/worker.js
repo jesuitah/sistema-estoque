@@ -241,6 +241,15 @@ async function reativarAnuncio(itemId, accessToken, pausarDepois) {
 const EXECUTORES = { tirar_do_full: tirarDoFull };
 
 // ── Ciclo principal ──────────────────────────────────────────────────────────
+// Grava no histórico que o sistema exibe. Falha de registro nunca derruba a tarefa:
+// a ação no Mercado Livre já aconteceu, e perder o log é menos grave que perder a ação.
+async function registrarAcao(linha) {
+  if (!linha || !linha.item_id) return;
+  try {
+    await sb.from('ml_log_acoes').insert({ ...linha, origem: 'robo' });
+  } catch (_e) { /* secundário */ }
+}
+
 async function baterPonto(detalhe) {
   await sb.from('robo_status').update({
     ultima_batida: new Date().toISOString(),
@@ -374,6 +383,21 @@ async function processar(tarefa, navegadores) {
       await sb.from('ml_tarefas_robo')
         .update({ status: 'feito', resultado, concluido_em: new Date().toISOString(), erro: null })
         .eq('id', tarefa.id);
+
+      // Registra no histórico que o sistema mostra na tela.
+      await registrarAcao({
+        conta: tarefa.conta,
+        item_id: tarefa.params?.item_id,
+        title: resultado.titulo || tarefa.params?.title,
+        sku_bruto: tarefa.params?.sku_bruto,
+        acao: 'tirado_do_full',
+        detalhe: resultado.nada_a_fazer
+          ? 'já não estava no Full'
+          : `saiu do Full${resultado.seguimento
+              ? (resultado.seguimento.ficou === 'ativo' ? ' e voltou a vender' : ' e foi pra inativos')
+              : ''}`,
+      });
+
       log(`  ✅ #${tarefa.id} concluída${resultado.para ? ` (${resultado.de} → ${resultado.para})` : ''}`);
     } else {
       await sb.from('ml_tarefas_robo')
@@ -385,6 +409,14 @@ async function processar(tarefa, navegadores) {
     await sb.from('ml_tarefas_robo')
       .update({ status: 'falhou', erro: String(erro.message ?? erro), concluido_em: new Date().toISOString() })
       .eq('id', tarefa.id);
+    await registrarAcao({
+      conta: tarefa.conta,
+      item_id: tarefa.params?.item_id,
+      title: tarefa.params?.title,
+      sku_bruto: tarefa.params?.sku_bruto,
+      acao: 'falhou',
+      detalhe: String(erro.message ?? erro).slice(0, 200),
+    });
     log(`  ❌ #${tarefa.id} falhou: ${erro.message}`);
   }
 }

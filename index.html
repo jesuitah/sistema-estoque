@@ -494,6 +494,11 @@
       var roboTarefas = roboTarefasState[0];
       var setRoboTarefas = roboTarefasState[1];
 
+      // histórico do que foi feito nos anúncios (pelo sistema e pelo robô)
+      var logAcoesState = useState([]);
+      var logAcoes = logAcoesState[0];
+      var setLogAcoes = logAcoesState[1];
+
       var anunciosReativarErroState = useState('');
       var anunciosReativarErro = anunciosReativarErroState[0];
       var setAnunciosReativarErro = anunciosReativarErroState[1];
@@ -895,6 +900,11 @@
       function carregarStatusRobo() {
         supabase.from('robo_status').select('*').eq('id', 1).maybeSingle()
           .then(function(r) { if (!r.error) setRoboStatus(r.data); });
+
+        // Histórico: sem isto, a tela esquece o que aconteceu assim que atualiza.
+        supabase.from('ml_log_acoes')
+          .select('*').order('quando', { ascending: false }).limit(60)
+          .then(function(r) { if (!r.error && r.data) setLogAcoes(r.data); });
 
         supabase.from('ml_tarefas_robo')
           .select('id, conta, tipo, params, status, erro, resultado, criado_em')
@@ -3155,6 +3165,41 @@
                     'O robô está pausado por você. Clique em "Retomar robô" quando quiser que ele volte a trabalhar.'),
 
                   anunciosReativarErro && e('div', {className: 'mt-3 bg-red-900 bg-opacity-40 border border-red-700 rounded-lg p-3 text-red-300 text-sm'}, '⚠ ' + anunciosReativarErro)
+                ),
+
+                // Histórico do que já foi feito. Antes, a lista sumia quando a tela
+                // atualizava e não sobrava registro de nada.
+                logAcoes.length > 0 && e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg p-4'},
+                  e('div', {className: 'flex items-center justify-between mb-2 flex-wrap gap-2'},
+                    e('h3', {className: 'text-sm font-bold text-slate-200'}, '📋 O que já foi feito'),
+                    e('span', {className: 'text-xs text-slate-500'}, 'últimas ' + logAcoes.length + ' ações')
+                  ),
+                  e('div', {className: 'space-y-1 max-h-72 overflow-y-auto'},
+                    logAcoes.map(function(l) {
+                      var visual = {
+                        reativado:        { cor: 'text-emerald-300', icone: '✅', rotulo: 'voltou a vender' },
+                        tirado_do_full:   { cor: 'text-sky-300',     icone: '🤖', rotulo: 'tirado do Full' },
+                        inativado:        { cor: 'text-slate-400',   icone: '📥', rotulo: 'foi pra inativos' },
+                        sku_desconhecido: { cor: 'text-orange-300',  icone: '📝', rotulo: 'SKU não cadastrado' },
+                        falhou:           { cor: 'text-red-300',     icone: '⚠',  rotulo: 'falhou' }
+                      }[l.acao] || { cor: 'text-slate-400', icone: '•', rotulo: l.acao };
+
+                      var quando = new Date(l.quando);
+                      var hoje = new Date().toDateString() === quando.toDateString();
+                      var horario = hoje
+                        ? quando.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})
+                        : quando.toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit'}) + ' ' +
+                          quando.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'});
+
+                      return e('div', {key: l.id, className: 'text-xs flex items-start gap-2 border-b border-slate-700 pb-1'},
+                        e('span', {className: 'text-slate-500 whitespace-nowrap w-20'}, horario),
+                        e('span', {className: getCorContaML(l.conta) + ' px-1.5 rounded text-xs font-bold h-fit'}, l.conta),
+                        e('span', {className: 'flex-1 text-slate-300 truncate', title: l.title || ''}, l.title || l.item_id),
+                        e('span', {className: visual.cor + ' whitespace-nowrap font-bold', title: l.detalhe || ''},
+                          visual.icone + ' ' + visual.rotulo)
+                      );
+                    })
+                  )
                 ),
 
                 anunciosReativarResultado && ['KMP', 'ERP', 'LTS'].map(function(c) {
