@@ -9,6 +9,7 @@
     "testar": "node testar.js"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.112.4",
     "playwright": "1.62.1"
   }
 }

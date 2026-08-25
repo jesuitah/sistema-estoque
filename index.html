@@ -481,6 +481,18 @@
       var anunciosReativando = anunciosReativandoState[0];
       var setAnunciosReativando = anunciosReativandoState[1];
 
+      // ── Robô ───────────────────────────────────────────────────────────────
+      // O robô roda no PC do Matheus (precisa da sessão do navegador, que o site
+      // não tem). O site só ENFILEIRA tarefas; o robô lê a fila e executa.
+      var roboStatusState = useState(null);
+      var roboStatus = roboStatusState[0];
+      var setRoboStatus = roboStatusState[1];
+
+      // tarefas na fila, indexadas por item_id, pra mostrar o estado em cada card
+      var roboTarefasState = useState({});
+      var roboTarefas = roboTarefasState[0];
+      var setRoboTarefas = roboTarefasState[1];
+
       var anunciosReativarErroState = useState('');
       var anunciosReativarErro = anunciosReativarErroState[0];
       var setAnunciosReativarErro = anunciosReativarErroState[1];
@@ -863,6 +875,69 @@
           });
       }
 
+      // ── Robô: fila de tarefas ────────────────────────────────────────────────
+      //
+      // Por que existe uma fila: a ação de tirar do Full só funciona com a sessão
+      // de navegador logada, que vive no PC do Matheus. O site não tem acesso a
+      // isso. Então o site escreve a tarefa aqui e o robô, rodando lá, executa.
+      // Se o PC estiver desligado, a tarefa espera — nada se perde.
+
+      // O robô bate ponto a cada minuto. Se a última batida foi há mais de 3
+      // minutos, consideramos que ele não está rodando.
+      var ROBO_LIMITE_OFFLINE_MS = 3 * 60 * 1000;
+
+      function roboEstaOnline(status) {
+        if (!status || !status.ultima_batida) return false;
+        return (Date.now() - new Date(status.ultima_batida).getTime()) < ROBO_LIMITE_OFFLINE_MS;
+      }
+
+      function carregarStatusRobo() {
+        supabase.from('robo_status').select('*').eq('id', 1).maybeSingle()
+          .then(function(r) { if (!r.error) setRoboStatus(r.data); });
+
+        supabase.from('ml_tarefas_robo')
+          .select('id, conta, tipo, params, status, erro, resultado, criado_em')
+          .order('criado_em', { ascending: false })
+          .limit(200)
+          .then(function(r) {
+            if (r.error || !r.data) return;
+            var porItem = {};
+            r.data.forEach(function(t) {
+              var chave = t.params && t.params.item_id;
+              // guarda só a tarefa mais recente de cada anúncio
+              if (chave && !porItem[chave]) porItem[chave] = t;
+            });
+            setRoboTarefas(porItem);
+          });
+      }
+
+      function enviarParaRobo(item, conta) {
+        if (!confirm(
+          'Mandar pro robô tirar este anúncio do Full?\n\n' +
+          item.title + '\n' + (item.sku_bruto || '') + '\n\n' +
+          'O robô precisa estar rodando no seu PC. Se não estiver, a tarefa fica ' +
+          'esperando na fila e roda assim que você abrir.'
+        )) return;
+
+        supabase.from('ml_tarefas_robo').insert({
+          conta: conta,
+          tipo: 'tirar_do_full',
+          params: { item_id: item.item_id, title: item.title, sku_bruto: item.sku_bruto },
+          criado_por: perfilAtivo || null
+        }).then(function(r) {
+          if (r.error) {
+            // índice único impede enfileirar a mesma coisa duas vezes
+            if (String(r.error.message || '').indexOf('duplicate') !== -1) {
+              alert('Esse anúncio já está na fila do robô.');
+            } else {
+              alert('Não consegui enfileirar: ' + r.error.message);
+            }
+            return;
+          }
+          carregarStatusRobo();
+        });
+      }
+
       function carregarAnunciosGaps() {
         setAnunciosCarregando(true);
         setAnunciosErro('');
@@ -1141,6 +1216,10 @@
         carregarMarkupsML();
         carregarKanban();
         carregarMlPedidos();
+        carregarStatusRobo();
+        // O robô bate ponto a cada minuto; conferimos de 30 em 30s pra que o
+        // indicador 🟢/⚪ e o estado das tarefas fiquem próximos da realidade.
+        var relogioRobo = setInterval(carregarStatusRobo, 30000);
         var subscription = supabase
           .channel('estoque-realtime')
           .on('postgres_changes', {event: '*', schema: 'public', table: 'estoque'}, function() {
@@ -1164,7 +1243,7 @@
           .on('postgres_changes', {event: '*', schema: 'public', table: 'kanban_etiquetas'}, recarregarKanbanDebounced)
           .on('postgres_changes', {event: '*', schema: 'public', table: 'kanban_cartao_etiquetas'}, recarregarKanbanDebounced)
           .subscribe();
-        return function() { subscription.unsubscribe(); kanbanSub.unsubscribe(); };
+        return function() { subscription.unsubscribe(); kanbanSub.unsubscribe(); clearInterval(relogioRobo); };
       }, []);
 
       function adicionarSKU() {
@@ -2786,7 +2865,7 @@
                   className: 'px-4 py-2 rounded-lg text-sm font-bold transition-colors ' + (anunciosSubTab === 'gaps' ? 'bg-blue-600 text-white' : 'bg-slate-800 border border-slate-600 text-slate-300 hover:border-slate-400')
                 }, '🔁 Clonar entre lojas'),
                 e('button', {
-                  onClick: function() { setAnunciosSubTab('reativar'); },
+                  onClick: function() { setAnunciosSubTab('reativar'); carregarStatusRobo(); },
                   className: 'px-4 py-2 rounded-lg text-sm font-bold transition-colors ' + (anunciosSubTab === 'reativar' ? 'bg-blue-600 text-white' : 'bg-slate-800 border border-slate-600 text-slate-300 hover:border-slate-400')
                 }, '📦 Reativar sem estoque'),
                 e('button', {
@@ -2989,7 +3068,24 @@
                       className: 'flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors ' + (anunciosReativando ? 'opacity-60 cursor-wait' : '')
                     }, anunciosReativando ? '⏳ Verificando...' : '🔄 Verificar e reativar')
                   ),
-                  e('p', {className: 'text-slate-400 text-sm'}, 'Confere todos os anúncios pausados por falta de estoque nas 3 lojas. Se tiver estoque físico aqui e não for Full, reativa sozinho com 89 unidades. Se não tiver estoque real e não for Full, move sozinho pra Inativos. Full com estoque físico aparece com link direto pra você fazer o passo manual (tirar do Full).'),
+                  e('p', {className: 'text-slate-400 text-sm'}, 'Confere todos os anúncios pausados por falta de estoque nas 3 lojas. Se tiver estoque físico aqui e não for Full, reativa sozinho com 89 unidades. Se não tiver estoque real e não for Full, move sozinho pra Inativos. Full com estoque físico você manda pro robô, que tira do Full sozinho.'),
+
+                  // Estado do robô. Ele roda no PC do Matheus, então o site precisa
+                  // avisar quando não está de pé — senão a tarefa fica na fila sem
+                  // ninguém executar, e parece que o botão não funcionou.
+                  e('div', {className: 'mt-3 flex items-center gap-2 flex-wrap text-sm'},
+                    roboEstaOnline(roboStatus)
+                      ? e('span', {className: 'bg-emerald-900 bg-opacity-40 border border-emerald-700 text-emerald-300 px-2 py-1 rounded font-bold'}, '🟢 Robô ligado')
+                      : e('span', {className: 'bg-slate-900 border border-slate-600 text-slate-400 px-2 py-1 rounded font-bold'}, '⚪ Robô desligado'),
+                    !roboEstaOnline(roboStatus) && e('span', {className: 'text-slate-500 text-xs'},
+                      'as tarefas ficam na fila e rodam quando você abrir o robô no seu PC'),
+                    roboStatus && roboStatus.parar && e('span', {className: 'bg-red-900 bg-opacity-40 border border-red-700 text-red-300 px-2 py-1 rounded font-bold'}, '⏸ parada solicitada'),
+                    e('button', {
+                      onClick: carregarStatusRobo,
+                      className: 'text-slate-400 underline hover:text-slate-200 text-xs'
+                    }, 'atualizar')
+                  ),
+
                   anunciosReativarErro && e('div', {className: 'mt-3 bg-red-900 bg-opacity-40 border border-red-700 rounded-lg p-3 text-red-300 text-sm'}, '⚠ ' + anunciosReativarErro)
                 ),
 
@@ -3023,18 +3119,33 @@
                       )
                     ),
                     full.length > 0 && e('div', null,
-                      e('div', {className: 'text-xs font-bold text-amber-400 uppercase mb-1'}, '🔒 Full com estoque — precisa ação manual (' + full.length + ')'),
+                      e('div', {className: 'text-xs font-bold text-amber-400 uppercase mb-1'}, '🔒 Full com estoque — tirar do Full (' + full.length + ')'),
                       e('div', {className: 'space-y-1'},
                         full.map(function(item) {
-                          return e('a', {
-                            key: item.item_id, href: 'https://www.mercadolivre.com.br/anuncios/' + item.item_id + '/modificar', target: '_blank', rel: 'noopener',
-                            className: 'block text-xs bg-amber-900 bg-opacity-30 border border-amber-800 rounded px-2 py-1 hover:border-amber-500 transition-colors'
-                          },
+                          var tarefa = roboTarefas[item.item_id];
+                          var emFila = tarefa && (tarefa.status === 'pendente' || tarefa.status === 'rodando');
+                          var falhou = tarefa && tarefa.status === 'falhou';
+
+                          return e('div', {key: item.item_id, className: 'text-xs bg-amber-900 bg-opacity-30 border border-amber-800 rounded px-2 py-1'},
                             e('div', {className: 'flex justify-between gap-2'},
                               e('span', {className: 'text-amber-200'}, item.title),
                               e('span', {className: 'text-amber-400 whitespace-nowrap'}, item.sku_bruto)
                             ),
-                            e('div', {className: 'text-amber-500'}, '→ abrir anúncio no Mercado Livre')
+                            e('div', {className: 'flex items-center gap-2 mt-1 flex-wrap'},
+                              emFila
+                                ? e('span', {className: 'text-sky-300 font-bold'},
+                                    tarefa.status === 'rodando' ? '⚙ o robô está fazendo agora...' : '⏳ na fila do robô')
+                                : e('button', {
+                                    onClick: function() { enviarParaRobo(item, c); },
+                                    className: 'bg-blue-600 hover:bg-blue-500 text-white px-2 py-0.5 rounded font-bold'
+                                  }, '🤖 tirar do Full pelo robô'),
+                              e('a', {
+                                href: item.permalink || ('https://www.mercadolivre.com.br/anuncios/' + item.item_id + '/modificar'),
+                                target: '_blank', rel: 'noopener',
+                                className: 'text-amber-500 underline hover:text-amber-300'
+                              }, 'ou fazer na mão'),
+                              falhou && e('span', {className: 'text-red-300', title: tarefa.erro || ''}, '⚠ tentativa anterior falhou')
+                            )
                           );
                         })
                       )
