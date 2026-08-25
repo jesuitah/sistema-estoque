@@ -1,0 +1,54 @@
+                // Histórico do que já foi feito. Antes, a lista sumia quando a tela
+                // atualizava e não sobrava registro de nada.
+                logAcoes.length > 0 && e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg p-4'},
+                  e('div', {className: 'flex items-center justify-between mb-2 flex-wrap gap-2'},
+                    e('h3', {className: 'text-sm font-bold text-slate-200'}, '📋 O que já foi feito'),
+                    e('span', {className: 'text-xs text-slate-500'}, 'últimas ' + logAcoes.length + ' ações')
+                  ),
+                  e('div', {className: 'space-y-1 max-h-72 overflow-y-auto'},
+                    logAcoes.map(function(l) {
+                      // O rótulo tem que dizer o DESFECHO, não só a ação. "Tirado do
+                      // Full" sozinho não responde a pergunta que importa: e depois,
+                      // voltou a vender ou foi pra inativos?
+                      var visual = {
+                        reativado:        { cor: 'text-emerald-300', icone: '✅' },
+                        tirado_do_full:   { cor: 'text-sky-300',     icone: '🤖' },
+                        inativado:        { cor: 'text-slate-400',   icone: '📥' },
+                        sku_desconhecido: { cor: 'text-orange-300',  icone: '📝' },
+                        falhou:           { cor: 'text-red-300',     icone: '⚠' }
+                      }[l.acao] || { cor: 'text-slate-400', icone: '•' };
+
+                      var desfecho = (function() {
+                        var d = l.detalhe || '';
+                        if (l.acao === 'tirado_do_full') {
+                          if (/voltou a vender/i.test(d)) return 'saiu do Full → voltou a vender';
+                          if (/inativos/i.test(d))        return 'saiu do Full → foi pra inativos';
+                          if (/já não estava/i.test(d))   return 'já não estava no Full';
+                          return 'saiu do Full';
+                        }
+                        if (l.acao === 'reativado')        return 'voltou a vender (89 un)';
+                        if (l.acao === 'inativado')        return 'foi pra inativos' + (d ? ' — ' + d : '');
+                        if (l.acao === 'sku_desconhecido') return 'SKU não cadastrado: ' + (d || '?');
+                        if (l.acao === 'falhou')           return 'falhou' + (d ? ' — ' + d : '');
+                        return l.acao;
+                      })();
+
+                      var quando = new Date(l.quando);
+                      var hoje = new Date().toDateString() === quando.toDateString();
+                      var horario = hoje
+                        ? quando.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})
+                        : quando.toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit'}) + ' ' +
+                          quando.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'});
+
+                      return e('div', {key: l.id, className: 'text-xs border-b border-slate-700 py-1.5'},
+                        e('div', {className: 'flex items-center gap-2'},
+                          e('span', {className: 'text-slate-500 whitespace-nowrap w-16'}, horario),
+                          e('span', {className: getCorContaML(l.conta) + ' px-1.5 rounded text-xs font-bold'}, l.conta),
+                          e('span', {className: 'flex-1 text-slate-300 truncate', title: l.title || ''}, l.title || l.item_id)
+                        ),
+                        e('div', {className: visual.cor + ' font-bold pl-[4.5rem] mt-0.5'},
+                          visual.icone + ' ' + desfecho)
+                      );
+                    })
+                  )
+                ),

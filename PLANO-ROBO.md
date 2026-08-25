@@ -321,6 +321,42 @@ de clicar**. Matheus vê o print e aprova. Só depois de confiar é que liga o a
 
 ---
 
+## FASE 2 e 3 — CONCLUÍDAS em 2026-08-25 ✅
+
+O robô saiu do papel e entrou na operação no mesmo dia.
+
+**Como está funcionando hoje:**
+
+- `robo/worker.js` roda **invisível** no PC do Matheus, iniciando junto com o Windows
+  (`robo/robo-invisivel.vbs` na pasta Inicializar). Ele não aparece na barra de tarefas.
+- O site **enfileira** tarefas em `ml_tarefas_robo`; o robô desenfileira e executa.
+- Botão **"🤖 tirar do Full pelo robô"** em cada anúncio, mais **"mandar todos"** quando
+  há vários. Sem confirmação — a ação é reversível.
+- Sinalização **🟢 Robô ligado / 🔴 Robô desligado** no topo da aba, com botão de
+  **Parar/Retomar** (bandeira `robo_status.parar`).
+- **Histórico** em `ml_log_acoes`, recolhido no rodapé. Cor pelo desfecho: verde
+  vendendo, vermelho inativo, amarelo precisa de você.
+
+**Regra completa de reativação** (definida pelo Matheus, implementada na
+`ml-reativar-anuncios` v7): todo anúncio sai da aba "sem estoque". Está no Full → robô
+tira primeiro. Tem a peça → reativa com 89 e deixa vendendo. Não tem → reativa com 89 e
+pausa, indo pra inativos. SKU não reconhecido → mesmo caminho, mas sinalizado à parte
+pro Matheus cadastrar.
+
+**Armadilhas encontradas e resolvidas** (todas comentadas no código):
+
+| problema | correção |
+|---|---|
+| dois robôs pegando a mesma tarefa | reserva atômica no `update ... where status='pendente'` |
+| tarefa presa em "rodando" se o robô morre | resgate automático após 10 min |
+| navegador guardado morria entre tarefas | detecta, descarta e reabre uma vez |
+| 3 navegadores abertos derrubavam o PC de 8 GB | um por vez + fecha após 90s ocioso |
+| token lido de arquivo estático vencia em 6h | lê do banco a cada uso |
+| recarregar o painel a cada tarefa (lento) | csrf guardado por 20 min |
+
+**Pendente:** enviar vários ids numa única chamada (`ids` é lista). Nunca foi testado —
+exige 2+ anúncios Full na MESMA conta. **Não usar sem gravar e confirmar antes.**
+
 ## FASE 3 — Fila de tarefas + robô trabalhador
 
 **Objetivo:** desacoplar. O site nunca fala com o navegador — só escreve numa fila.
