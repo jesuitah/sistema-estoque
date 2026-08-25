@@ -903,12 +903,23 @@
           .then(function(r) {
             if (r.error || !r.data) return;
             var porItem = {};
+            var emAndamento = 0;
             r.data.forEach(function(t) {
+              if (t.status === 'pendente' || t.status === 'rodando') emAndamento++;
               var chave = t.params && t.params.item_id;
               // guarda só a tarefa mais recente de cada anúncio
               if (chave && !porItem[chave]) porItem[chave] = t;
             });
             setRoboTarefas(porItem);
+
+            // Quando o robô esvazia a fila, a lista da tela fica velha: os concluídos
+            // continuam aparecendo e você teria que atualizar a página na mão. Então,
+            // assim que o último termina, refazemos a verificação sozinho.
+            var tinhaTrabalho = window._roboEmAndamento > 0;
+            window._roboEmAndamento = emAndamento;
+            if (tinhaTrabalho && emAndamento === 0 && anunciosReativarResultado) {
+              reativarAnunciosSemEstoque();
+            }
           });
       }
 
@@ -1253,9 +1264,17 @@
         carregarKanban();
         carregarMlPedidos();
         carregarStatusRobo();
-        // O robô bate ponto a cada minuto; conferimos de 30 em 30s pra que o
-        // indicador 🟢/⚪ e o estado das tarefas fiquem próximos da realidade.
-        var relogioRobo = setInterval(carregarStatusRobo, 30000);
+        // Ritmo adaptativo: enquanto houver tarefa em andamento, conferimos de 4 em 4
+        // segundos pra tela acompanhar o robô quase ao vivo. Parado, cai pra 30s —
+        // não faz sentido ficar consultando o banco à toa.
+        var relogioRobo = setInterval(function() {
+          var trabalhando = window._roboEmAndamento > 0;
+          var agoraMs = Date.now();
+          if (trabalhando || agoraMs - (window._roboUltimaChecagem || 0) > 30000) {
+            window._roboUltimaChecagem = agoraMs;
+            carregarStatusRobo();
+          }
+        }, 4000);
         var subscription = supabase
           .channel('estoque-realtime')
           .on('postgres_changes', {event: '*', schema: 'public', table: 'estoque'}, function() {
