@@ -11,3 +11,4 @@ robo/prints/
 
 # Tokens do Mercado Livre gerados localmente — NUNCA versionar
 robo/.tokens.json
+.bloco-historico.tmp
