@@ -469,7 +469,8 @@
       var anunciosOrdenacao = anunciosOrdenacaoState[0];
       var setAnunciosOrdenacao = anunciosOrdenacaoState[1];
 
-      var anunciosSubTabState = useState('gaps');
+      // Abre sempre na primeira opção (Reativar anúncios), não no meio.
+      var anunciosSubTabState = useState('reativar');
       var anunciosSubTab = anunciosSubTabState[0];
       var setAnunciosSubTab = anunciosSubTabState[1];
 
@@ -2470,7 +2471,12 @@
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'precos' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
             }, '💰 Preços'),
             podeVerAba(perfilAtivo, 'anuncios') && e('button', {
-              onClick: function() { setActiveTab('anuncios'); if (anunciosGaps.length === 0) carregarAnunciosGaps(); },
+              onClick: function() {
+                setActiveTab('anuncios');
+                setAnunciosSubTab('reativar');   // sempre abre na primeira opção
+                carregarStatusRobo();
+                if (anunciosGaps.length === 0) carregarAnunciosGaps();
+              },
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'anuncios' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
             }, '📢 Anúncios'),
             podeVerAba(perfilAtivo, 'tarefas') && e('button', {
