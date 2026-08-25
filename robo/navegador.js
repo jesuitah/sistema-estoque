@@ -71,7 +71,21 @@ async function abrirNavegador(conta, opcoes = {}) {
     timezoneId: 'America/Sao_Paulo',
     // Esconde o sinalizador de "navegador controlado por automação" que o Chrome
     // expõe por padrão. Sem isso, qualquer site sabe de cara que é um robô.
-    args: ['--disable-blink-features=AutomationControlled'],
+    args: [
+      '--disable-blink-features=AutomationControlled',
+      // O PC do Matheus tem 8 GB e é máquina de trabalho. O navegador do robô não
+      // precisa de enfeite nenhum — estas opções cortam bastante consumo sem afetar
+      // o que a gente faz (navegar e disparar chamadas).
+      '--disable-extensions',
+      '--disable-background-networking',
+      '--disable-sync',
+      '--disable-translate',
+      '--mute-audio',
+      '--no-first-run',
+      '--no-default-browser-check',
+      '--renderer-process-limit=2',
+      '--js-flags=--max-old-space-size=256',
+    ],
     // Mantém a caixa de areia do Chrome ligada. O Playwright a desliga por padrão,
     // o que faz o Chrome exibir a tarja amarela "--no-sandbox não é suportado" —
     // além de piorar a segurança, é mais um sinal visível de automação.

@@ -31,6 +31,7 @@ const ENDPOINT = 'https://vendedores.mercadolivre.com.br/stock-management/space-
 const INTERVALO_FILA_MS = 3000;    // de quanto em quanto tempo olha a fila
 const PAUSA_ENTRE_TAREFAS_MS = 1500;
 const VALIDADE_CSRF_MS = 20 * 60 * 1000; // o código de segurança vale pra sessão toda
+const OCIOSO_ATE_FECHAR_MS = 90 * 1000;  // sem tarefa por 1min30, fecha o navegador
 const BATIDA_MS = 60000;           // sinal de vida
 const HORA_INICIO = 7;             // só trabalha entre 7h e 22h
 const HORA_FIM = 22;
@@ -311,10 +312,23 @@ async function descartarNavegador(navegadores, conta) {
 
 // Abre (ou reaproveita) o navegador da conta, sempre conferindo que a sessão logada
 // é mesmo a esperada antes de deixar agir.
+//
+// IMPORTANTE — só UM navegador aberto por vez.
+// Manter um Chrome por conta parecia bom pra velocidade, mas cada um come centenas de
+// megabytes. Num PC de 8 GB isso derrubou a máquina pra menos de 1 GB livre e a página
+// do painel parou de carregar (as tarefas falhavam com "não encontrei o csrf").
+// Trocar de conta é raro; deixar o PC do Matheus travado é inaceitável.
 async function navegadorDaConta(navegadores, conta) {
   const guardado = navegadores[conta];
   if (guardado && guardado.nav.pages().length > 0) return guardado;
   if (guardado) await descartarNavegador(navegadores, conta);
+
+  for (const outra of Object.keys(navegadores)) {
+    if (outra !== conta) {
+      log(`  fechando navegador da ${outra} pra liberar memória`);
+      await descartarNavegador(navegadores, outra);
+    }
+  }
 
   const nav = await abrirNavegador(conta);
   const quem = await identificarConta(nav);
@@ -389,6 +403,7 @@ async function main() {
   const navegadores = {};
   let ultimaBatida = 0;
   let ultimoResgate = 0;
+  let ultimaTarefa = Date.now();
 
   await resgatarTarefasOrfas();
 
@@ -418,12 +433,19 @@ async function main() {
 
       const tarefa = await reservarProximaTarefa();
       if (!tarefa) {
+        // Sem trabalho: fecha o navegador depois de um tempinho parado. Ele não pode
+        // ficar ocupando memória o dia inteiro só esperando — o PC é de trabalho.
+        if (Object.keys(navegadores).length && Date.now() - ultimaTarefa > OCIOSO_ATE_FECHAR_MS) {
+          for (const c of Object.keys(navegadores)) await descartarNavegador(navegadores, c);
+          log('navegador fechado por ociosidade (abre de novo quando chegar tarefa)');
+        }
         if (umaVez) break;
         await new Promise((r) => setTimeout(r, INTERVALO_FILA_MS));
         continue;
       }
 
       await processar(tarefa, navegadores);
+      ultimaTarefa = Date.now();
       await new Promise((r) => setTimeout(r, PAUSA_ENTRE_TAREFAS_MS));
     } catch (erro) {
       log(`erro no ciclo: ${erro.message}`);
