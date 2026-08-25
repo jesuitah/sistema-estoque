@@ -310,6 +310,15 @@ function ehNavegadorMorto(erro) {
     .test(String(erro && erro.message ? erro.message : erro));
 }
 
+// O perfil do navegador só aceita UM programa por vez. Se outra coisa estiver usando
+// (uma leitura manual, outro robô), o Chrome nem sobe: "spawn UNKNOWN". Isso é
+// temporário — não é motivo pra marcar a tarefa como falha e obrigar o Matheus a
+// clicar de novo. Espera e tenta outra vez.
+function ehPerfilOcupado(erro) {
+  return /spawn UNKNOWN|ProcessSingleton|profile.*in use|Failed to create a ProcessSingleton/i
+    .test(String(erro && erro.message ? erro.message : erro));
+}
+
 async function descartarNavegador(navegadores, conta) {
   const guardado = navegadores[conta];
   if (guardado) {
@@ -369,14 +378,33 @@ async function processar(tarefa, navegadores) {
       const { nav, pagina } = await navegadorDaConta(navegadores, tarefa.conta);
       resultado = await executor(nav, pagina, tarefa, cred.access_token);
     } catch (erro) {
-      // O navegador guardado pode ter morrido entre uma tarefa e outra (fechado à mão,
-      // travado, perfil em uso por outro processo). Nesse caso não adianta insistir com
-      // ele: descartamos, abrimos outro e tentamos UMA vez. Qualquer outro erro sobe.
-      if (!ehNavegadorMorto(erro)) throw erro;
-      log('  navegador havia fechado — reabrindo e tentando de novo');
-      await descartarNavegador(navegadores, tarefa.conta);
-      const { nav, pagina } = await navegadorDaConta(navegadores, tarefa.conta);
-      resultado = await executor(nav, pagina, tarefa, cred.access_token);
+      // Perfil ocupado por outro programa: espera e tenta de novo, algumas vezes.
+      // É situação passageira, não erro de verdade.
+      if (ehPerfilOcupado(erro)) {
+        let conseguiu = false;
+        for (let tentativa = 1; tentativa <= 3 && !conseguiu; tentativa++) {
+          log(`  perfil da ${tarefa.conta} ocupado — aguardando ${tentativa * 15}s (${tentativa}/3)`);
+          await descartarNavegador(navegadores, tarefa.conta);
+          await new Promise((r) => setTimeout(r, tentativa * 15000));
+          try {
+            const { nav, pagina } = await navegadorDaConta(navegadores, tarefa.conta);
+            resultado = await executor(nav, pagina, tarefa, cred.access_token);
+            conseguiu = true;
+          } catch (novoErro) {
+            if (!ehPerfilOcupado(novoErro)) throw novoErro;
+          }
+        }
+        if (!conseguiu) throw new Error('o navegador desta conta ficou ocupado por outro programa — tente de novo em instantes');
+      } else if (ehNavegadorMorto(erro)) {
+        // O navegador guardado pode ter morrido entre uma tarefa e outra. Não adianta
+        // insistir com ele: descarta, abre outro e tenta UMA vez.
+        log('  navegador havia fechado — reabrindo e tentando de novo');
+        await descartarNavegador(navegadores, tarefa.conta);
+        const { nav, pagina } = await navegadorDaConta(navegadores, tarefa.conta);
+        resultado = await executor(nav, pagina, tarefa, cred.access_token);
+      } else {
+        throw erro;
+      }
     }
 
     if (resultado.ok) {
