@@ -3356,8 +3356,12 @@
                           e('span', {className: getCorContaML(l.conta) + ' px-1.5 rounded text-xs font-bold'}, l.conta),
                           e('span', {className: 'flex-1 text-slate-300 truncate', title: l.title || ''}, l.title || l.item_id)
                         ),
-                        e('div', {className: visual.cor + ' font-bold pl-[4.5rem] mt-0.5'},
-                          visual.icone + ' ' + desfecho)
+                        // truncate: mensagem técnica comprida não pode estourar a tela.
+                        // O texto completo fica no title, se precisar consultar.
+                        e('div', {
+                          className: visual.cor + ' font-bold pl-[4.5rem] mt-0.5 truncate',
+                          title: desfecho
+                        }, visual.icone + ' ' + desfecho)
                       );
                     })
                   )

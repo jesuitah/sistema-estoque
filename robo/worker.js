@@ -241,6 +241,25 @@ async function reativarAnuncio(itemId, accessToken, pausarDepois) {
 const EXECUTORES = { tirar_do_full: tirarDoFull };
 
 // ── Ciclo principal ──────────────────────────────────────────────────────────
+// Traduz erro técnico pra algo que faça sentido na tela. O texto cru do Playwright
+// tem centenas de caracteres de linha de comando do Chrome — vazou pro histórico e
+// ficou ilegível. O detalhe técnico continua salvo na tarefa, pra diagnóstico.
+function mensagemAmigavel(erro) {
+  const t = String(erro && erro.message ? erro.message : erro);
+  if (/spawn UNKNOWN|ProcessSingleton|profile.*in use/i.test(t))
+    return 'o navegador estava ocupado por outro programa';
+  if (/Target page, context or browser has been closed|Target closed/i.test(t))
+    return 'o navegador fechou no meio da tarefa';
+  if (/csrf/i.test(t))
+    return 'a página do Mercado Livre não carregou por completo';
+  if (/sessão da conta errada/i.test(t)) return t;
+  if (/token/i.test(t)) return 'o acesso ao Mercado Livre expirou — tente de novo em instantes';
+  if (/timeout|Timeout/i.test(t)) return 'o Mercado Livre demorou demais para responder';
+  if (/HTTP 4\d\d|HTTP 5\d\d/.test(t)) return 'o Mercado Livre recusou a operação (' + (t.match(/HTTP \d+/) || [''])[0] + ')';
+  // qualquer outro: primeira linha, curta
+  return t.split('\n')[0].slice(0, 120);
+}
+
 // Grava no histórico que o sistema exibe. Falha de registro nunca derruba a tarefa:
 // a ação no Mercado Livre já aconteceu, e perder o log é menos grave que perder a ação.
 async function registrarAcao(linha) {
@@ -443,7 +462,7 @@ async function processar(tarefa, navegadores) {
       title: tarefa.params?.title,
       sku_bruto: tarefa.params?.sku_bruto,
       acao: 'falhou',
-      detalhe: String(erro.message ?? erro).slice(0, 200),
+      detalhe: mensagemAmigavel(erro),
     });
     log(`  ❌ #${tarefa.id} falhou: ${erro.message}`);
   }
