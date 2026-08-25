@@ -28,8 +28,9 @@ const SUPABASE_KEY = process.env.SUPABASE_KEY || lerChaveDoSite();
 const PAINEL = 'https://vendedores.mercadolivre.com.br/anuncios/lista/space_management';
 const ENDPOINT = 'https://vendedores.mercadolivre.com.br/stock-management/space-management/api/actions';
 
-const INTERVALO_FILA_MS = 15000;   // de quanto em quanto tempo olha a fila
-const PAUSA_ENTRE_TAREFAS_MS = 5000;
+const INTERVALO_FILA_MS = 3000;    // de quanto em quanto tempo olha a fila
+const PAUSA_ENTRE_TAREFAS_MS = 1500;
+const VALIDADE_CSRF_MS = 20 * 60 * 1000; // o código de segurança vale pra sessão toda
 const BATIDA_MS = 60000;           // sinal de vida
 const HORA_INICIO = 7;             // só trabalha entre 7h e 22h
 const HORA_FIM = 22;
@@ -102,6 +103,43 @@ async function estadoDoAnuncio(itemId, accessToken) {
 
 // ── Tarefa: tirar do Full ────────────────────────────────────────────────────
 // Reproduz a chamada que o painel faz (capturada com gravar.js). Não imita cliques.
+
+// O código de segurança (csrf) vale pra sessão inteira, não por tarefa. Carregar a
+// página do painel a cada anúncio era o que deixava tudo lento (10 a 40s por item),
+// então guardamos e reaproveitamos.
+const csrfPorConta = {};
+
+async function obterCsrf(pagina, conta, forcar) {
+  const guardado = csrfPorConta[conta];
+  if (!forcar && guardado && (Date.now() - guardado.quando) < VALIDADE_CSRF_MS) {
+    return guardado.valor;
+  }
+  await pagina.goto(PAINEL, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await pagina.waitForFunction(
+    () => !!document.querySelector('meta[name*=csrf i], meta[name*=xsrf i]'),
+    { timeout: 45000 }
+  ).catch(() => {});
+
+  const valor = await pagina.evaluate(() => {
+    const m = document.querySelector('meta[name*=csrf i], meta[name*=xsrf i]');
+    return m ? m.getAttribute('content') : null;
+  });
+  if (!valor) throw new Error('não encontrei o x-csrf-token na página — interrompendo em vez de chutar');
+  csrfPorConta[conta] = { valor, quando: Date.now() };
+  return valor;
+}
+
+// Espera a API oficial refletir a mudança, tentando algumas vezes em vez de dormir
+// um tempo fixo. Costuma confirmar na primeira ou segunda tentativa.
+async function esperarSairDoFull(itemId, accessToken, tentativas = 6) {
+  for (let i = 0; i < tentativas; i++) {
+    await new Promise((r) => setTimeout(r, i === 0 ? 1500 : 2000));
+    const estado = await estadoDoAnuncio(itemId, accessToken);
+    if (!estado.erro && !estado.no_full) return estado;
+    if (i === tentativas - 1) return estado;
+  }
+}
+
 async function tirarDoFull(navegador, pagina, tarefa, accessToken) {
   const itemId = tarefa.params?.item_id;
   if (!itemId) throw new Error('tarefa sem item_id nos parâmetros');
@@ -113,16 +151,7 @@ async function tirarDoFull(navegador, pagina, tarefa, accessToken) {
   }
   if (!antes.user_product_id) throw new Error('anúncio sem user_product_id — a chamada exige esse id');
 
-  await pagina.goto(PAINEL, { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await pagina.waitForFunction(() => /C[óo]digo ML/i.test(document.body.innerText || ''), { timeout: 45000 }).catch(() => {});
-
-  const csrf = await pagina.evaluate(() => {
-    const m = document.querySelector('meta[name*=csrf i], meta[name*=xsrf i]');
-    return m ? m.getAttribute('content') : null;
-  });
-  if (!csrf) throw new Error('não encontrei o x-csrf-token na página — interrompendo em vez de chutar');
-
-  const disparar = (actionId) => pagina.evaluate(async ({ endpoint, csrf, actionId, id }) => {
+  const disparar = (csrf, actionId) => pagina.evaluate(async ({ endpoint, csrf, actionId, id }) => {
     const r = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrf, Accept: 'application/json' },
@@ -134,15 +163,21 @@ async function tirarDoFull(navegador, pagina, tarefa, accessToken) {
     return { status: r.status, corpo };
   }, { endpoint: ENDPOINT, csrf, actionId, id: antes.user_product_id });
 
-  const v = await disparar('MAKE_NO_OFFER_FULL_VALIDATE');
+  let csrf = await obterCsrf(pagina, tarefa.conta, false);
+  let v = await disparar(csrf, 'MAKE_NO_OFFER_FULL_VALIDATE');
+
+  // 401/403 costuma ser código de segurança vencido: pega um novo e tenta de novo,
+  // uma única vez. Qualquer outra recusa interrompe.
+  if (v.status === 401 || v.status === 403) {
+    csrf = await obterCsrf(pagina, tarefa.conta, true);
+    v = await disparar(csrf, 'MAKE_NO_OFFER_FULL_VALIDATE');
+  }
   if (v.status !== 200) throw new Error(`validação recusada (HTTP ${v.status})`);
 
-  const a = await disparar('MAKE_NO_OFFER_FULL_ACTION');
+  const a = await disparar(csrf, 'MAKE_NO_OFFER_FULL_ACTION');
   if (a.status !== 200) throw new Error(`ação recusada (HTTP ${a.status})`);
 
-  // Confirma pela API oficial — a ação só vale se der pra provar.
-  await new Promise((r) => setTimeout(r, 6000));
-  const depois = await estadoDoAnuncio(itemId, accessToken);
+  const depois = await esperarSairDoFull(itemId, accessToken);
 
   return {
     ok: !depois.no_full,
@@ -163,6 +198,23 @@ async function baterPonto(detalhe) {
     versao: VERSAO,
     detalhe: detalhe ?? null,
   }).eq('id', 1);
+}
+
+// Se o robô for fechado no meio de uma tarefa (PC desligado, programa encerrado),
+// ela fica presa em 'rodando' e ninguém mais pega. Aqui devolvemos pra fila as que
+// ficaram paradas tempo demais — nenhuma ação leva mais que ~1 minuto.
+const MINUTOS_PARA_CONSIDERAR_ORFA = 10;
+
+async function resgatarTarefasOrfas() {
+  const limite = new Date(Date.now() - MINUTOS_PARA_CONSIDERAR_ORFA * 60 * 1000).toISOString();
+  const { data } = await sb.from('ml_tarefas_robo')
+    .update({ status: 'pendente', iniciado_em: null })
+    .eq('status', 'rodando')
+    .lt('iniciado_em', limite)
+    .select('id');
+  if (data && data.length) {
+    log(`↺ ${data.length} tarefa(s) travada(s) devolvida(s) pra fila`);
+  }
 }
 
 async function devoParar() {
@@ -254,6 +306,9 @@ async function main() {
 
   const navegadores = {};
   let ultimaBatida = 0;
+  let ultimoResgate = 0;
+
+  await resgatarTarefasOrfas();
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
@@ -261,6 +316,10 @@ async function main() {
       if (Date.now() - ultimaBatida > BATIDA_MS) {
         await baterPonto({ horario_ok: dentroDoHorario() });
         ultimaBatida = Date.now();
+      }
+      if (Date.now() - ultimoResgate > 5 * 60 * 1000) {
+        await resgatarTarefasOrfas();
+        ultimoResgate = Date.now();
       }
 
       if (await devoParar()) {
