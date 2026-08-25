@@ -3308,16 +3308,25 @@
                   ),
                   logAberto && e('div', {className: 'space-y-1 max-h-72 overflow-y-auto mt-3 bg-slate-900 bg-opacity-40 rounded-lg p-3'},
                     logAcoes.map(function(l) {
-                      // O rótulo tem que dizer o DESFECHO, não só a ação. "Tirado do
-                      // Full" sozinho não responde a pergunta que importa: e depois,
-                      // voltou a vender ou foi pra inativos?
-                      var visual = {
-                        reativado:        { cor: 'text-emerald-300', icone: '✅' },
-                        tirado_do_full:   { cor: 'text-sky-300',     icone: '🤖' },
-                        inativado:        { cor: 'text-slate-400',   icone: '📥' },
-                        sku_desconhecido: { cor: 'text-orange-300',  icone: '📝' },
-                        falhou:           { cor: 'text-red-300',     icone: '⚠' }
-                      }[l.acao] || { cor: 'text-slate-400', icone: '•' };
+                      // A cor segue o DESFECHO, não o tipo de ação:
+                      //   verde    = o anúncio está vendendo
+                      //   vermelho = foi pra inativos
+                      //   amarelo  = tem algo pra você resolver
+                      // Um "saiu do Full" pode terminar dos dois jeitos, então colorir
+                      // por tipo de ação escondia justamente o que importa.
+                      var visual = (function() {
+                        var d = l.detalhe || '';
+                        var vendendo = l.acao === 'reativado' ||
+                                       (l.acao === 'tirado_do_full' && /voltou a vender/i.test(d));
+                        var inativo  = l.acao === 'inativado' ||
+                                       (l.acao === 'tirado_do_full' && /inativos/i.test(d));
+                        var problema = l.acao === 'falhou' || l.acao === 'sku_desconhecido';
+
+                        if (problema) return { cor: 'text-amber-300', icone: l.acao === 'falhou' ? '⚠' : '📝' };
+                        if (vendendo) return { cor: 'text-emerald-300', icone: '✅' };
+                        if (inativo)  return { cor: 'text-red-300', icone: '📥' };
+                        return { cor: 'text-slate-400', icone: '•' };
+                      })();
 
                       var desfecho = (function() {
                         var d = l.detalhe || '';
