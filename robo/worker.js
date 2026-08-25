@@ -293,6 +293,40 @@ async function reservarProximaTarefa() {
   return null;
 }
 
+// Reconhece o erro de "o navegador não está mais lá". Só nesse caso vale reabrir e
+// tentar de novo — em qualquer outro, insistir seria chutar.
+function ehNavegadorMorto(erro) {
+  return /Target page, context or browser has been closed|Browser has been closed|Target closed|Protocol error/i
+    .test(String(erro && erro.message ? erro.message : erro));
+}
+
+async function descartarNavegador(navegadores, conta) {
+  const guardado = navegadores[conta];
+  if (guardado) {
+    await guardado.nav.close().catch(() => {});
+    delete navegadores[conta];
+  }
+  delete csrfPorConta[conta]; // o código de segurança pertencia àquela sessão
+}
+
+// Abre (ou reaproveita) o navegador da conta, sempre conferindo que a sessão logada
+// é mesmo a esperada antes de deixar agir.
+async function navegadorDaConta(navegadores, conta) {
+  const guardado = navegadores[conta];
+  if (guardado && guardado.nav.pages().length > 0) return guardado;
+  if (guardado) await descartarNavegador(navegadores, conta);
+
+  const nav = await abrirNavegador(conta);
+  const quem = await identificarConta(nav);
+  if (quem.userId && quem.userId !== USER_IDS_ESPERADOS[conta]) {
+    await nav.close().catch(() => {});
+    throw new Error(`sessão da conta errada: esperava ${conta}, achei id ${quem.userId}`);
+  }
+  navegadores[conta] = { nav, pagina: nav.pages()[0] || (await nav.newPage()) };
+  log(`  navegador aberto para ${conta} (${quem.apelido})`);
+  return navegadores[conta];
+}
+
 async function processar(tarefa, navegadores) {
   log(`▶ tarefa #${tarefa.id} — ${tarefa.tipo} · ${tarefa.conta} · ${tarefa.params?.item_id ?? ''}`);
 
@@ -307,20 +341,20 @@ async function processar(tarefa, navegadores) {
 
     const cred = await tokenDaConta(tarefa.conta);
 
-    // um navegador por conta, reaproveitado entre tarefas
-    if (!navegadores[tarefa.conta]) {
-      const nav = await abrirNavegador(tarefa.conta);
-      const quem = await identificarConta(nav);
-      if (quem.userId && quem.userId !== USER_IDS_ESPERADOS[tarefa.conta]) {
-        await nav.close().catch(() => {});
-        throw new Error(`sessão da conta errada: esperava ${tarefa.conta}, achei id ${quem.userId}`);
-      }
-      navegadores[tarefa.conta] = { nav, pagina: nav.pages()[0] || (await nav.newPage()) };
-      log(`  navegador aberto para ${tarefa.conta} (${quem.apelido})`);
+    let resultado;
+    try {
+      const { nav, pagina } = await navegadorDaConta(navegadores, tarefa.conta);
+      resultado = await executor(nav, pagina, tarefa, cred.access_token);
+    } catch (erro) {
+      // O navegador guardado pode ter morrido entre uma tarefa e outra (fechado à mão,
+      // travado, perfil em uso por outro processo). Nesse caso não adianta insistir com
+      // ele: descartamos, abrimos outro e tentamos UMA vez. Qualquer outro erro sobe.
+      if (!ehNavegadorMorto(erro)) throw erro;
+      log('  navegador havia fechado — reabrindo e tentando de novo');
+      await descartarNavegador(navegadores, tarefa.conta);
+      const { nav, pagina } = await navegadorDaConta(navegadores, tarefa.conta);
+      resultado = await executor(nav, pagina, tarefa, cred.access_token);
     }
-    const { nav, pagina } = navegadores[tarefa.conta];
-
-    const resultado = await executor(nav, pagina, tarefa, cred.access_token);
 
     if (resultado.ok) {
       await sb.from('ml_tarefas_robo')
