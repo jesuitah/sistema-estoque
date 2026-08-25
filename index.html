@@ -925,14 +925,9 @@
         });
       }
 
+      // Sem confirmação: se clicou no botão, é porque quer. A ação é reversível
+      // (dá pra voltar a oferecer Full) e o estado aparece no próprio card.
       function enviarParaRobo(item, conta) {
-        if (!confirm(
-          'Mandar pro robô tirar este anúncio do Full?\n\n' +
-          item.title + '\n' + (item.sku_bruto || '') + '\n\n' +
-          'O robô precisa estar rodando no seu PC. Se não estiver, a tarefa fica ' +
-          'esperando na fila e roda assim que você abrir.'
-        )) return;
-
         supabase.from('ml_tarefas_robo').insert({
           conta: conta,
           tipo: 'tirar_do_full',
@@ -960,11 +955,6 @@
       // se conseguir), mas você clica uma vez só.
       function enviarTodosParaRobo(itens, conta) {
         if (!itens.length) return;
-        if (!confirm(
-          'Mandar ' + itens.length + ' anúncios pro robô tirar do Full?\n\n' +
-          'Ele vai processando um por um e você acompanha por aqui.'
-        )) return;
-
         var linhas = itens.map(function(item) {
           return {
             conta: conta,
