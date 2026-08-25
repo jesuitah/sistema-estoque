@@ -178,15 +178,63 @@ async function tirarDoFull(navegador, pagina, tarefa, accessToken) {
   if (a.status !== 200) throw new Error(`ação recusada (HTTP ${a.status})`);
 
   const depois = await esperarSairDoFull(itemId, accessToken);
+  if (depois.no_full) {
+    return {
+      ok: false,
+      titulo: antes.titulo,
+      de: antes.logistic_type,
+      para: depois.logistic_type,
+      observacao: 'o painel aceitou, mas a API ainda mostra no Full — pode levar alguns minutos pra refletir',
+    };
+  }
+
+  // Fora do Full, o resto é pela API oficial. O que fazer aqui vem decidido na tarefa:
+  //   'ativar'   -> temos a peça: reativa e deixa vendendo
+  //   'inativar' -> não temos: reativa e pausa, pra sair da aba "sem estoque"
+  const acaoDepois = tarefa.params?.acao_depois || null;
+  let seguimento = null;
+  if (acaoDepois === 'ativar' || acaoDepois === 'inativar') {
+    seguimento = await reativarAnuncio(itemId, accessToken, acaoDepois === 'inativar');
+  }
 
   return {
-    ok: !depois.no_full,
+    ok: true,
     titulo: antes.titulo,
     de: antes.logistic_type,
     para: depois.logistic_type,
     aviso_do_painel: a.corpo?.snackbar?.message ?? null,
-    ...(depois.no_full ? { observacao: 'o painel aceitou, mas a API ainda mostra no Full — pode levar alguns minutos pra refletir' } : {}),
+    acao_depois: acaoDepois,
+    seguimento,
   };
+}
+
+// Reativa com 89 unidades (padrão da empresa) e, se pedido, pausa em seguida.
+// Reativar-e-pausar é o que troca o motivo da pausa de "sem estoque" para "pausado
+// pelo vendedor" — é assim que o anúncio sai da aba e vai pra "inativos".
+const QUANTIDADE_PADRAO = 89;
+
+async function reativarAnuncio(itemId, accessToken, pausarDepois) {
+  const H = { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' };
+
+  const ativar = await fetch(`https://api.mercadolibre.com/items/${itemId}`, {
+    method: 'PUT', headers: H,
+    body: JSON.stringify({ status: 'active', available_quantity: QUANTIDADE_PADRAO }),
+  });
+  if (!ativar.ok) {
+    const detalhe = await ativar.text().catch(() => '');
+    return { ok: false, etapa: 'ativar', http: ativar.status, detalhe: detalhe.slice(0, 300) };
+  }
+  if (!pausarDepois) return { ok: true, ficou: 'ativo' };
+
+  await new Promise((r) => setTimeout(r, 1500));
+  const pausar = await fetch(`https://api.mercadolibre.com/items/${itemId}`, {
+    method: 'PUT', headers: H, body: JSON.stringify({ status: 'paused' }),
+  });
+  if (!pausar.ok) {
+    const detalhe = await pausar.text().catch(() => '');
+    return { ok: false, etapa: 'pausar', http: pausar.status, detalhe: detalhe.slice(0, 300) };
+  }
+  return { ok: true, ficou: 'inativo' };
 }
 
 const EXECUTORES = { tirar_do_full: tirarDoFull };
