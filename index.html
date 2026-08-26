@@ -3427,7 +3427,7 @@
                 ),
               ),
 
-              // Esta aba é só de acompanhamento: o robô patrulha sozinho a cada 30 min,
+              // Esta aba é só de acompanhamento: o robô patrulha sozinho de hora em hora,
               // sem ninguém precisar clicar. Anúncio parado aqui é venda que não acontece.
               anunciosSubTab === 'fora_venda' && (function() {
                 var pendentes = patrulha.filter(function(p) { return !p.resolvido_em && !p.desistiu_em; });
@@ -3470,13 +3470,13 @@
                       e('button', {
                         onClick: pedirPatrulhaAgora,
                         disabled: patrulhaRodando || !roboEstaOnline(roboStatus),
-                        title: !roboEstaOnline(roboStatus) ? 'O robô precisa estar ligado' : 'Faz o robô passar agora, sem esperar os 30 minutos',
+                        title: !roboEstaOnline(roboStatus) ? 'O robô precisa estar ligado' : 'Faz o robô passar agora, sem esperar a próxima hora cheia',
                         className: 'flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors ' +
                           ((patrulhaRodando || !roboEstaOnline(roboStatus)) ? 'opacity-60 cursor-not-allowed' : '')
                       }, patrulhaRodando ? '⏳ Passando agora...' : '🔄 Rodar agora')
                     ),
                     e('p', {className: 'text-slate-400 text-sm'},
-                      'O robô passa sozinho a cada 30 minutos, dia e noite, nos anúncios que o Mercado Livre tirou ' +
+                      'O robô passa sozinho de hora em hora, sempre na hora cheia (19:00, 20:00...), dia e noite, nos anúncios que o Mercado Livre tirou ' +
                       'de venda e manda reativar. Não precisa clicar em nada. O ML costuma aceitar sem executar de ' +
                       'primeira, então ele insiste até o anúncio voltar a vender.'),
 

@@ -33,12 +33,20 @@ const INTERVALO_FILA_MS = 3000;    // de quanto em quanto tempo olha a fila
 const PAUSA_ENTRE_TAREFAS_MS = 1500;
 const VALIDADE_CSRF_MS = 20 * 60 * 1000; // o código de segurança vale pra sessão toda
 const OCIOSO_ATE_FECHAR_MS = 90 * 1000;  // sem tarefa por 1min30, fecha o navegador
-const PATRULHA_MS = 30 * 60 * 1000;      // de quanto em quanto tempo revisa o "fora de venda"
+// A patrulha do "fora de venda" roda de hora em hora, sempre na HORA CHEIA
+// (19:00, 20:00, 21:00...). É previsível: dá pra olhar o relógio e saber quando
+// a próxima passada acontece, sem depender de quando o robô foi ligado.
+function proximaHoraCheia(referencia) {
+  const d = new Date(referencia);
+  d.setMinutes(0, 0, 0);
+  d.setHours(d.getHours() + 1);
+  return d.getTime();
+}
 const BATIDA_MS = 60000;           // sinal de vida
 // O robô trabalha 24h. Havia uma janela de 7h às 22h por cautela contra detecção,
 // mas o Matheus pediu o contrário — e com razão: à noite e no fim de semana é quando
 // ninguém está olhando, e anúncio parado nessas horas é venda perdida do mesmo jeito.
-// A proteção real continua sendo o ritmo baixo (poucas ações a cada 30 min) e o uso
+// A proteção real continua sendo o ritmo baixo (uma passada por hora) e o uso
 // do IP e da sessão de sempre.
 const VERSAO = '1.0';
 
@@ -111,10 +119,10 @@ async function estadoDoAnuncio(itemId, accessToken) {
 // então guardamos e reaproveitamos.
 const csrfPorConta = {};
 
-// Quando a última patrulha rodou. Fica aqui fora (e não dentro do laço principal)
-// porque a patrulha sob demanda, disparada pelo botão do site, também precisa
-// reiniciar esse relógio — senão a automática rodaria logo em seguida à toa.
-let ultimaPatrulha = 0;
+// Quando a próxima patrulha deve rodar. Fica aqui fora (e não dentro do laço
+// principal) porque a patrulha sob demanda, disparada pelo botão do site, também
+// precisa empurrar esse relógio — senão a automática rodaria logo em seguida à toa.
+let proximaPatrulha = 0;
 
 async function obterCsrf(pagina, conta, forcar) {
   const guardado = csrfPorConta[conta];
@@ -407,8 +415,8 @@ async function processar(tarefa, navegadores) {
         resultado: { ok: true, lidos, agidos, resolvidos, por_conta: r },
         concluido_em: new Date().toISOString(), erro: null,
       }).eq('id', tarefa.id);
-      ultimaPatrulha = Date.now();   // adia a automática, já acabou de rodar
-      await baterPonto({ proxima_patrulha: new Date(Date.now() + PATRULHA_MS).toISOString() });
+      proximaPatrulha = proximaHoraCheia(Date.now());   // adia a automática, já acabou de rodar
+      await baterPonto({ proxima_patrulha: new Date(proximaPatrulha).toISOString() });
       log(`  ✅ patrulha sob demanda concluída — ${lidos} verificados, ${agidos} ação(ões)`);
       return;
     }
@@ -509,8 +517,9 @@ async function main() {
   let ultimaBatida = 0;
   let ultimoResgate = 0;
   let ultimaTarefa = Date.now();
-  // primeira patrulha 2 minutos depois de subir, pra não competir com a inicialização
-  ultimaPatrulha = Date.now() - PATRULHA_MS + 2 * 60 * 1000;
+  // A primeira patrulha é na próxima hora cheia. Não roda logo ao subir de propósito:
+  // assim reiniciar o robô não vira uma passada extra fora do horário previsto.
+  proximaPatrulha = proximaHoraCheia(Date.now());
 
   await resgatarTarefasOrfas();
 
@@ -522,7 +531,7 @@ async function main() {
         // sobrescrevemos pra não apagar o que a tela está mostrando.
         const { data: st } = await sb.from('robo_status').select('detalhe').eq('id', 1).maybeSingle();
         if (!st?.detalhe?.patrulhando) {
-          await baterPonto({ proxima_patrulha: new Date(ultimaPatrulha + PATRULHA_MS).toISOString() });
+          await baterPonto({ proxima_patrulha: new Date(proximaPatrulha).toISOString() });
         } else {
           await sb.from('robo_status').update({ ultima_batida: new Date().toISOString() }).eq('id', 1);
         }
@@ -540,19 +549,21 @@ async function main() {
       // Só roda quando a fila está vazia, pra não disputar o navegador com as tarefas.
       // Sem restrição de horário: à noite e no fim de semana é justamente quando
       // ninguém está olhando, e anúncio parado nessas horas é venda perdida igual.
-      if (Date.now() - ultimaPatrulha > PATRULHA_MS) {
+      if (Date.now() >= proximaPatrulha) {
         const { data: temFila } = await sb.from('ml_tarefas_robo')
           .select('id').in('status', ['pendente', 'rodando']).limit(1);
         if (!temFila || !temFila.length) {
-          ultimaPatrulha = Date.now();
+          // Já marca a próxima antes de começar: se esta passada falhar no meio,
+          // não fica repetindo em looping — espera a hora cheia seguinte.
+          proximaPatrulha = proximaHoraCheia(Date.now());
           for (const c of Object.keys(navegadores)) await descartarNavegador(navegadores, c);
           log('🔁 patrulha do "fora de venda"...');
           try {
             const r = await patrulhar({ executar: true, log: (m) => log(m) });
             const agidos = r.reduce((s, x) => s + (x.agidos || 0), 0);
             const resolvidos = r.reduce((s, x) => s + (x.resolvidos || 0), 0);
-            ultimaPatrulha = Date.now();
-            await baterPonto({ proxima_patrulha: new Date(Date.now() + PATRULHA_MS).toISOString() });
+            proximaPatrulha = proximaHoraCheia(Date.now());
+            await baterPonto({ proxima_patrulha: new Date(proximaPatrulha).toISOString() });
             log(`   patrulha concluída — ${agidos} ação(ões), ${resolvidos} voltaram a vender`);
           } catch (erro) {
             log(`   patrulha falhou: ${mensagemAmigavel(erro)}`);
