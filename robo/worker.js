@@ -111,6 +111,11 @@ async function estadoDoAnuncio(itemId, accessToken) {
 // então guardamos e reaproveitamos.
 const csrfPorConta = {};
 
+// Quando a última patrulha rodou. Fica aqui fora (e não dentro do laço principal)
+// porque a patrulha sob demanda, disparada pelo botão do site, também precisa
+// reiniciar esse relógio — senão a automática rodaria logo em seguida à toa.
+let ultimaPatrulha = 0;
+
 async function obterCsrf(pagina, conta, forcar) {
   const guardado = csrfPorConta[conta];
   if (!forcar && guardado && (Date.now() - guardado.quando) < VALIDADE_CSRF_MS) {
@@ -388,6 +393,25 @@ async function processar(tarefa, navegadores) {
     .eq('id', tarefa.id);
 
   try {
+    // Pedido de patrulha imediata, vindo do botão no site. Não é uma tarefa de um
+    // anúncio só: roda a varredura inteira. Por isso não abre navegador por conta
+    // aqui — a própria patrulha cuida disso.
+    if (tarefa.tipo === 'patrulha_agora') {
+      for (const c of Object.keys(navegadores)) await descartarNavegador(navegadores, c);
+      const r = await patrulhar({ executar: true, log: (m) => log(m) });
+      const agidos = r.reduce((s, x) => s + (x.agidos || 0), 0);
+      const resolvidos = r.reduce((s, x) => s + (x.resolvidos || 0), 0);
+      const lidos = r.reduce((s, x) => s + (x.lidos || 0), 0);
+      await sb.from('ml_tarefas_robo').update({
+        status: 'feito',
+        resultado: { ok: true, lidos, agidos, resolvidos, por_conta: r },
+        concluido_em: new Date().toISOString(), erro: null,
+      }).eq('id', tarefa.id);
+      ultimaPatrulha = Date.now();   // adia a automática, já acabou de rodar
+      log(`  ✅ patrulha sob demanda concluída — ${lidos} verificados, ${agidos} ação(ões)`);
+      return;
+    }
+
     const executor = EXECUTORES[tarefa.tipo];
     if (!executor) throw new Error(`tipo de tarefa desconhecido: ${tarefa.tipo}`);
 
@@ -485,7 +509,7 @@ async function main() {
   let ultimoResgate = 0;
   let ultimaTarefa = Date.now();
   // primeira patrulha 2 minutos depois de subir, pra não competir com a inicialização
-  let ultimaPatrulha = Date.now() - PATRULHA_MS + 2 * 60 * 1000;
+  ultimaPatrulha = Date.now() - PATRULHA_MS + 2 * 60 * 1000;
 
   await resgatarTarefasOrfas();
 

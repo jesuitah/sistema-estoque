@@ -519,6 +519,11 @@
       var patrulhaHistAberto = patrulhaHistAbertoState[0];
       var setPatrulhaHistAberto = patrulhaHistAbertoState[1];
 
+      // true enquanto houver um pedido de "rodar agora" esperando ou em execução
+      var patrulhaRodandoState = useState(false);
+      var patrulhaRodando = patrulhaRodandoState[0];
+      var setPatrulhaRodando = patrulhaRodandoState[1];
+
       var anunciosReativarErroState = useState('');
       var anunciosReativarErro = anunciosReativarErroState[0];
       var setAnunciosReativarErro = anunciosReativarErroState[1];
@@ -942,13 +947,17 @@
             if (r.error || !r.data) return;
             var porItem = {};
             var emAndamento = 0;
+            var patrulhaNaFila = false;
             r.data.forEach(function(t) {
-              if (t.status === 'pendente' || t.status === 'rodando') emAndamento++;
+              var ativa = t.status === 'pendente' || t.status === 'rodando';
+              if (ativa) emAndamento++;
+              if (ativa && t.tipo === 'patrulha_agora') patrulhaNaFila = true;
               var chave = t.params && t.params.item_id;
               // guarda só a tarefa mais recente de cada anúncio
               if (chave && !porItem[chave]) porItem[chave] = t;
             });
             setRoboTarefas(porItem);
+            setPatrulhaRodando(patrulhaNaFila);
 
             // Quando o robô esvazia a fila, a lista da tela fica velha: os concluídos
             // continuam aparecendo e você teria que atualizar a página na mão. Então,
@@ -1002,6 +1011,20 @@
 
       // Enfileira vários de uma vez. O robô continua executando um por um (ou em lote,
       // se conseguir), mas você clica uma vez só.
+      // "Rodar agora" da patrulha. O site não consegue acionar o robô diretamente
+      // (ele vive no PC do Matheus), então enfileira um pedido e ele executa na hora.
+      function pedirPatrulhaAgora() {
+        supabase.from('ml_tarefas_robo').insert({
+          conta: 'KMP',                 // a patrulha varre as 3 lojas; a conta aqui é só formalidade
+          tipo: 'patrulha_agora',
+          params: {},
+          criado_por: perfilAtivo || null
+        }).then(function(r) {
+          if (r.error) { alert('Não consegui pedir a passada: ' + r.error.message); return; }
+          carregarStatusRobo();
+        });
+      }
+
       function enviarTodosParaRobo(itens, conta) {
         if (!itens.length) return;
         var linhas = itens.map(function(item) {
@@ -3445,7 +3468,16 @@
 
                 return e('div', {className: 'space-y-4'},
                   e('div', {className: 'bg-slate-800 border border-slate-700 p-5 rounded-lg'},
-                    e('h2', {className: 'text-lg font-bold mb-2'}, '🔄 Reativar fora de venda'),
+                    e('div', {className: 'flex items-center justify-between mb-2 flex-wrap gap-2'},
+                      e('h2', {className: 'text-lg font-bold'}, '🔄 Reativar fora de venda'),
+                      e('button', {
+                        onClick: pedirPatrulhaAgora,
+                        disabled: patrulhaRodando || !roboEstaOnline(roboStatus),
+                        title: !roboEstaOnline(roboStatus) ? 'O robô precisa estar ligado' : 'Faz o robô passar agora, sem esperar os 30 minutos',
+                        className: 'flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors ' +
+                          ((patrulhaRodando || !roboEstaOnline(roboStatus)) ? 'opacity-60 cursor-not-allowed' : '')
+                      }, patrulhaRodando ? '⏳ Passando agora...' : '🔄 Rodar agora')
+                    ),
                     e('p', {className: 'text-slate-400 text-sm'},
                       'O robô passa sozinho a cada 30 minutos, dia e noite, nos anúncios que o Mercado Livre tirou ' +
                       'de venda e manda reativar. Não precisa clicar em nada. O ML costuma aceitar sem executar de ' +
