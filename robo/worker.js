@@ -408,6 +408,7 @@ async function processar(tarefa, navegadores) {
         concluido_em: new Date().toISOString(), erro: null,
       }).eq('id', tarefa.id);
       ultimaPatrulha = Date.now();   // adia a automática, já acabou de rodar
+      await baterPonto({ proxima_patrulha: new Date(Date.now() + PATRULHA_MS).toISOString() });
       log(`  ✅ patrulha sob demanda concluída — ${lidos} verificados, ${agidos} ação(ões)`);
       return;
     }
@@ -517,7 +518,14 @@ async function main() {
   while (true) {
     try {
       if (Date.now() - ultimaBatida > BATIDA_MS) {
-        await baterPonto({ patrulha_a_cada_min: PATRULHA_MS / 60000 });
+        // Enquanto a patrulha anda, ela mesma escreve o progresso aqui — não
+        // sobrescrevemos pra não apagar o que a tela está mostrando.
+        const { data: st } = await sb.from('robo_status').select('detalhe').eq('id', 1).maybeSingle();
+        if (!st?.detalhe?.patrulhando) {
+          await baterPonto({ proxima_patrulha: new Date(ultimaPatrulha + PATRULHA_MS).toISOString() });
+        } else {
+          await sb.from('robo_status').update({ ultima_batida: new Date().toISOString() }).eq('id', 1);
+        }
         ultimaBatida = Date.now();
       }
       if (Date.now() - ultimoResgate > 5 * 60 * 1000) {
@@ -543,6 +551,8 @@ async function main() {
             const r = await patrulhar({ executar: true, log: (m) => log(m) });
             const agidos = r.reduce((s, x) => s + (x.agidos || 0), 0);
             const resolvidos = r.reduce((s, x) => s + (x.resolvidos || 0), 0);
+            ultimaPatrulha = Date.now();
+            await baterPonto({ proxima_patrulha: new Date(Date.now() + PATRULHA_MS).toISOString() });
             log(`   patrulha concluída — ${agidos} ação(ões), ${resolvidos} voltaram a vender`);
           } catch (erro) {
             log(`   patrulha falhou: ${mensagemAmigavel(erro)}`);

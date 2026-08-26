@@ -3466,6 +3466,16 @@
                 });
                 var tentativas7d = resolvidos7d.reduce(function(s, p) { return s + (p.tentativas || 0); }, 0);
 
+                // O robô escreve aqui onde está enquanto trabalha. É o que faz a tela
+                // deixar de parecer parada durante os ~2 min de uma passada.
+                var andando = roboStatus && roboStatus.detalhe && roboStatus.detalhe.patrulhando
+                  ? roboStatus.detalhe : null;
+
+                // Quanto falta pra próxima passada
+                var proxima = roboStatus && roboStatus.detalhe && roboStatus.detalhe.proxima_patrulha
+                  ? Math.max(0, Math.round((new Date(roboStatus.detalhe.proxima_patrulha).getTime() - Date.now()) / 60000))
+                  : null;
+
                 return e('div', {className: 'space-y-4'},
                   e('div', {className: 'bg-slate-800 border border-slate-700 p-5 rounded-lg'},
                     e('div', {className: 'flex items-center justify-between mb-2 flex-wrap gap-2'},
@@ -3486,56 +3496,75 @@
                     !roboEstaOnline(roboStatus) && e('div', {className: 'mt-3 text-xs text-red-300 bg-red-900 bg-opacity-25 border border-red-800 rounded px-3 py-2'},
                       'O robô está desligado — a patrulha só roda com ele ligado.'),
 
-                    // Prova de vida: sem isto, "nenhum anúncio" não diz se ele passou ou não.
-                    maisRecente && e('div', {className: 'mt-3 text-xs text-slate-400 bg-slate-900 rounded px-3 py-2'},
-                      e('div', null, '🕐 Última passada ' + haQuantoTempo(maisRecente.quando)),
-                      e('div', {className: 'mt-1 flex flex-wrap gap-x-4 gap-y-1'},
-                        ['KMP', 'ERP', 'LTS'].map(function(c) {
-                          var u = ultimaPorConta[c];
-                          if (!u) return null;
-                          return e('span', {key: c},
-                            e('span', {className: getCorContaML(c) + ' px-1.5 rounded font-bold mr-1'}, c),
-                            u.erro
-                              ? e('span', {className: 'text-red-300'}, u.erro)
-                              : e('span', null, u.lidos + ' verificados' +
-                                  (u.alvos ? ' · ' + u.alvos + ' pra reativar' : ' · nada pendente'))
-                          );
+                    // Enquanto anda, mostra onde está. É o que faz parecer vivo.
+                    andando && e('div', {className: 'mt-3 bg-sky-900 bg-opacity-30 border border-sky-700 rounded-lg px-3 py-2'},
+                      e('div', {className: 'flex items-center justify-between text-xs text-sky-200 font-bold mb-1'},
+                        e('span', null, '🔍 Verificando ' + andando.conta + '...'),
+                        e('span', null, andando.lidos + (andando.total ? ' de ' + andando.total : '') + ' anúncios')
+                      ),
+                      andando.total && e('div', {className: 'h-1.5 bg-slate-800 rounded overflow-hidden'},
+                        e('div', {
+                          className: 'h-full bg-sky-400 transition-all duration-500',
+                          style: {width: Math.min(100, Math.round(andando.lidos / andando.total * 100)) + '%'}
                         })
                       )
                     ),
+
+                    !andando && proxima !== null && roboEstaOnline(roboStatus) &&
+                      e('div', {className: 'mt-3 text-xs text-slate-500'},
+                        maisRecente ? '🕐 Última passada ' + haQuantoTempo(maisRecente.quando) + ' · ' : '',
+                        proxima === 0 ? 'próxima passada a qualquer momento' : 'próxima em ' + proxima + ' min'),
 
                     resolvidos7d.length > 0 && e('div', {className: 'mt-2 text-xs bg-emerald-900 bg-opacity-25 border border-emerald-800 rounded px-3 py-2 text-emerald-300'},
                       '✅ Nos últimos 7 dias, ' + resolvidos7d.length + ' anúncio(s) voltaram a vender sozinhos' +
                       (tentativas7d ? ' — foram ' + tentativas7d + ' tentativas no total' : ''))
                   ),
 
-                  pendentes.length > 0 && e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg p-4'},
-                    e('div', {className: 'text-xs font-bold text-amber-400 uppercase mb-2'},
-                      '⏳ O robô está insistindo (' + pendentes.length + ')'),
-                    e('div', {className: 'space-y-1'},
-                      pendentes.map(function(p) { return linha(p, 'bg-amber-900 bg-opacity-25 border-amber-800 text-amber-200'); }))
-                  ),
+                  // Um card por loja, no mesmo padrão da aba "Reativar anúncios".
+                  ['KMP', 'ERP', 'LTS'].map(function(c) {
+                    var u = ultimaPorConta[c];
+                    var pend = pendentes.filter(function(p) { return p.conta === c; });
+                    var trav = travados.filter(function(p) { return p.conta === c; });
+                    var resol = resolvidos.filter(function(p) { return p.conta === c; }).slice(0, 10);
+                    var verificandoAgora = andando && andando.conta === c;
 
-                  travados.length > 0 && e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg p-4'},
-                    e('div', {className: 'text-xs font-bold text-red-400 uppercase mb-2'},
-                      '⚠ Desistiu — precisa de você (' + travados.length + ')'),
-                    e('p', {className: 'text-xs text-slate-500 mb-2'},
-                      'O Mercado Livre não reativou nem depois de muitas tentativas. Vale olhar no painel.'),
-                    e('div', {className: 'space-y-1'},
-                      travados.map(function(p) { return linha(p, 'bg-red-900 bg-opacity-25 border-red-800 text-red-200'); }))
-                  ),
+                    return e('div', {key: c, className: 'bg-slate-800 border border-slate-700 rounded-lg p-4 space-y-3'},
+                      e('div', {className: 'flex items-center gap-2 flex-wrap'},
+                        e('span', {className: getCorContaML(c) + ' px-2 py-0.5 rounded text-xs font-bold'}, c),
+                        verificandoAgora
+                          ? e('span', {className: 'text-xs text-sky-300 font-bold'}, '🔍 verificando agora...')
+                          : e('span', {className: 'text-xs text-slate-500'},
+                              u ? (u.lidos + ' anúncios no Full') : 'ainda não verificada')
+                      ),
 
-                  resolvidos.length > 0 && e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg p-4'},
-                    e('div', {className: 'text-xs font-bold text-emerald-400 uppercase mb-2'},
-                      '✅ Voltaram a vender (' + resolvidos.length + ')'),
-                    e('div', {className: 'space-y-1'},
-                      resolvidos.slice(0, 30).map(function(p) { return linha(p, 'bg-emerald-900 bg-opacity-25 border-emerald-800 text-emerald-200'); }))
-                  ),
+                      pend.length > 0 && e('div', null,
+                        e('div', {className: 'text-xs font-bold text-amber-400 uppercase mb-1'},
+                          '⏳ O robô está insistindo (' + pend.length + ')'),
+                        e('div', {className: 'space-y-1'},
+                          pend.map(function(p) { return linha(p, 'bg-amber-900 bg-opacity-25 border-amber-800 text-amber-200'); }))
+                      ),
 
-                  patrulha.length === 0 && e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg p-6 text-center text-slate-500 text-sm'},
-                    maisRecente
-                      ? 'Nenhum anúncio fora de venda no momento. ✅'
-                      : 'A patrulha ainda não fez nenhuma passada. A primeira acontece minutos depois do robô ligar.'),
+                      trav.length > 0 && e('div', null,
+                        e('div', {className: 'text-xs font-bold text-red-400 uppercase mb-1'},
+                          '⚠ Desistiu — precisa de você (' + trav.length + ')'),
+                        e('div', {className: 'space-y-1'},
+                          trav.map(function(p) { return linha(p, 'bg-red-900 bg-opacity-25 border-red-800 text-red-200'); }))
+                      ),
+
+                      resol.length > 0 && e('div', null,
+                        e('div', {className: 'text-xs font-bold text-emerald-400 uppercase mb-1'},
+                          '✅ Voltaram a vender (' + resol.length + ')'),
+                        e('div', {className: 'space-y-1'},
+                          resol.map(function(p) { return linha(p, 'bg-emerald-900 bg-opacity-25 border-emerald-800 text-emerald-200'); }))
+                      ),
+
+                      pend.length === 0 && trav.length === 0 && resol.length === 0 &&
+                        e('div', {className: 'text-xs text-slate-500'},
+                          u && u.erro
+                            ? '⚠ ' + u.erro
+                            : 'Nenhum anúncio fora de venda nessa loja. ✅')
+                    );
+                  }),
 
                   // Histórico das passadas — o rastro do trabalho, mesmo quando não
                   // houve nada a fazer.
@@ -3548,7 +3577,24 @@
                         (patrulhaHistAberto ? '▾' : '▸') + ' 🕐 Histórico das passadas'),
                       e('span', {className: 'text-xs text-slate-600'}, patrulhaExec.length + ' passadas registradas')
                     ),
-                    patrulhaHistAberto && e('div', {className: 'space-y-1 max-h-72 overflow-y-auto mt-3 bg-slate-900 bg-opacity-40 rounded-lg p-3'},
+                    // Resumo antes da lista: 30 linhas iguais de "nada a fazer" não
+                    // contam nada. O que importa é o volume verificado e o que mudou.
+                    patrulhaHistAberto && (function() {
+                      var hoje = new Date().toDateString();
+                      var doDia = patrulhaExec.filter(function(x) { return new Date(x.quando).toDateString() === hoje; });
+                      var verificados = doDia.reduce(function(s, x) { return s + (x.lidos || 0); }, 0);
+                      var comAcao = doDia.filter(function(x) { return x.agidos || x.resolvidos; }).length;
+                      var comErro = doDia.filter(function(x) { return x.erro; }).length;
+                      if (!doDia.length) return null;
+                      return e('div', {className: 'mt-3 text-xs bg-slate-900 rounded px-3 py-2 text-slate-400'},
+                        e('strong', {className: 'text-slate-300'}, 'Hoje: '),
+                        doDia.length + ' passadas · ' + verificados.toLocaleString('pt-BR') + ' anúncios verificados · ',
+                        comAcao ? e('span', {className: 'text-emerald-300'}, comAcao + ' com ação') : 'nada pendente',
+                        comErro ? e('span', {className: 'text-red-300'}, ' · ' + comErro + ' com erro') : null
+                      );
+                    })(),
+
+                    patrulhaHistAberto && e('div', {className: 'space-y-1 max-h-72 overflow-y-auto mt-2 bg-slate-900 bg-opacity-40 rounded-lg p-3'},
                       patrulhaExec.map(function(x) {
                         var q = new Date(x.quando);
                         var hoje = new Date().toDateString() === q.toDateString();

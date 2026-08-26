@@ -46,14 +46,25 @@ async function esperarTabela(pagina) {
   await pagina.waitForTimeout(1500);
 }
 
+// Conta o total de anúncios que a lista tem, pra poder mostrar progresso.
+async function totalDaLista(pagina) {
+  return pagina.evaluate(() => {
+    const m = (document.body.innerText || '').match(/([\d.]+)\s+resultados/i);
+    return m ? parseInt(m[1].replace(/\./g, ''), 10) : null;
+  });
+}
+
 // Lê a lista inteira e devolve só o que nos interessa.
-async function lerLista(pagina) {
+// `aoAndar` é chamado a cada página, pra tela conseguir mostrar o robô trabalhando.
+async function lerLista(pagina, aoAndar) {
   const todos = [];
   const vistos = new Set();
+  let total = null;
 
   for (let n = 1; n <= MAX_PAGINAS; n++) {
     await pagina.goto(n === 1 ? PAINEL : `${PAINEL}?page=${n}`, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
     await esperarTabela(pagina);
+    if (total === null) total = await totalDaLista(pagina);
 
     const linhas = await pagina.evaluate(() => {
       const limpar = (s) => (s || '').trim().replace(/\s+/g, ' ');
@@ -77,6 +88,7 @@ async function lerLista(pagina) {
       todos.push(l);
       novos++;
     }
+    if (aoAndar) await aoAndar(todos.length, total);
     if (!novos) break;
   }
   return todos;
@@ -134,7 +146,13 @@ async function patrulharConta(sb, conta, executar, log) {
     }
     const pagina = navegador.pages()[0] || (await navegador.newPage());
 
-    const lista = await lerLista(pagina);
+    // Vai avisando a tela onde está. Sem isso, uma passada de 2 minutos parece
+    // que nada acontece — e o Matheus perde a noção de que o robô está vivo.
+    const lista = await lerLista(pagina, async (lidos, total) => {
+      await sb.from('robo_status').update({
+        detalhe: { patrulhando: true, conta, lidos, total },
+      }).eq('id', 1).then(() => {}, () => {});
+    });
     const alvos = lista
       .map((l) => ({ ...l, acao: ACOES.find((a) => a.teste.test(l.acao_sugerida || '')) }))
       .filter((l) => l.acao);
