@@ -159,7 +159,7 @@ async function patrulharConta(sb, conta, executar, log) {
 
     if (!alvos.length) {
       log(`  ${conta}: ${lista.length} no Full · nada pra reativar`);
-      return { conta, alvos: 0, resolvidos: resolvidos.length };
+      return { conta, lidos: lista.length, alvos: 0, resolvidos: resolvidos.length };
     }
 
     const mapa = await mapearUserProductIds(pagina, alvos.map((a) => a.codigo_ml));
@@ -187,12 +187,12 @@ async function patrulharConta(sb, conta, executar, log) {
       paraAgir.push({ ...alvo, user_product_id: up, registro: existente });
     }
 
-    if (!paraAgir.length) return { conta, alvos: alvos.length, agidos: 0, resolvidos: resolvidos.length };
+    if (!paraAgir.length) return { conta, lidos: lista.length, alvos: alvos.length, agidos: 0, resolvidos: resolvidos.length };
 
     if (!executar) {
       log(`  ${conta}: [ensaio] agiria em ${paraAgir.length}:`);
       paraAgir.forEach((a) => log(`      ${a.codigo_ml} → ${a.acao.rotulo}`));
-      return { conta, alvos: alvos.length, agidos: 0, ensaio: paraAgir.length, resolvidos: resolvidos.length };
+      return { conta, lidos: lista.length, alvos: alvos.length, agidos: 0, ensaio: paraAgir.length, resolvidos: resolvidos.length };
     }
 
     const csrf = await obterCsrf(pagina);
@@ -227,7 +227,7 @@ async function patrulharConta(sb, conta, executar, log) {
       }
     }
 
-    return { conta, alvos: alvos.length, agidos, resolvidos: resolvidos.length };
+    return { conta, lidos: lista.length, alvos: alvos.length, agidos, resolvidos: resolvidos.length };
   } finally {
     await navegador.close().catch(() => {});
   }
@@ -239,9 +239,24 @@ async function patrulhar({ executar = false, contas = CONTAS_VALIDAS, log = cons
   for (const c of contas) {
     try {
       const r = await patrulharConta(sb, c, executar, log);
-      if (r) resultados.push(r);
+      if (r) {
+        resultados.push(r);
+        // Registra a passada mesmo quando não houve nada a fazer — é justamente
+        // esse registro que diz ao Matheus que o robô está vivo e trabalhando.
+        if (executar) {
+          await sb.from('ml_patrulha_execucoes').insert({
+            conta: c, lidos: r.lidos || 0, alvos: r.alvos || 0,
+            agidos: r.agidos || 0, resolvidos: r.resolvidos || 0,
+          }).then(() => {}, () => {});
+        }
+      }
     } catch (erro) {
       log(`  ${c}: erro — ${erro.message}`);
+      if (executar) {
+        await sb.from('ml_patrulha_execucoes').insert({
+          conta: c, erro: String(erro.message || erro).split('\n')[0].slice(0, 200),
+        }).then(() => {}, () => {});
+      }
     }
   }
   return resultados;

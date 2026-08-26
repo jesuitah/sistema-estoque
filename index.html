@@ -509,6 +509,16 @@
       var patrulha = patrulhaState[0];
       var setPatrulha = patrulhaState[1];
 
+      // Passadas da patrulha. Sem isto, a tela vazia é ambígua: não dá pra saber se
+      // o robô passou e não achou nada, ou se nem chegou a rodar.
+      var patrulhaExecState = useState([]);
+      var patrulhaExec = patrulhaExecState[0];
+      var setPatrulhaExec = patrulhaExecState[1];
+
+      var patrulhaHistAbertoState = useState(false);
+      var patrulhaHistAberto = patrulhaHistAbertoState[0];
+      var setPatrulhaHistAberto = patrulhaHistAbertoState[1];
+
       var anunciosReativarErroState = useState('');
       var anunciosReativarErro = anunciosReativarErroState[0];
       var setAnunciosReativarErro = anunciosReativarErroState[1];
@@ -919,6 +929,10 @@
         supabase.from('ml_patrulha_full')
           .select('*').order('vista_em', { ascending: false }).limit(100)
           .then(function(r) { if (!r.error && r.data) setPatrulha(r.data); });
+
+        supabase.from('ml_patrulha_execucoes')
+          .select('*').order('quando', { ascending: false }).limit(60)
+          .then(function(r) { if (!r.error && r.data) setPatrulhaExec(r.data); });
 
         supabase.from('ml_tarefas_robo')
           .select('id, conta, tipo, params, status, erro, resultado, criado_em')
@@ -3408,15 +3422,59 @@
                   );
                 }
 
+                // Resumo da última passada, por conta
+                var ultimaPorConta = {};
+                patrulhaExec.forEach(function(x) { if (!ultimaPorConta[x.conta]) ultimaPorConta[x.conta] = x; });
+                var maisRecente = patrulhaExec[0];
+
+                function haQuantoTempo(quando) {
+                  var min = Math.floor((Date.now() - new Date(quando).getTime()) / 60000);
+                  if (min < 1) return 'agora há pouco';
+                  if (min < 60) return 'há ' + min + ' min';
+                  var h = Math.floor(min / 60);
+                  if (h < 24) return 'há ' + h + 'h';
+                  return 'há ' + Math.floor(h / 24) + ' dia(s)';
+                }
+
+                // Total de resolvidos nos últimos 7 dias e esforço que deram
+                var seteDias = Date.now() - 7 * 86400000;
+                var resolvidos7d = patrulha.filter(function(p) {
+                  return p.resolvido_em && new Date(p.resolvido_em).getTime() > seteDias;
+                });
+                var tentativas7d = resolvidos7d.reduce(function(s, p) { return s + (p.tentativas || 0); }, 0);
+
                 return e('div', {className: 'space-y-4'},
                   e('div', {className: 'bg-slate-800 border border-slate-700 p-5 rounded-lg'},
                     e('h2', {className: 'text-lg font-bold mb-2'}, '🔄 Reativar fora de venda'),
                     e('p', {className: 'text-slate-400 text-sm'},
-                      'O robô passa sozinho a cada 30 minutos nos anúncios que o Mercado Livre tirou de venda ' +
-                      'e manda reativar. Não precisa clicar em nada. O ML costuma aceitar sem executar de primeira, ' +
-                      'então ele insiste até o anúncio voltar a vender — que é o trabalho repetitivo que vocês faziam na mão.'),
+                      'O robô passa sozinho a cada 30 minutos, dia e noite, nos anúncios que o Mercado Livre tirou ' +
+                      'de venda e manda reativar. Não precisa clicar em nada. O ML costuma aceitar sem executar de ' +
+                      'primeira, então ele insiste até o anúncio voltar a vender.'),
+
                     !roboEstaOnline(roboStatus) && e('div', {className: 'mt-3 text-xs text-red-300 bg-red-900 bg-opacity-25 border border-red-800 rounded px-3 py-2'},
-                      'O robô está desligado — a patrulha só roda com ele ligado.')
+                      'O robô está desligado — a patrulha só roda com ele ligado.'),
+
+                    // Prova de vida: sem isto, "nenhum anúncio" não diz se ele passou ou não.
+                    maisRecente && e('div', {className: 'mt-3 text-xs text-slate-400 bg-slate-900 rounded px-3 py-2'},
+                      e('div', null, '🕐 Última passada ' + haQuantoTempo(maisRecente.quando)),
+                      e('div', {className: 'mt-1 flex flex-wrap gap-x-4 gap-y-1'},
+                        ['KMP', 'ERP', 'LTS'].map(function(c) {
+                          var u = ultimaPorConta[c];
+                          if (!u) return null;
+                          return e('span', {key: c},
+                            e('span', {className: getCorContaML(c) + ' px-1.5 rounded font-bold mr-1'}, c),
+                            u.erro
+                              ? e('span', {className: 'text-red-300'}, u.erro)
+                              : e('span', null, u.lidos + ' verificados' +
+                                  (u.alvos ? ' · ' + u.alvos + ' pra reativar' : ' · nada pendente'))
+                          );
+                        })
+                      )
+                    ),
+
+                    resolvidos7d.length > 0 && e('div', {className: 'mt-2 text-xs bg-emerald-900 bg-opacity-25 border border-emerald-800 rounded px-3 py-2 text-emerald-300'},
+                      '✅ Nos últimos 7 dias, ' + resolvidos7d.length + ' anúncio(s) voltaram a vender sozinhos' +
+                      (tentativas7d ? ' — foram ' + tentativas7d + ' tentativas no total' : ''))
                   ),
 
                   pendentes.length > 0 && e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg p-4'},
@@ -3443,7 +3501,41 @@
                   ),
 
                   patrulha.length === 0 && e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg p-6 text-center text-slate-500 text-sm'},
-                    'Nenhum anúncio fora de venda no momento. ✅')
+                    maisRecente
+                      ? 'Nenhum anúncio fora de venda no momento. ✅'
+                      : 'A patrulha ainda não fez nenhuma passada. A primeira acontece minutos depois do robô ligar.'),
+
+                  // Histórico das passadas — o rastro do trabalho, mesmo quando não
+                  // houve nada a fazer.
+                  patrulhaExec.length > 0 && e('div', {className: 'mt-6 pt-4 border-t border-slate-700'},
+                    e('button', {
+                      onClick: function() { setPatrulhaHistAberto(!patrulhaHistAberto); },
+                      className: 'w-full flex items-center justify-between gap-2 text-left px-1 py-1 rounded hover:bg-slate-800 transition-colors'
+                    },
+                      e('span', {className: 'text-sm font-bold text-slate-400'},
+                        (patrulhaHistAberto ? '▾' : '▸') + ' 🕐 Histórico das passadas'),
+                      e('span', {className: 'text-xs text-slate-600'}, patrulhaExec.length + ' passadas registradas')
+                    ),
+                    patrulhaHistAberto && e('div', {className: 'space-y-1 max-h-72 overflow-y-auto mt-3 bg-slate-900 bg-opacity-40 rounded-lg p-3'},
+                      patrulhaExec.map(function(x) {
+                        var q = new Date(x.quando);
+                        var hoje = new Date().toDateString() === q.toDateString();
+                        var quando = (hoje ? '' : q.toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit'}) + ' ') +
+                          q.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'});
+                        return e('div', {key: x.id, className: 'text-xs flex items-center gap-2'},
+                          e('span', {className: 'text-slate-500 w-20 whitespace-nowrap'}, quando),
+                          e('span', {className: getCorContaML(x.conta) + ' px-1.5 rounded font-bold'}, x.conta),
+                          x.erro
+                            ? e('span', {className: 'text-red-300 flex-1 truncate', title: x.erro}, '⚠ ' + x.erro)
+                            : e('span', {className: 'text-slate-400 flex-1'},
+                                x.lidos + ' verificados' +
+                                (x.agidos ? ' · agiu em ' + x.agidos : '') +
+                                (x.resolvidos ? ' · ' + x.resolvidos + ' voltaram a vender' : '') +
+                                (!x.agidos && !x.resolvidos ? ' · nada a fazer' : ''))
+                        );
+                      })
+                    )
+                  )
                 );
               })(),
 
