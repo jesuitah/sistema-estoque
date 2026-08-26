@@ -124,6 +124,23 @@ const csrfPorConta = {};
 // precisa empurrar esse relógio — senão a automática rodaria logo em seguida à toa.
 let proximaPatrulha = 0;
 
+// Se a patrulha está andando AGORA, neste processo. Precisa ser uma variável daqui,
+// e não um sinalizador no banco: se o robô morre no meio de uma passada (PC desligado,
+// processo encerrado), um sinalizador gravado no banco fica preso em "patrulhando" pra
+// sempre, e o robô seguinte nunca mais publica o horário da próxima passada.
+// Uma variável de processo morre junto com ele — que é exatamente o certo aqui.
+let patrulhaEmAndamento = false;
+
+// Roda a patrulha marcando o sinalizador, e garante que ele seja limpo mesmo se der erro.
+async function rodarPatrulha(opcoes) {
+  patrulhaEmAndamento = true;
+  try {
+    return await patrulhar(opcoes);
+  } finally {
+    patrulhaEmAndamento = false;
+  }
+}
+
 async function obterCsrf(pagina, conta, forcar) {
   const guardado = csrfPorConta[conta];
   if (!forcar && guardado && (Date.now() - guardado.quando) < VALIDADE_CSRF_MS) {
@@ -406,7 +423,7 @@ async function processar(tarefa, navegadores) {
     // aqui — a própria patrulha cuida disso.
     if (tarefa.tipo === 'patrulha_agora') {
       for (const c of Object.keys(navegadores)) await descartarNavegador(navegadores, c);
-      const r = await patrulhar({ executar: true, log: (m) => log(m) });
+      const r = await rodarPatrulha({ executar: true, log: (m) => log(m) });
       const agidos = r.reduce((s, x) => s + (x.agidos || 0), 0);
       const resolvidos = r.reduce((s, x) => s + (x.resolvidos || 0), 0);
       const lidos = r.reduce((s, x) => s + (x.lidos || 0), 0);
@@ -529,11 +546,10 @@ async function main() {
       if (Date.now() - ultimaBatida > BATIDA_MS) {
         // Enquanto a patrulha anda, ela mesma escreve o progresso aqui — não
         // sobrescrevemos pra não apagar o que a tela está mostrando.
-        const { data: st } = await sb.from('robo_status').select('detalhe').eq('id', 1).maybeSingle();
-        if (!st?.detalhe?.patrulhando) {
-          await baterPonto({ proxima_patrulha: new Date(proximaPatrulha).toISOString() });
-        } else {
+        if (patrulhaEmAndamento) {
           await sb.from('robo_status').update({ ultima_batida: new Date().toISOString() }).eq('id', 1);
+        } else {
+          await baterPonto({ proxima_patrulha: new Date(proximaPatrulha).toISOString() });
         }
         ultimaBatida = Date.now();
       }
@@ -559,7 +575,7 @@ async function main() {
           for (const c of Object.keys(navegadores)) await descartarNavegador(navegadores, c);
           log('🔁 patrulha do "fora de venda"...');
           try {
-            const r = await patrulhar({ executar: true, log: (m) => log(m) });
+            const r = await rodarPatrulha({ executar: true, log: (m) => log(m) });
             const agidos = r.reduce((s, x) => s + (x.agidos || 0), 0);
             const resolvidos = r.reduce((s, x) => s + (x.resolvidos || 0), 0);
             proximaPatrulha = proximaHoraCheia(Date.now());
