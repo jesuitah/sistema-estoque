@@ -3586,20 +3586,38 @@
 
                     patrulhaHistAberto && e('div', {className: 'space-y-1 max-h-72 overflow-y-auto mt-2 bg-slate-900 bg-opacity-40 rounded-lg p-3'},
                       patrulhaExec.map(function(x) {
+                        // Mesmo padrão do histórico da aba "Reativar anúncios": a cor segue o
+                        // DESFECHO. Vermelho = deu problema. Verde forte = o robô trabalhou.
+                        // Verde fraco = passou e estava tudo certo (a grande maioria).
+                        var visual = x.erro
+                          ? { cor: 'text-red-300 font-bold', icone: '⚠', texto: x.erro }
+                          : (x.agidos || x.resolvidos)
+                          ? { cor: 'text-emerald-300 font-bold', icone: '✅', texto: (function() {
+                              var partes = [];
+                              if (x.agidos) partes.push(x.agidos + ' anúncio(s) reativados automaticamente');
+                              if (x.resolvidos) partes.push(x.resolvidos + ' voltaram a vender');
+                              return partes.join(' · ');
+                            })() }
+                          : { cor: 'text-emerald-500', icone: '✅', texto: 'Feito, ok' };
+
                         var q = new Date(x.quando);
                         var hoje = new Date().toDateString() === q.toDateString();
-                        var quando = (hoje ? '' : q.toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit'}) + ' ') +
-                          q.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'});
-                        return e('div', {key: x.id, className: 'text-xs flex items-center gap-2'},
-                          e('span', {className: 'text-slate-500 w-20 whitespace-nowrap'}, quando),
-                          e('span', {className: getCorContaML(x.conta) + ' px-1.5 rounded font-bold'}, x.conta),
-                          x.erro
-                            ? e('span', {className: 'text-red-300 flex-1 truncate', title: x.erro}, '⚠ ' + x.erro)
-                            : e('span', {className: 'text-slate-400 flex-1'},
-                                x.lidos + ' verificados' +
-                                (x.agidos ? ' · agiu em ' + x.agidos : '') +
-                                (x.resolvidos ? ' · ' + x.resolvidos + ' voltaram a vender' : '') +
-                                (!x.agidos && !x.resolvidos ? ' · nada a fazer' : ''))
+                        var horario = hoje
+                          ? q.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})
+                          : q.toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit'}) + ' ' +
+                            q.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'});
+
+                        return e('div', {key: x.id, className: 'text-xs border-b border-slate-700 py-1.5'},
+                          e('div', {className: 'flex items-center gap-2'},
+                            e('span', {className: 'text-slate-500 whitespace-nowrap w-16'}, horario),
+                            e('span', {className: getCorContaML(x.conta) + ' px-1.5 rounded text-xs font-bold'}, x.conta),
+                            e('span', {className: 'flex-1 text-slate-300 truncate'},
+                              x.lidos.toLocaleString('pt-BR') + ' anúncios conferidos')
+                          ),
+                          e('div', {
+                            className: visual.cor + ' pl-[4.5rem] mt-0.5 truncate',
+                            title: visual.texto
+                          }, visual.icone + ' ' + visual.texto)
                         );
                       })
                     )
