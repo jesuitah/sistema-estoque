@@ -35,8 +35,11 @@ const VALIDADE_CSRF_MS = 20 * 60 * 1000; // o código de segurança vale pra ses
 const OCIOSO_ATE_FECHAR_MS = 90 * 1000;  // sem tarefa por 1min30, fecha o navegador
 const PATRULHA_MS = 30 * 60 * 1000;      // de quanto em quanto tempo revisa o "fora de venda"
 const BATIDA_MS = 60000;           // sinal de vida
-const HORA_INICIO = 7;             // só trabalha entre 7h e 22h
-const HORA_FIM = 22;
+// O robô trabalha 24h. Havia uma janela de 7h às 22h por cautela contra detecção,
+// mas o Matheus pediu o contrário — e com razão: à noite e no fim de semana é quando
+// ninguém está olhando, e anúncio parado nessas horas é venda perdida do mesmo jeito.
+// A proteção real continua sendo o ritmo baixo (poucas ações a cada 30 min) e o uso
+// do IP e da sessão de sempre.
 const VERSAO = '1.0';
 
 // A chave pública do Supabase já está no index.html do site — reaproveitamos daqui
@@ -59,10 +62,6 @@ function log(msg) {
   console.log(`  ${agora()}  ${msg}`);
 }
 
-function dentroDoHorario() {
-  const h = Number(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo', hour: '2-digit', hour12: false }));
-  return h >= HORA_INICIO && h < HORA_FIM;
-}
 
 // Token da conta, lido do BANCO a cada uso.
 //
@@ -494,7 +493,7 @@ async function main() {
   while (true) {
     try {
       if (Date.now() - ultimaBatida > BATIDA_MS) {
-        await baterPonto({ horario_ok: dentroDoHorario() });
+        await baterPonto({ patrulha_a_cada_min: PATRULHA_MS / 60000 });
         ultimaBatida = Date.now();
       }
       if (Date.now() - ultimoResgate > 5 * 60 * 1000) {
@@ -507,7 +506,9 @@ async function main() {
       // insistência — trabalho repetitivo que o Matheus fazia na mão. Cada anúncio
       // parado ali é venda que não acontece, por isso a passada é frequente.
       // Só roda quando a fila está vazia, pra não disputar o navegador com as tarefas.
-      if (Date.now() - ultimaPatrulha > PATRULHA_MS && dentroDoHorario()) {
+      // Sem restrição de horário: à noite e no fim de semana é justamente quando
+      // ninguém está olhando, e anúncio parado nessas horas é venda perdida igual.
+      if (Date.now() - ultimaPatrulha > PATRULHA_MS) {
         const { data: temFila } = await sb.from('ml_tarefas_robo')
           .select('id').in('status', ['pendente', 'rodando']).limit(1);
         if (!temFila || !temFila.length) {
@@ -527,12 +528,6 @@ async function main() {
 
       if (await devoParar()) {
         log('⏸ parada solicitada pelo sistema — sem pegar tarefas');
-        await new Promise((r) => setTimeout(r, INTERVALO_FILA_MS));
-        continue;
-      }
-
-      if (!dentroDoHorario()) {
-        if (umaVez) break;
         await new Promise((r) => setTimeout(r, INTERVALO_FILA_MS));
         continue;
       }
