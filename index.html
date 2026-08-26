@@ -2896,10 +2896,8 @@
                         // incompleto. O alerta fica na própria linha do produto, junto
                         // da quantidade — é onde a expedição olha.
                         qtd > 1
-                          ? e('div', {className: 'flex items-center gap-2 whitespace-nowrap'},
-                              e('span', {className: 'text-amber-400 font-bold'}, '⚠ ATENÇÃO'),
-                              e('span', {className: 'bg-amber-500 text-slate-900 font-bold px-2 py-0.5 rounded'}, qtd + ' unidades')
-                            )
+                          ? e('span', {className: 'bg-amber-500 text-slate-900 font-bold px-2 py-0.5 rounded whitespace-nowrap'},
+                              '⚠ ATENÇÃO - ' + qtd + ' unidades')
                           : e('span', {className: 'text-slate-400'}, 'x1')
                       );
                     })
