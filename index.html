@@ -2869,7 +2869,20 @@
                 var motivoEspera = pedido.envio_substatus === 'buffered' ? '⏳ Aguardando liberação do Mercado Livre (Cross Docking/Turbo)'
                   : (pedido.envio_substatus === 'invoice_pending' || pedido.envio_substatus === 'invoice_missing') ? '📄 Aguardando emissão da Nota Fiscal (NF-e)'
                   : null;
-                return e('div', {key: pedido.id, className: 'bg-slate-800 border-2 border-slate-700 rounded-lg p-4'},
+
+                // Venda com mais de uma unidade é rara (~2%) — justamente por isso passa
+                // batido e a expedição separa 1 por hábito. Aconteceu de verdade: pedido
+                // de 2 unidades saiu com 1. Então o card inteiro muda de cara quando isso
+                // acontece, em vez de confiar num "x2" pequeno no canto.
+                var totalUnidades = itens.reduce(function(s, it) { return s + (it.quantity || 1); }, 0);
+                var multiplo = totalUnidades > 1;
+
+                return e('div', {key: pedido.id, className: 'rounded-lg p-4 border-2 ' +
+                  (multiplo ? 'bg-amber-950 bg-opacity-40 border-amber-500' : 'bg-slate-800 border-slate-700')},
+
+                  multiplo && e('div', {className: 'bg-amber-500 text-slate-900 font-bold rounded px-3 py-2 mb-3 text-center'},
+                    '⚠ ATENÇÃO — ENVIAR ' + totalUnidades + ' UNIDADES'),
+
                   e('div', {className: 'flex items-center justify-between mb-2'},
                     e('div', {className: 'flex items-center gap-2'},
                       e('input', {
@@ -2887,9 +2900,13 @@
                   e('div', {className: 'text-sm text-slate-300 mb-3'}, 'Nº da venda: ' + pedido.ml_order_id),
                   e('div', {className: 'space-y-1 mb-3'},
                     itens.map(function(it, idx) {
-                      return e('div', {key: idx, className: 'text-xs bg-slate-900 rounded px-2 py-1 flex justify-between'},
+                      var qtd = it.quantity || 1;
+                      return e('div', {key: idx, className: 'text-xs bg-slate-900 rounded px-2 py-1 flex justify-between items-center gap-2'},
                         e('span', null, (it.item && it.item.seller_sku) || '(sem SKU)'),
-                        e('span', {className: 'text-slate-400'}, 'x' + (it.quantity || 1))
+                        qtd > 1
+                          ? e('span', {className: 'bg-amber-500 text-slate-900 font-bold px-2 py-0.5 rounded whitespace-nowrap'},
+                              qtd + ' unidades')
+                          : e('span', {className: 'text-slate-400'}, 'x1')
                       );
                     })
                   ),
