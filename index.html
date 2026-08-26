@@ -3586,19 +3586,18 @@
 
                     patrulhaHistAberto && e('div', {className: 'space-y-1 max-h-72 overflow-y-auto mt-2 bg-slate-900 bg-opacity-40 rounded-lg p-3'},
                       patrulhaExec.map(function(x) {
-                        // Mesmo padrão do histórico da aba "Reativar anúncios": a cor segue o
-                        // DESFECHO. Vermelho = deu problema. Verde forte = o robô trabalhou.
-                        // Verde fraco = passou e estava tudo certo (a grande maioria).
+                        // Mesmas cores e mesmo peso de letra do histórico da aba "Reativar
+                        // anúncios" — verde = deu certo, vermelho = problema. Sem variação.
                         var visual = x.erro
-                          ? { cor: 'text-red-300 font-bold', icone: '⚠', texto: x.erro }
+                          ? { cor: 'text-red-300', icone: '⚠', texto: x.erro }
                           : (x.agidos || x.resolvidos)
-                          ? { cor: 'text-emerald-300 font-bold', icone: '✅', texto: (function() {
+                          ? { cor: 'text-emerald-300', icone: '✅', texto: (function() {
                               var partes = [];
                               if (x.agidos) partes.push(x.agidos + ' anúncio(s) reativados automaticamente');
                               if (x.resolvidos) partes.push(x.resolvidos + ' voltaram a vender');
                               return partes.join(' · ');
                             })() }
-                          : { cor: 'text-emerald-500', icone: '✅', texto: 'Feito, ok' };
+                          : { cor: 'text-emerald-300', icone: '✅', texto: 'Feito, ok' };
 
                         var q = new Date(x.quando);
                         var hoje = new Date().toDateString() === q.toDateString();
@@ -3615,7 +3614,7 @@
                               x.lidos.toLocaleString('pt-BR') + ' anúncios conferidos')
                           ),
                           e('div', {
-                            className: visual.cor + ' pl-[4.5rem] mt-0.5 truncate',
+                            className: visual.cor + ' font-bold pl-[4.5rem] mt-0.5 truncate',
                             title: visual.texto
                           }, visual.icone + ' ' + visual.texto)
                         );
