@@ -3448,7 +3448,6 @@
                 // Resumo da última passada, por conta
                 var ultimaPorConta = {};
                 patrulhaExec.forEach(function(x) { if (!ultimaPorConta[x.conta]) ultimaPorConta[x.conta] = x; });
-                var maisRecente = patrulhaExec[0];
 
                 function haQuantoTempo(quando) {
                   var min = Math.floor((Date.now() - new Date(quando).getTime()) / 60000);
@@ -3459,22 +3458,10 @@
                   return 'há ' + Math.floor(h / 24) + ' dia(s)';
                 }
 
-                // Total de resolvidos nos últimos 7 dias e esforço que deram
-                var seteDias = Date.now() - 7 * 86400000;
-                var resolvidos7d = patrulha.filter(function(p) {
-                  return p.resolvido_em && new Date(p.resolvido_em).getTime() > seteDias;
-                });
-                var tentativas7d = resolvidos7d.reduce(function(s, p) { return s + (p.tentativas || 0); }, 0);
-
-                // O robô escreve aqui onde está enquanto trabalha. É o que faz a tela
-                // deixar de parecer parada durante os ~2 min de uma passada.
+                // O robô escreve aqui onde está enquanto trabalha. É o que faz o card da
+                // loja deixar de parecer parado durante os ~2 min de uma passada.
                 var andando = roboStatus && roboStatus.detalhe && roboStatus.detalhe.patrulhando
                   ? roboStatus.detalhe : null;
-
-                // Quanto falta pra próxima passada
-                var proxima = roboStatus && roboStatus.detalhe && roboStatus.detalhe.proxima_patrulha
-                  ? Math.max(0, Math.round((new Date(roboStatus.detalhe.proxima_patrulha).getTime() - Date.now()) / 60000))
-                  : null;
 
                 return e('div', {className: 'space-y-4'},
                   e('div', {className: 'bg-slate-800 border border-slate-700 p-5 rounded-lg'},
@@ -3494,30 +3481,7 @@
                       'primeira, então ele insiste até o anúncio voltar a vender.'),
 
                     !roboEstaOnline(roboStatus) && e('div', {className: 'mt-3 text-xs text-red-300 bg-red-900 bg-opacity-25 border border-red-800 rounded px-3 py-2'},
-                      'O robô está desligado — a patrulha só roda com ele ligado.'),
-
-                    // Enquanto anda, mostra onde está. É o que faz parecer vivo.
-                    andando && e('div', {className: 'mt-3 bg-sky-900 bg-opacity-30 border border-sky-700 rounded-lg px-3 py-2'},
-                      e('div', {className: 'flex items-center justify-between text-xs text-sky-200 font-bold mb-1'},
-                        e('span', null, '🔍 Verificando ' + andando.conta + '...'),
-                        e('span', null, andando.lidos + (andando.total ? ' de ' + andando.total : '') + ' anúncios')
-                      ),
-                      andando.total && e('div', {className: 'h-1.5 bg-slate-800 rounded overflow-hidden'},
-                        e('div', {
-                          className: 'h-full bg-sky-400 transition-all duration-500',
-                          style: {width: Math.min(100, Math.round(andando.lidos / andando.total * 100)) + '%'}
-                        })
-                      )
-                    ),
-
-                    !andando && proxima !== null && roboEstaOnline(roboStatus) &&
-                      e('div', {className: 'mt-3 text-xs text-slate-500'},
-                        maisRecente ? '🕐 Última passada ' + haQuantoTempo(maisRecente.quando) + ' · ' : '',
-                        proxima === 0 ? 'próxima passada a qualquer momento' : 'próxima em ' + proxima + ' min'),
-
-                    resolvidos7d.length > 0 && e('div', {className: 'mt-2 text-xs bg-emerald-900 bg-opacity-25 border border-emerald-800 rounded px-3 py-2 text-emerald-300'},
-                      '✅ Nos últimos 7 dias, ' + resolvidos7d.length + ' anúncio(s) voltaram a vender sozinhos' +
-                      (tentativas7d ? ' — foram ' + tentativas7d + ' tentativas no total' : ''))
+                      'O robô está desligado — a patrulha só roda com ele ligado.')
                   ),
 
                   // Um card por loja, no mesmo padrão da aba "Reativar anúncios".
@@ -3528,13 +3492,39 @@
                     var resol = resolvidos.filter(function(p) { return p.conta === c; }).slice(0, 10);
                     var verificandoAgora = andando && andando.conta === c;
 
-                    return e('div', {key: c, className: 'bg-slate-800 border border-slate-700 rounded-lg p-4 space-y-3'},
+                    // Acabou de passar aqui: o card fica verde por uns minutos, pra dar o
+                    // "feito ✅" em vez de voltar direto ao cinza como se nada tivesse acontecido.
+                    var recemVerificada = !verificandoAgora && u &&
+                      (Date.now() - new Date(u.quando).getTime()) < 3 * 60000;
+
+                    return e('div', {key: c, className: 'rounded-lg p-4 space-y-3 border transition-colors ' +
+                      (verificandoAgora ? 'bg-sky-900 bg-opacity-20 border-sky-700'
+                        : recemVerificada ? 'bg-emerald-900 bg-opacity-20 border-emerald-700'
+                        : 'bg-slate-800 border-slate-700')},
                       e('div', {className: 'flex items-center gap-2 flex-wrap'},
                         e('span', {className: getCorContaML(c) + ' px-2 py-0.5 rounded text-xs font-bold'}, c),
                         verificandoAgora
                           ? e('span', {className: 'text-xs text-sky-300 font-bold'}, '🔍 verificando agora...')
+                          : recemVerificada
+                          ? e('span', {className: 'text-xs text-emerald-300 font-bold'},
+                              '✅ verificada ' + haQuantoTempo(u.quando) + ' · ' + u.lidos + ' anúncios no Full')
                           : e('span', {className: 'text-xs text-slate-500'},
-                              u ? (u.lidos + ' anúncios no Full') : 'ainda não verificada')
+                              u ? (u.lidos + ' anúncios no Full · verificada ' + haQuantoTempo(u.quando))
+                                : 'ainda não verificada')
+                      ),
+
+                      // A barra de progresso vive aqui, no card da loja que está sendo lida.
+                      verificandoAgora && e('div', null,
+                        e('div', {className: 'flex justify-between text-xs text-sky-200 font-bold mb-1'},
+                          e('span', null, 'lendo os anúncios...'),
+                          e('span', null, andando.lidos + (andando.total ? ' de ' + andando.total : ''))
+                        ),
+                        andando.total && e('div', {className: 'h-1.5 bg-slate-800 rounded overflow-hidden'},
+                          e('div', {
+                            className: 'h-full bg-sky-400 transition-all duration-500',
+                            style: {width: Math.min(100, Math.round(andando.lidos / andando.total * 100)) + '%'}
+                          })
+                        )
                       ),
 
                       pend.length > 0 && e('div', null,
@@ -3559,7 +3549,7 @@
                       ),
 
                       pend.length === 0 && trav.length === 0 && resol.length === 0 &&
-                        e('div', {className: 'text-xs text-slate-500'},
+                        e('div', {className: 'text-xs ' + (recemVerificada ? 'text-emerald-300' : 'text-slate-500')},
                           u && u.erro
                             ? '⚠ ' + u.erro
                             : 'Nenhum anúncio fora de venda nessa loja. ✅')
