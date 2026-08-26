@@ -21,6 +21,7 @@ const fs = require('fs');
 const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
 const { abrirNavegador, identificarConta, USER_IDS_ESPERADOS } = require('./navegador');
+const { patrulhar } = require('./patrulha-full');
 
 const SUPABASE_URL = 'https://pylkufhziohxvwbbaued.supabase.co';
 const SUPABASE_KEY = process.env.SUPABASE_KEY || lerChaveDoSite();
@@ -32,6 +33,7 @@ const INTERVALO_FILA_MS = 3000;    // de quanto em quanto tempo olha a fila
 const PAUSA_ENTRE_TAREFAS_MS = 1500;
 const VALIDADE_CSRF_MS = 20 * 60 * 1000; // o código de segurança vale pra sessão toda
 const OCIOSO_ATE_FECHAR_MS = 90 * 1000;  // sem tarefa por 1min30, fecha o navegador
+const PATRULHA_MS = 30 * 60 * 1000;      // de quanto em quanto tempo revisa o "fora de venda"
 const BATIDA_MS = 60000;           // sinal de vida
 const HORA_INICIO = 7;             // só trabalha entre 7h e 22h
 const HORA_FIM = 22;
@@ -483,6 +485,8 @@ async function main() {
   let ultimaBatida = 0;
   let ultimoResgate = 0;
   let ultimaTarefa = Date.now();
+  // primeira patrulha 2 minutos depois de subir, pra não competir com a inicialização
+  let ultimaPatrulha = Date.now() - PATRULHA_MS + 2 * 60 * 1000;
 
   await resgatarTarefasOrfas();
 
@@ -496,6 +500,29 @@ async function main() {
       if (Date.now() - ultimoResgate > 5 * 60 * 1000) {
         await resgatarTarefasOrfas();
         ultimoResgate = Date.now();
+      }
+
+      // Patrulha do "fora de venda": roda sozinha, sem ninguém pedir. O Mercado Livre
+      // costuma aceitar a ação (200) sem executar, e só cede depois de alguma
+      // insistência — trabalho repetitivo que o Matheus fazia na mão. Cada anúncio
+      // parado ali é venda que não acontece, por isso a passada é frequente.
+      // Só roda quando a fila está vazia, pra não disputar o navegador com as tarefas.
+      if (Date.now() - ultimaPatrulha > PATRULHA_MS && dentroDoHorario()) {
+        const { data: temFila } = await sb.from('ml_tarefas_robo')
+          .select('id').in('status', ['pendente', 'rodando']).limit(1);
+        if (!temFila || !temFila.length) {
+          ultimaPatrulha = Date.now();
+          for (const c of Object.keys(navegadores)) await descartarNavegador(navegadores, c);
+          log('🔁 patrulha do "fora de venda"...');
+          try {
+            const r = await patrulhar({ executar: true, log: (m) => log(m) });
+            const agidos = r.reduce((s, x) => s + (x.agidos || 0), 0);
+            const resolvidos = r.reduce((s, x) => s + (x.resolvidos || 0), 0);
+            log(`   patrulha concluída — ${agidos} ação(ões), ${resolvidos} voltaram a vender`);
+          } catch (erro) {
+            log(`   patrulha falhou: ${mensagemAmigavel(erro)}`);
+          }
+        }
       }
 
       if (await devoParar()) {

@@ -504,6 +504,11 @@
       var logAberto = logAbertoState[0];
       var setLogAberto = logAbertoState[1];
 
+      // Patrulha do "fora de venda": o robô cuida sozinho, esta aba é só pra acompanhar.
+      var patrulhaState = useState([]);
+      var patrulha = patrulhaState[0];
+      var setPatrulha = patrulhaState[1];
+
       var anunciosReativarErroState = useState('');
       var anunciosReativarErro = anunciosReativarErroState[0];
       var setAnunciosReativarErro = anunciosReativarErroState[1];
@@ -910,6 +915,10 @@
         supabase.from('ml_log_acoes')
           .select('*').order('quando', { ascending: false }).limit(60)
           .then(function(r) { if (!r.error && r.data) setLogAcoes(r.data); });
+
+        supabase.from('ml_patrulha_full')
+          .select('*').order('vista_em', { ascending: false }).limit(100)
+          .then(function(r) { if (!r.error && r.data) setPatrulha(r.data); });
 
         supabase.from('ml_tarefas_robo')
           .select('id, conta, tipo, params, status, erro, resultado, criado_em')
@@ -2949,6 +2958,10 @@
                   className: 'px-4 py-2 rounded-lg text-sm font-bold transition-colors ' + (anunciosSubTab === 'reativar' ? 'bg-blue-600 text-white' : 'bg-slate-800 border border-slate-600 text-slate-300 hover:border-slate-400')
                 }, '📦 Reativar anúncios'),
                 e('button', {
+                  onClick: function() { setAnunciosSubTab('fora_venda'); carregarStatusRobo(); },
+                  className: 'px-4 py-2 rounded-lg text-sm font-bold transition-colors ' + (anunciosSubTab === 'fora_venda' ? 'bg-blue-600 text-white' : 'bg-slate-800 border border-slate-600 text-slate-300 hover:border-slate-400')
+                }, '🔄 Reativar fora de venda'),
+                e('button', {
                   onClick: function() { setAnunciosSubTab('gaps'); },
                   className: 'px-4 py-2 rounded-lg text-sm font-bold transition-colors ' + (anunciosSubTab === 'gaps' ? 'bg-blue-600 text-white' : 'bg-slate-800 border border-slate-600 text-slate-300 hover:border-slate-400')
                 }, '🔁 Clonar anúncios'),
@@ -3376,6 +3389,63 @@
                   )
                 ),
               ),
+
+              // Esta aba é só de acompanhamento: o robô patrulha sozinho a cada 30 min,
+              // sem ninguém precisar clicar. Anúncio parado aqui é venda que não acontece.
+              anunciosSubTab === 'fora_venda' && (function() {
+                var pendentes = patrulha.filter(function(p) { return !p.resolvido_em && !p.desistiu_em; });
+                var resolvidos = patrulha.filter(function(p) { return p.resolvido_em; });
+                var travados = patrulha.filter(function(p) { return p.desistiu_em; });
+
+                function linha(p, cor) {
+                  return e('div', {key: p.id, className: 'text-xs rounded px-2 py-1.5 border ' + cor},
+                    e('div', {className: 'flex items-center gap-2'},
+                      e('span', {className: getCorContaML(p.conta) + ' px-1.5 rounded text-xs font-bold'}, p.conta),
+                      e('span', {className: 'flex-1 truncate', title: p.titulo || ''}, p.titulo || p.codigo_ml),
+                      e('span', {className: 'text-slate-500 whitespace-nowrap'}, p.tentativas + 'ª tentativa')
+                    ),
+                    p.recomendacao && e('div', {className: 'text-slate-500 mt-0.5 truncate'}, p.recomendacao)
+                  );
+                }
+
+                return e('div', {className: 'space-y-4'},
+                  e('div', {className: 'bg-slate-800 border border-slate-700 p-5 rounded-lg'},
+                    e('h2', {className: 'text-lg font-bold mb-2'}, '🔄 Reativar fora de venda'),
+                    e('p', {className: 'text-slate-400 text-sm'},
+                      'O robô passa sozinho a cada 30 minutos nos anúncios que o Mercado Livre tirou de venda ' +
+                      'e manda reativar. Não precisa clicar em nada. O ML costuma aceitar sem executar de primeira, ' +
+                      'então ele insiste até o anúncio voltar a vender — que é o trabalho repetitivo que vocês faziam na mão.'),
+                    !roboEstaOnline(roboStatus) && e('div', {className: 'mt-3 text-xs text-red-300 bg-red-900 bg-opacity-25 border border-red-800 rounded px-3 py-2'},
+                      'O robô está desligado — a patrulha só roda com ele ligado.')
+                  ),
+
+                  pendentes.length > 0 && e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg p-4'},
+                    e('div', {className: 'text-xs font-bold text-amber-400 uppercase mb-2'},
+                      '⏳ O robô está insistindo (' + pendentes.length + ')'),
+                    e('div', {className: 'space-y-1'},
+                      pendentes.map(function(p) { return linha(p, 'bg-amber-900 bg-opacity-25 border-amber-800 text-amber-200'); }))
+                  ),
+
+                  travados.length > 0 && e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg p-4'},
+                    e('div', {className: 'text-xs font-bold text-red-400 uppercase mb-2'},
+                      '⚠ Desistiu — precisa de você (' + travados.length + ')'),
+                    e('p', {className: 'text-xs text-slate-500 mb-2'},
+                      'O Mercado Livre não reativou nem depois de muitas tentativas. Vale olhar no painel.'),
+                    e('div', {className: 'space-y-1'},
+                      travados.map(function(p) { return linha(p, 'bg-red-900 bg-opacity-25 border-red-800 text-red-200'); }))
+                  ),
+
+                  resolvidos.length > 0 && e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg p-4'},
+                    e('div', {className: 'text-xs font-bold text-emerald-400 uppercase mb-2'},
+                      '✅ Voltaram a vender (' + resolvidos.length + ')'),
+                    e('div', {className: 'space-y-1'},
+                      resolvidos.slice(0, 30).map(function(p) { return linha(p, 'bg-emerald-900 bg-opacity-25 border-emerald-800 text-emerald-200'); }))
+                  ),
+
+                  patrulha.length === 0 && e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg p-6 text-center text-slate-500 text-sm'},
+                    'Nenhum anúncio fora de venda no momento. ✅')
+                );
+              })(),
 
               anunciosSubTab === 'gaps' && e('div', {className: 'space-y-4'},
               e('div', {className: 'bg-slate-800 border border-slate-700 p-5 rounded-lg'},
