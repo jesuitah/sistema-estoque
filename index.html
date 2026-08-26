@@ -2877,11 +2877,7 @@
                 var totalUnidades = itens.reduce(function(s, it) { return s + (it.quantity || 1); }, 0);
                 var multiplo = totalUnidades > 1;
 
-                return e('div', {key: pedido.id, className: 'rounded-lg p-4 border-2 ' +
-                  (multiplo ? 'bg-amber-950 bg-opacity-40 border-amber-500' : 'bg-slate-800 border-slate-700')},
-
-                  multiplo && e('div', {className: 'bg-amber-500 text-slate-900 font-bold rounded px-3 py-2 mb-3 text-center'},
-                    '⚠ ATENÇÃO — ENVIAR ' + totalUnidades + ' UNIDADES'),
+                return e('div', {key: pedido.id, className: 'bg-slate-800 border-2 border-slate-700 rounded-lg p-4'},
 
                   e('div', {className: 'flex items-center justify-between mb-2'},
                     e('div', {className: 'flex items-center gap-2'},
@@ -2910,6 +2906,11 @@
                       );
                     })
                   ),
+                  // Aviso discreto, no mesmo estilo dos outros da tela. A etiqueta de
+                  // "N unidades" na linha do SKU é quem chama a atenção de fato.
+                  multiplo && e('div', {className: 'bg-amber-900 bg-opacity-40 border border-amber-700 rounded-lg px-3 py-2 mb-2 text-xs text-amber-300'},
+                    '⚠ ATENÇÃO — enviar ' + totalUnidades + ' unidades'),
+
                   motivoEspera && e('div', {className: 'bg-amber-900 bg-opacity-40 border border-amber-700 rounded-lg px-3 py-2 mb-2 text-xs text-amber-300'}, motivoEspera),
                   e('div', {className: 'flex gap-2'},
                     motivoEspera
