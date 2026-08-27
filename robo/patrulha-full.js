@@ -25,7 +25,6 @@ const { abrirNavegador, sessaoExiste, identificarConta, USER_IDS_ESPERADOS, CONT
 const PAINEL = 'https://vendedores.mercadolivre.com.br/anuncios/lista/space_management';
 const ENDPOINT = 'https://vendedores.mercadolivre.com.br/stock-management/space-management/api/actions';
 const MAX_PAGINAS = 30;
-const LOTE_MAXIMO = 20;         // ids por chamada
 
 // INSISTÊNCIA DENTRO DA PASSADA
 //
@@ -58,9 +57,25 @@ const RODADAS_POR_PASSADA = 5;
 // mundo na primeira passada.
 const PASSADAS_ATE_DESISTIR = 8;
 
+// O painel faz DOIS passos, não um: clicar abre um modal (VALIDATE) e o botão do
+// modal é que executa (ACTION). O robô fazia só o primeiro — por isso o ML respondia
+// "Pronto!" e nada acontecia, 31 tentativas seguidas.
+//
+// Comprovado em dois anúncios: com a sequência completa, a logística mudou de
+// drop_off para fulfillment na primeira tentativa (conferido pela API oficial).
 const ACOES = [
-  { teste: /ofere[çc]a o full novamente/i, actionId: 'MAKE_OFFER_FULL',      rotulo: 'oferecer Full novamente' },
-  { teste: /reative o produto/i,           actionId: 'MAKE_REACTIVATE_ITEM', rotulo: 'reativar anúncio' },
+  {
+    teste: /ofere[çc]a o full novamente/i,
+    validar: 'MAKE_SINGLE_OFFER_FULL_VALIDATE',
+    executar: 'MAKE_OFFER_FULL_ACTION',
+    rotulo: 'oferecer Full novamente',
+  },
+  {
+    teste: /reative o produto/i,
+    validar: 'MAKE_SINGLE_REACTIVATE_ITEM_VALIDATE',
+    executar: 'MAKE_REACTIVATE_ITEM_ACTION',
+    rotulo: 'reativar anúncio',
+  },
 ];
 
 function conectar() {
@@ -115,6 +130,66 @@ function precisaDeAcao(linha) {
   return ACOES.find((a) => a.teste.test(linha.acao_sugerida || ''));
 }
 
+// ── Confirmação pela API oficial ─────────────────────────────────────────────
+//
+// A tela do painel NÃO serve pra confirmar: ela continua mostrando "Ofereça o Full
+// novamente" mesmo depois do anúncio já ter voltado pro Full. Foi assim que o robô
+// chegou à tentativa 44 num anúncio que já estava resolvido.
+//
+// A API oficial é a fonte de verdade: logistic_type = fulfillment significa que
+// está no Full, ponto. É a mesma regra que o resto do sistema já usa.
+async function autenticacao(sb, conta) {
+  const { data } = await sb.from('ml_tokens')
+    .select('user_id, access_token').eq('conta', conta).maybeSingle();
+  if (!data) throw new Error(`conta ${conta} sem token no banco`);
+  return { userId: data.user_id, headers: { Authorization: `Bearer ${data.access_token}` } };
+}
+
+// Devolve o estado real do anúncio a partir do user_product_id (MLBU...).
+// Null quando a API não conhece esse produto — aí não dá pra afirmar nada.
+async function estadoReal(auth, userProductId) {
+  const busca = await fetch(
+    `https://api.mercadolibre.com/users/${auth.userId}/items/search?user_product_id=${userProductId}`,
+    { headers: auth.headers }
+  );
+  if (!busca.ok) return null;
+  const ids = (await busca.json()).results || [];
+  if (!ids.length) return null;
+
+  const r = await fetch(
+    `https://api.mercadolibre.com/items/${ids[0]}?attributes=id,status,shipping`,
+    { headers: auth.headers }
+  );
+  if (!r.ok) return null;
+  const it = await r.json();
+  return {
+    itemId: it.id,
+    status: it.status,
+    noFull: it.shipping?.logistic_type === 'fulfillment',
+  };
+}
+
+// Deu certo é o anúncio VENDENDO: no Full e ativo.
+//
+// Voltar pro Full sozinho não resolve nada — pausado, ele não vende, e o objetivo
+// aqui sempre foi o anúncio vendendo. Por isso a conta só fecha com as duas coisas.
+function deuCerto(acao, estado) {
+  if (!estado) return false;
+  if (/REACTIVATE/i.test(acao.executar)) return estado.status === 'active';
+  return estado.noFull && estado.status === 'active';
+}
+
+// Último passo do ciclo: o anúncio voltou pro Full mas ficou pausado. Despausa pela
+// API oficial e confere. Sem isso, o estoque volta e o anúncio segue sem vender.
+async function despausar(auth, estado) {
+  const r = await fetch(`https://api.mercadolibre.com/items/${estado.itemId}`, {
+    method: 'PUT',
+    headers: { ...auth.headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: 'active' }),
+  });
+  return r.ok;
+}
+
 // Tem tarefa do site esperando? Só contam as que o Matheus mandou — uma patrulha
 // sob demanda não interrompe a patrulha que já está rodando.
 async function temTarefaDoMatheus(sb) {
@@ -142,26 +217,6 @@ async function anotarProgresso(sb, conta, restantes, tentativasPorItem) {
       titulo: restantes[0] ? restantes[0].titulo : null,
     },
   }).eq('id', 1).then(() => {}, () => {});
-}
-
-// Relê só as páginas onde os anúncios perseguidos estavam, e devolve quem AINDA
-// precisa de ação. Reler a lista inteira a cada 30s seria lento demais (leva mais
-// de um minuto); as páginas dos alvos costumam ser uma ou duas.
-//
-// Se um anúncio tiver mudado de página, ele some daqui e paramos de insistir nele.
-// Não é problema: a leitura completa da próxima passada o encontra de novo. Preferi
-// isso a arriscar dar como resolvido algo que não foi.
-async function relerAlvos(pagina, alvos) {
-  const paginas = [...new Set(alvos.map((a) => a.pagina || 1))].sort((a, b) => a - b);
-  const aindaPrecisam = new Map();
-  for (const n of paginas) {
-    await pagina.goto(n === 1 ? PAINEL : `${PAINEL}?page=${n}`, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
-    await esperarTabela(pagina);
-    for (const l of await extrairLinhas(pagina)) {
-      if (precisaDeAcao(l)) aindaPrecisam.set(l.codigo_ml, { ...l, pagina: n });
-    }
-  }
-  return aindaPrecisam;
 }
 
 // Lê a lista inteira e devolve só o que nos interessa.
@@ -310,10 +365,26 @@ async function patrulharConta(sb, conta, executar, log) {
       return { conta, lidos: lista.length, alvos: alvos.length, agidos: 0, ensaio: paraAgir.length, resolvidos: resolvidos.length };
     }
 
+    const auth = await autenticacao(sb, conta);
+
+    // A tela costuma continuar pedindo a ação depois dela já ter sido feita. Antes de
+    // mexer em qualquer coisa, perguntamos à API quem realmente precisa — assim o robô
+    // não age em anúncio que já está certo.
+    const precisamMesmo = [];
+    for (const item of paraAgir) {
+      const estado = await estadoReal(auth, item.user_product_id);
+      if (deuCerto(item.acao, estado)) {
+        log(`  ${conta}: ${item.codigo_ml} já está certo (a tela é que está atrasada)`);
+        item.jaEstava = true;
+      } else {
+        precisamMesmo.push(item);
+      }
+    }
+
     const csrf = await obterCsrf(pagina);
 
-    // Insiste até os anúncios saírem da lista. Ver o comentário do TETO lá em cima.
-    let restantes = paraAgir.slice();
+    // Insiste até os anúncios ficarem certos. Ver o comentário do TETO lá em cima.
+    let restantes = precisamMesmo.slice();
     const tentativasPorItem = {};
     paraAgir.forEach((a) => { tentativasPorItem[a.codigo_ml] = a.registro?.tentativas || 0; });
     const limite = Date.now() + TETO_INSISTENCIA_MS;
@@ -323,15 +394,16 @@ async function patrulharConta(sb, conta, executar, log) {
     while (restantes.length && rodada < RODADAS_POR_PASSADA && Date.now() < limite) {
       rodada++;
 
-      for (const acao of ACOES) {
-        const grupo = restantes.filter((a) => a.acao.actionId === acao.actionId);
-        for (let i = 0; i < grupo.length; i += LOTE_MAXIMO) {
-          const lote = grupo.slice(i, i + LOTE_MAXIMO);
-          const r = await disparar(pagina, csrf, acao.actionId, lote.map((x) => x.user_product_id));
-          log(`  ${conta}: tentativa ${rodada} — ${acao.rotulo} em ${lote.length} anúncio(s) → HTTP ${r.status}`);
-          lote.forEach((x) => { tentativasPorItem[x.codigo_ml] = (tentativasPorItem[x.codigo_ml] || 0) + 1; });
-          await new Promise((res) => setTimeout(res, 2000));
-        }
+      // Um anúncio por vez: as ações que funcionam são as de item único
+      // (VALIDATE abre o modal, ACTION confirma). Não existe versão em lote que
+      // execute de verdade — a que existia só respondia "Pronto!" sem fazer nada.
+      for (const item of restantes) {
+        await disparar(pagina, csrf, item.acao.validar, [item.user_product_id]);
+        await new Promise((res) => setTimeout(res, 1500));
+        const r = await disparar(pagina, csrf, item.acao.executar, [item.user_product_id]);
+        tentativasPorItem[item.codigo_ml] = (tentativasPorItem[item.codigo_ml] || 0) + 1;
+        log(`  ${conta}: tentativa ${rodada} — ${item.acao.rotulo} em ${item.codigo_ml} → HTTP ${r.status}`);
+        await new Promise((res) => setTimeout(res, 1500));
       }
 
       await anotarProgresso(sb, conta, restantes, tentativasPorItem);
@@ -344,12 +416,30 @@ async function patrulharConta(sb, conta, executar, log) {
         break;
       }
 
-      const aindaPrecisam = await relerAlvos(pagina, restantes);
-      const saiu = restantes.filter((a) => !aindaPrecisam.has(a.codigo_ml));
-      if (saiu.length) log(`  ${conta}: ${saiu.length} saíram da lista ✅ (tentativa ${rodada})`);
-      restantes = restantes
-        .filter((a) => aindaPrecisam.has(a.codigo_ml))
-        .map((a) => ({ ...a, pagina: aindaPrecisam.get(a.codigo_ml).pagina }));
+      // Confere no dado real, não na tela. A tela mente: continua pedindo a ação
+      // mesmo depois do anúncio já ter voltado pro Full.
+      const sobraram = [];
+      for (const item of restantes) {
+        let estado = await estadoReal(auth, item.user_product_id);
+
+        // Voltou pro Full mas ficou pausado: despausa e confere de novo.
+        if (estado && estado.noFull && estado.status === 'paused') {
+          log(`  ${conta}: ${item.codigo_ml} voltou pro Full mas está pausado — reativando`);
+          if (await despausar(auth, estado)) {
+            await new Promise((res) => setTimeout(res, 2000));
+            estado = await estadoReal(auth, item.user_product_id);
+          }
+        }
+
+        if (deuCerto(item.acao, estado)) {
+          log(`  ${conta}: ✅ ${item.codigo_ml} vendendo no Full — confirmado pela API (${estado.itemId})`);
+        } else {
+          sobraram.push(item);
+        }
+      }
+      const quantosSairam = restantes.length - sobraram.length;
+      if (quantosSairam) log(`  ${conta}: ${quantosSairam} resolvido(s) na tentativa ${rodada}`);
+      restantes = sobraram;
     }
 
     // Grava o estado de cada um. "agidos" agora só conta quem REALMENTE saiu da
