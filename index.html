@@ -3575,11 +3575,14 @@
                       var verificados = doDia.reduce(function(s, x) { return s + (x.lidos || 0); }, 0);
                       var comAcao = doDia.filter(function(x) { return x.agidos || x.resolvidos; }).length;
                       var comErro = doDia.filter(function(x) { return x.erro; }).length;
+                      // Passadas que viram anúncio pra consertar e não conseguiram consertar.
+                      var travadas = doDia.filter(function(x) { return x.alvos > 0 && !x.agidos && !x.resolvidos && !x.erro; }).length;
                       if (!doDia.length) return null;
                       return e('div', {className: 'mt-3 text-xs bg-slate-900 rounded px-3 py-2 text-slate-400'},
                         e('strong', {className: 'text-slate-300'}, 'Hoje: '),
                         doDia.length + ' passadas · ' + verificados.toLocaleString('pt-BR') + ' anúncios verificados · ',
-                        comAcao ? e('span', {className: 'text-emerald-300'}, comAcao + ' com ação') : 'nada pendente',
+                        comAcao ? e('span', {className: 'text-emerald-300'}, comAcao + ' com ação') : (travadas ? '' : 'nada pendente'),
+                        travadas ? e('span', {className: 'text-amber-300'}, (comAcao ? ' · ' : '') + travadas + ' sem conseguir agir') : null,
                         comErro ? e('span', {className: 'text-red-300'}, ' · ' + comErro + ' com erro') : null
                       );
                     })(),
@@ -3597,6 +3600,10 @@
                               if (x.resolvidos) partes.push(x.resolvidos + ' voltaram a vender');
                               return partes.join(' · ');
                             })() }
+                          // Achou anúncio pra consertar e não consertou nenhum NÃO é "ok".
+                          // Foi assim que o robô passou 110 vezes sem fazer nada, todo verde.
+                          : x.alvos > 0
+                          ? { cor: 'text-amber-300', icone: '⚠', texto: x.alvos + ' anúncio(s) precisavam de conserto e nenhum foi feito' }
                           : { cor: 'text-emerald-300', icone: '✅', texto: 'Feito, ok' };
 
                         var q = new Date(x.quando);

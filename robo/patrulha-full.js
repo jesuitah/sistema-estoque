@@ -75,6 +75,15 @@ async function lerLista(pagina, aoAndar) {
           codigo_ml: (bruto.match(/C[óo]digo ML:\s*([A-Z0-9]+)/i) || [])[1] || null,
           titulo: limpar(bruto.replace(/.*C[óo]digo ML:\s*[A-Z0-9]+/i, '').replace(/^[\s+\d]*/, '')).slice(0, 70),
           acao_sugerida: c[8] || null,
+          // O id que a reativação precisa (MLBU...) é colhido AQUI, junto com o resto
+          // da linha. Antes ele era procurado depois, numa segunda passada — e como a
+          // leitura termina na última página, as linhas das páginas anteriores já não
+          // estavam mais no DOM. Colher na hora resolve isso de vez.
+          //
+          // Ele fica no id das células (id="product-MLBU..."), não em link: a tabela do
+          // ML não tem mais <a href>. Por isso lemos o HTML da linha, que é onde ele
+          // está, em vez de depender de um lugar específico que pode mudar de novo.
+          user_product_id: (tr.outerHTML.match(/MLBU\d+/) || [])[0] || null,
         };
       }).filter((r) => r.codigo_ml);
     });
@@ -92,23 +101,6 @@ async function lerLista(pagina, aoAndar) {
     if (!novos) break;
   }
   return todos;
-}
-
-// O id que a chamada usa é o user_product_id (MLBU...), que não aparece na tabela.
-// Ele está no link do produto, na própria linha.
-async function mapearUserProductIds(pagina, codigos) {
-  return pagina.evaluate((alvos) => {
-    const mapa = {};
-    [...document.querySelectorAll('tr')].forEach((tr) => {
-      const texto = tr.innerText || '';
-      const m = texto.match(/C[óo]digo ML:\s*([A-Z0-9]+)/i);
-      if (!m || alvos.indexOf(m[1]) === -1) return;
-      const link = [...tr.querySelectorAll('a[href]')].map((a) => a.getAttribute('href') || '').join(' ');
-      const up = link.match(/(MLBU\d+)/);
-      if (up) mapa[m[1]] = up[1];
-    });
-    return mapa;
-  }, codigos);
 }
 
 async function obterCsrf(pagina) {
@@ -180,12 +172,11 @@ async function patrulharConta(sb, conta, executar, log) {
       return { conta, lidos: lista.length, alvos: 0, resolvidos: resolvidos.length };
     }
 
-    const mapa = await mapearUserProductIds(pagina, alvos.map((a) => a.codigo_ml));
-
     // Registra/atualiza cada alvo e descobre quantas tentativas já levou
     const paraAgir = [];
+    const semId = [];
     for (const alvo of alvos) {
-      const up = mapa[alvo.codigo_ml] || null;
+      const up = alvo.user_product_id;
       const { data: existente } = await sb.from('ml_patrulha_full')
         .select('id, tentativas, desistiu_em').eq('conta', conta).eq('codigo_ml', alvo.codigo_ml).maybeSingle();
 
@@ -201,11 +192,27 @@ async function patrulharConta(sb, conta, executar, log) {
         log(`  ${conta}: desistindo de ${alvo.codigo_ml} após ${existente.tentativas} tentativas`);
         continue;
       }
-      if (!up) { log(`  ${conta}: ${alvo.codigo_ml} sem user_product_id, pulando`); continue; }
+      // Sem o id não dá pra agir. Isto NÃO pode passar batido: foi exatamente assim
+      // que o robô ficou 110 passadas sem consertar nada parecendo saudável — ele
+      // "pulava" cada anúncio numa linha de log que ninguém lia, e a tela dizia
+      // "Feito, ok". Agora vira erro visível na tela.
+      if (!up) { semId.push(alvo.codigo_ml); continue; }
       paraAgir.push({ ...alvo, user_product_id: up, registro: existente });
     }
 
-    if (!paraAgir.length) return { conta, lidos: lista.length, alvos: alvos.length, agidos: 0, resolvidos: resolvidos.length };
+    if (semId.length) {
+      log(`  ${conta}: ⚠ ${semId.length} anúncio(s) sem id na tela — o painel do ML deve ter mudado`);
+    }
+
+    if (!paraAgir.length) {
+      return {
+        conta, lidos: lista.length, alvos: alvos.length, agidos: 0, resolvidos: resolvidos.length,
+        // Alvo encontrado e nenhuma ação possível é FALHA, não rotina.
+        erro: semId.length
+          ? `${semId.length} anúncio(s) precisam de conserto mas o robô não achou o id na tela — o painel do ML mudou`
+          : null,
+      };
+    }
 
     if (!executar) {
       log(`  ${conta}: [ensaio] agiria em ${paraAgir.length}:`);
