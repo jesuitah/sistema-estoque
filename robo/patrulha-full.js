@@ -28,6 +28,23 @@ const MAX_PAGINAS = 30;
 const LIMITE_TENTATIVAS = 20;   // depois disso, para de insistir e sinaliza
 const LOTE_MAXIMO = 20;         // ids por chamada
 
+// INSISTÊNCIA DENTRO DA PASSADA
+//
+// O Mercado Livre responde "ok" (HTTP 200) e muitas vezes não executa. Só cede
+// depois de repetição — era o que o Matheus fazia na mão. Insistir uma vez por
+// passada significava até 20 horas pra resolver um anúncio; insistindo aqui
+// dentro, resolve em minutos.
+//
+// A passada só termina quando os anúncios saírem da lista — com dois freios:
+//   • TETO: se o ML não ceder de jeito nenhum (anúncio sem unidade apta, produto
+//     bloqueado), "até dar certo" vira laço infinito e trava o robô. O que não
+//     sair dentro do teto fica pra próxima hora.
+//   • VEZ DO MATHEUS: entre uma tentativa e outra olhamos a fila do site. Se ele
+//     mandou uma tarefa, encerramos a insistência e atendemos primeiro — a fila
+//     dele nunca espera 20 minutos por causa da patrulha.
+const INTERVALO_INSISTENCIA_MS = 30 * 1000;
+const TETO_INSISTENCIA_MS = 20 * 60 * 1000;
+
 const ACOES = [
   { teste: /ofere[çc]a o full novamente/i, actionId: 'MAKE_OFFER_FULL',      rotulo: 'oferecer Full novamente' },
   { teste: /reative o produto/i,           actionId: 'MAKE_REACTIVATE_ITEM', rotulo: 'reativar anúncio' },
@@ -54,6 +71,86 @@ async function totalDaLista(pagina) {
   });
 }
 
+// Lê as linhas da página que está carregada agora.
+// Separado de lerLista porque a insistência precisa reler as mesmas páginas várias
+// vezes pra saber quem já saiu — e a leitura tem que ser exatamente a mesma.
+async function extrairLinhas(pagina) {
+  return pagina.evaluate(() => {
+    const limpar = (s) => (s || '').trim().replace(/\s+/g, ' ');
+    return [...document.querySelectorAll('tr')].slice(1).map((tr) => {
+      const c = [...tr.querySelectorAll('td,th')].map((x) => limpar(x.innerText));
+      const bruto = c[0] || '';
+      return {
+        codigo_ml: (bruto.match(/C[óo]digo ML:\s*([A-Z0-9]+)/i) || [])[1] || null,
+        titulo: limpar(bruto.replace(/.*C[óo]digo ML:\s*[A-Z0-9]+/i, '').replace(/^[\s+\d]*/, '')).slice(0, 70),
+        acao_sugerida: c[8] || null,
+        // O id que a reativação precisa (MLBU...) é colhido AQUI, junto com o resto
+        // da linha. Antes ele era procurado depois, numa segunda passada — e como a
+        // leitura termina na última página, as linhas das páginas anteriores já não
+        // estavam mais no DOM. Colher na hora resolve isso de vez.
+        //
+        // Ele fica no id das células (id="product-MLBU..."), não em link: a tabela do
+        // ML não tem mais <a href>. Por isso lemos o HTML da linha, que é onde ele
+        // está, em vez de depender de um lugar específico que pode mudar de novo.
+        user_product_id: (tr.outerHTML.match(/MLBU\d+/) || [])[0] || null,
+      };
+    }).filter((r) => r.codigo_ml);
+  });
+}
+
+function precisaDeAcao(linha) {
+  return ACOES.find((a) => a.teste.test(linha.acao_sugerida || ''));
+}
+
+// Tem tarefa do site esperando? Só contam as que o Matheus mandou — uma patrulha
+// sob demanda não interrompe a patrulha que já está rodando.
+async function temTarefaDoMatheus(sb) {
+  const { data } = await sb.from('ml_tarefas_robo')
+    .select('id').eq('status', 'pendente').neq('tipo', 'patrulha_agora').limit(1);
+  return !!(data && data.length);
+}
+
+// Espera, mas acordando de tempos em tempos pra ver se surgiu tarefa do Matheus.
+async function esperarComVezDoMatheus(sb, totalMs) {
+  const fatia = 5000;
+  for (let passou = 0; passou < totalMs; passou += fatia) {
+    await new Promise((r) => setTimeout(r, Math.min(fatia, totalMs - passou)));
+    if (await temTarefaDoMatheus(sb)) return;
+  }
+}
+
+// Conta pra tela o que está acontecendo agora, pra ela não parecer travada durante
+// os minutos de insistência.
+async function anotarProgresso(sb, conta, restantes, tentativasPorItem) {
+  const tentativa = Math.max(0, ...restantes.map((r) => tentativasPorItem[r.codigo_ml] || 0));
+  await sb.from('robo_status').update({
+    detalhe: {
+      patrulhando: true, conta, insistindo: restantes.length, tentativa,
+      titulo: restantes[0] ? restantes[0].titulo : null,
+    },
+  }).eq('id', 1).then(() => {}, () => {});
+}
+
+// Relê só as páginas onde os anúncios perseguidos estavam, e devolve quem AINDA
+// precisa de ação. Reler a lista inteira a cada 30s seria lento demais (leva mais
+// de um minuto); as páginas dos alvos costumam ser uma ou duas.
+//
+// Se um anúncio tiver mudado de página, ele some daqui e paramos de insistir nele.
+// Não é problema: a leitura completa da próxima passada o encontra de novo. Preferi
+// isso a arriscar dar como resolvido algo que não foi.
+async function relerAlvos(pagina, alvos) {
+  const paginas = [...new Set(alvos.map((a) => a.pagina || 1))].sort((a, b) => a - b);
+  const aindaPrecisam = new Map();
+  for (const n of paginas) {
+    await pagina.goto(n === 1 ? PAINEL : `${PAINEL}?page=${n}`, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+    await esperarTabela(pagina);
+    for (const l of await extrairLinhas(pagina)) {
+      if (precisaDeAcao(l)) aindaPrecisam.set(l.codigo_ml, { ...l, pagina: n });
+    }
+  }
+  return aindaPrecisam;
+}
+
 // Lê a lista inteira e devolve só o que nos interessa.
 // `aoAndar` é chamado a cada página, pra tela conseguir mostrar o robô trabalhando.
 async function lerLista(pagina, aoAndar) {
@@ -66,27 +163,7 @@ async function lerLista(pagina, aoAndar) {
     await esperarTabela(pagina);
     if (total === null) total = await totalDaLista(pagina);
 
-    const linhas = await pagina.evaluate(() => {
-      const limpar = (s) => (s || '').trim().replace(/\s+/g, ' ');
-      return [...document.querySelectorAll('tr')].slice(1).map((tr) => {
-        const c = [...tr.querySelectorAll('td,th')].map((x) => limpar(x.innerText));
-        const bruto = c[0] || '';
-        return {
-          codigo_ml: (bruto.match(/C[óo]digo ML:\s*([A-Z0-9]+)/i) || [])[1] || null,
-          titulo: limpar(bruto.replace(/.*C[óo]digo ML:\s*[A-Z0-9]+/i, '').replace(/^[\s+\d]*/, '')).slice(0, 70),
-          acao_sugerida: c[8] || null,
-          // O id que a reativação precisa (MLBU...) é colhido AQUI, junto com o resto
-          // da linha. Antes ele era procurado depois, numa segunda passada — e como a
-          // leitura termina na última página, as linhas das páginas anteriores já não
-          // estavam mais no DOM. Colher na hora resolve isso de vez.
-          //
-          // Ele fica no id das células (id="product-MLBU..."), não em link: a tabela do
-          // ML não tem mais <a href>. Por isso lemos o HTML da linha, que é onde ele
-          // está, em vez de depender de um lugar específico que pode mudar de novo.
-          user_product_id: (tr.outerHTML.match(/MLBU\d+/) || [])[0] || null,
-        };
-      }).filter((r) => r.codigo_ml);
-    });
+    const linhas = (await extrairLinhas(pagina)).map((l) => ({ ...l, pagina: n }));
 
     if (!linhas.length) break;
     if (vistos.has(linhas[0].codigo_ml)) break;
@@ -221,38 +298,88 @@ async function patrulharConta(sb, conta, executar, log) {
     }
 
     const csrf = await obterCsrf(pagina);
+
+    // Insiste até os anúncios saírem da lista. Ver o comentário do TETO lá em cima.
+    let restantes = paraAgir.slice();
+    const tentativasPorItem = {};
+    paraAgir.forEach((a) => { tentativasPorItem[a.codigo_ml] = a.registro?.tentativas || 0; });
+    const limite = Date.now() + TETO_INSISTENCIA_MS;
+    let rodada = 0;
+    let cedeuAVez = false;
+
+    while (restantes.length && Date.now() < limite) {
+      rodada++;
+
+      for (const acao of ACOES) {
+        const grupo = restantes.filter((a) => a.acao.actionId === acao.actionId);
+        for (let i = 0; i < grupo.length; i += LOTE_MAXIMO) {
+          const lote = grupo.slice(i, i + LOTE_MAXIMO);
+          const r = await disparar(pagina, csrf, acao.actionId, lote.map((x) => x.user_product_id));
+          log(`  ${conta}: tentativa ${rodada} — ${acao.rotulo} em ${lote.length} anúncio(s) → HTTP ${r.status}`);
+          lote.forEach((x) => { tentativasPorItem[x.codigo_ml] = (tentativasPorItem[x.codigo_ml] || 0) + 1; });
+          await new Promise((res) => setTimeout(res, 2000));
+        }
+      }
+
+      await anotarProgresso(sb, conta, restantes, tentativasPorItem);
+
+      // Espera antes de conferir — o ML leva alguns segundos pra refletir.
+      await esperarComVezDoMatheus(sb, INTERVALO_INSISTENCIA_MS);
+      if (await temTarefaDoMatheus(sb)) {
+        cedeuAVez = true;
+        log(`  ${conta}: tarefa do Matheus na fila — encerrando a insistência pra atender`);
+        break;
+      }
+
+      const aindaPrecisam = await relerAlvos(pagina, restantes);
+      const saiu = restantes.filter((a) => !aindaPrecisam.has(a.codigo_ml));
+      if (saiu.length) log(`  ${conta}: ${saiu.length} saíram da lista ✅ (tentativa ${rodada})`);
+      restantes = restantes
+        .filter((a) => aindaPrecisam.has(a.codigo_ml))
+        .map((a) => ({ ...a, pagina: aindaPrecisam.get(a.codigo_ml).pagina }));
+    }
+
+    // Grava o estado de cada um. "agidos" agora só conta quem REALMENTE saiu da
+    // lista — antes contava quem o ML tinha respondido 200, que não é a mesma coisa
+    // e foi justamente o que mascarou o problema.
+    const aindaTravados = new Set(restantes.map((a) => a.codigo_ml));
     let agidos = 0;
 
-    // agrupa por ação e dispara em lote (é o que o painel faz)
-    for (const acao of ACOES) {
-      const grupo = paraAgir.filter((a) => a.acao.actionId === acao.actionId);
-      for (let i = 0; i < grupo.length; i += LOTE_MAXIMO) {
-        const lote = grupo.slice(i, i + LOTE_MAXIMO);
-        const r = await disparar(pagina, csrf, acao.actionId, lote.map((x) => x.user_product_id));
-        const aceitou = r.status === 200;
-        log(`  ${conta}: ${acao.rotulo} em ${lote.length} anúncio(s) → HTTP ${r.status}`);
+    for (const item of paraAgir) {
+      const tentativas = tentativasPorItem[item.codigo_ml] || 1;
+      const saiu = !aindaTravados.has(item.codigo_ml);
+      if (saiu) agidos++;
+      const campos = {
+        titulo: item.titulo, recomendacao: item.acao_sugerida,
+        user_product_id: item.user_product_id, tentativas,
+        vista_em: new Date().toISOString(), ultima_acao_em: new Date().toISOString(),
+      };
+      if (saiu) campos.resolvido_em = new Date().toISOString();
 
-        for (const item of lote) {
-          const tentativas = (item.registro?.tentativas || 0) + 1;
-          if (item.registro) {
-            await sb.from('ml_patrulha_full').update({
-              tentativas, vista_em: new Date().toISOString(), ultima_acao_em: new Date().toISOString(),
-              recomendacao: item.acao_sugerida, titulo: item.titulo, user_product_id: item.user_product_id,
-            }).eq('id', item.registro.id);
-          } else {
-            await sb.from('ml_patrulha_full').insert({
-              conta, codigo_ml: item.codigo_ml, user_product_id: item.user_product_id,
-              titulo: item.titulo, recomendacao: item.acao_sugerida,
-              tentativas, ultima_acao_em: new Date().toISOString(),
-            });
-          }
-        }
-        if (aceitou) agidos += lote.length;
-        await new Promise((res) => setTimeout(res, 2000));
+      if (item.registro) {
+        await sb.from('ml_patrulha_full').update(campos).eq('id', item.registro.id);
+      } else {
+        await sb.from('ml_patrulha_full').insert({ conta, codigo_ml: item.codigo_ml, ...campos });
+      }
+      if (saiu) {
+        await sb.from('ml_log_acoes').insert({
+          conta, item_id: item.codigo_ml, title: item.titulo, acao: 'reativado', origem: 'robo',
+          detalhe: `voltou pro Full após ${tentativas} tentativa(s)`,
+        });
       }
     }
 
-    return { conta, lidos: lista.length, alvos: alvos.length, agidos, resolvidos: resolvidos.length };
+    if (restantes.length) {
+      log(`  ${conta}: ${restantes.length} não cederam em ${rodada} tentativa(s) — ficam pra próxima passada`);
+    }
+
+    return {
+      conta, lidos: lista.length, alvos: alvos.length, agidos,
+      resolvidos: resolvidos.length,
+      insistindo: restantes.length,
+      tentativas: rodada,
+      cedeu_a_vez: cedeuAVez || undefined,
+    };
   } finally {
     await navegador.close().catch(() => {});
   }
@@ -272,6 +399,8 @@ async function patrulhar({ executar = false, contas = CONTAS_VALIDAS, log = cons
           await sb.from('ml_patrulha_execucoes').insert({
             conta: c, lidos: r.lidos || 0, alvos: r.alvos || 0,
             agidos: r.agidos || 0, resolvidos: r.resolvidos || 0,
+            tentativas: r.tentativas || 0, insistindo: r.insistindo || 0,
+            erro: r.erro || null,
           }).then(() => {}, () => {});
         }
       }
