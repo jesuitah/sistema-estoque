@@ -25,7 +25,6 @@ const { abrirNavegador, sessaoExiste, identificarConta, USER_IDS_ESPERADOS, CONT
 const PAINEL = 'https://vendedores.mercadolivre.com.br/anuncios/lista/space_management';
 const ENDPOINT = 'https://vendedores.mercadolivre.com.br/stock-management/space-management/api/actions';
 const MAX_PAGINAS = 30;
-const LIMITE_TENTATIVAS = 20;   // depois disso, para de insistir e sinaliza
 const LOTE_MAXIMO = 20;         // ids por chamada
 
 // INSISTÊNCIA DENTRO DA PASSADA
@@ -44,6 +43,20 @@ const LOTE_MAXIMO = 20;         // ids por chamada
 //     dele nunca espera 20 minutos por causa da patrulha.
 const INTERVALO_INSISTENCIA_MS = 30 * 1000;
 const TETO_INSISTENCIA_MS = 20 * 60 * 1000;
+
+// Quantas vezes insistir DENTRO de uma passada.
+//
+// Medido na prática, não chutado: o anúncio que cede, cede nas primeiras tentativas
+// (a LTS resolveu na 1ª). Os que não cedem não cederam nem em 31 tentativas seguidas
+// — quando o motivo é outro (anúncio pausado/inativo, sem unidade apta), repetir não
+// resolve, só martela o Mercado Livre à toa por meia hora.
+const RODADAS_POR_PASSADA = 5;
+
+// Quantas PASSADAS aguentar antes de admitir que o robô não vai resolver sozinho.
+// Conta passadas, não tentativas: com a insistência, um único ciclo já dispara várias
+// tentativas — usar o contador antigo (20 tentativas) fazia o robô aposentar todo
+// mundo na primeira passada.
+const PASSADAS_ATE_DESISTIR = 8;
 
 const ACOES = [
   { teste: /ofere[çc]a o full novamente/i, actionId: 'MAKE_OFFER_FULL',      rotulo: 'oferecer Full novamente' },
@@ -255,18 +268,18 @@ async function patrulharConta(sb, conta, executar, log) {
     for (const alvo of alvos) {
       const up = alvo.user_product_id;
       const { data: existente } = await sb.from('ml_patrulha_full')
-        .select('id, tentativas, desistiu_em').eq('conta', conta).eq('codigo_ml', alvo.codigo_ml).maybeSingle();
+        .select('id, tentativas, passadas, desistiu_em').eq('conta', conta).eq('codigo_ml', alvo.codigo_ml).maybeSingle();
 
       if (existente?.desistiu_em) continue;                    // já desistimos deste
-      if (existente && existente.tentativas >= LIMITE_TENTATIVAS) {
+      if (existente && (existente.passadas || 0) >= PASSADAS_ATE_DESISTIR) {
         if (executar) {
           await sb.from('ml_patrulha_full').update({ desistiu_em: new Date().toISOString() }).eq('id', existente.id);
           await sb.from('ml_log_acoes').insert({
             conta, item_id: alvo.codigo_ml, title: alvo.titulo, acao: 'falhou', origem: 'robo',
-            detalhe: `o Mercado Livre não reativou após ${existente.tentativas} tentativas — precisa de você`,
+            detalhe: `o Mercado Livre não reativou em ${existente.passadas} passadas (${existente.tentativas} tentativas) — precisa de você`,
           });
         }
-        log(`  ${conta}: desistindo de ${alvo.codigo_ml} após ${existente.tentativas} tentativas`);
+        log(`  ${conta}: desistindo de ${alvo.codigo_ml} após ${existente.passadas} passadas`);
         continue;
       }
       // Sem o id não dá pra agir. Isto NÃO pode passar batido: foi exatamente assim
@@ -307,7 +320,7 @@ async function patrulharConta(sb, conta, executar, log) {
     let rodada = 0;
     let cedeuAVez = false;
 
-    while (restantes.length && Date.now() < limite) {
+    while (restantes.length && rodada < RODADAS_POR_PASSADA && Date.now() < limite) {
       rodada++;
 
       for (const acao of ACOES) {
@@ -352,6 +365,7 @@ async function patrulharConta(sb, conta, executar, log) {
       const campos = {
         titulo: item.titulo, recomendacao: item.acao_sugerida,
         user_product_id: item.user_product_id, tentativas,
+        passadas: (item.registro?.passadas || 0) + 1,
         vista_em: new Date().toISOString(), ultima_acao_em: new Date().toISOString(),
       };
       if (saiu) campos.resolvido_em = new Date().toISOString();
@@ -416,7 +430,7 @@ async function patrulhar({ executar = false, contas = CONTAS_VALIDAS, log = cons
   return resultados;
 }
 
-module.exports = { patrulhar, LIMITE_TENTATIVAS };
+module.exports = { patrulhar, PASSADAS_ATE_DESISTIR };
 
 // execução direta (teste manual)
 if (require.main === module) {
