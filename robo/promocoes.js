@@ -134,7 +134,7 @@ async function varrer({ contas = CONTAS, log = console.log } = {}) {
   return saida;
 }
 
-module.exports = { varrer };
+module.exports = { varrer, CONTAS };
 
 if (require.main === module) {
   const conta = process.argv[2] ? [process.argv[2].toUpperCase()] : CONTAS;

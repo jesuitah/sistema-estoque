@@ -22,6 +22,7 @@ const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
 const { abrirNavegador, identificarConta, USER_IDS_ESPERADOS } = require('./navegador');
 const { patrulhar } = require('./patrulha-full');
+const { varrer: varrerPromocoes } = require('./promocoes');
 
 const SUPABASE_URL = 'https://pylkufhziohxvwbbaued.supabase.co';
 const SUPABASE_KEY = process.env.SUPABASE_KEY || lerChaveDoSite();
@@ -130,6 +131,14 @@ let proximaPatrulha = 0;
 // sempre, e o robô seguinte nunca mais publica o horário da próxima passada.
 // Uma variável de processo morre junto com ele — que é exatamente o certo aqui.
 let patrulhaEmAndamento = false;
+
+// Quando as promoções foram recatalogadas pela última vez.
+//
+// Uma vez por dia basta: campanha nova aparece de tempos em tempos, não de minuto em
+// minuto, e a varredura são ~1.100 chamadas por loja. O botão "atualizar lista" na
+// tela força na hora quando o Matheus quiser.
+const VARREDURA_PROMO_MS = 24 * 60 * 60 * 1000;
+let ultimaVarreduraPromo = 0;
 
 // Roda a patrulha marcando o sinalizador, e garante que ele seja limpo mesmo se der erro.
 async function rodarPatrulha(opcoes) {
@@ -463,6 +472,21 @@ async function processar(tarefa, navegadores) {
     .eq('id', tarefa.id);
 
   try {
+    // Varredura das promoções, pedida pelo botão "atualizar lista" da aba Promoções.
+    // Não abre navegador: é tudo API oficial.
+    if (tarefa.tipo === 'varrer_promocoes') {
+      const contas = tarefa.params?.conta ? [tarefa.params.conta] : undefined;
+      const r = await varrerPromocoes({ contas, log: (m) => log(m) });
+      await sb.from('ml_tarefas_robo').update({
+        status: 'feito',
+        resultado: { ok: true, por_conta: r },
+        concluido_em: new Date().toISOString(), erro: null,
+      }).eq('id', tarefa.id);
+      ultimaVarreduraPromo = Date.now();
+      log(`  ✅ promoções recatalogadas`);
+      return;
+    }
+
     // Pedido de patrulha imediata, vindo do botão no site. Não é uma tarefa de um
     // anúncio só: roda a varredura inteira. Por isso não abre navegador por conta
     // aqui — a própria patrulha cuida disso.
@@ -656,6 +680,19 @@ async function main() {
             if (n) log(`   sem estoque: ${n} anúncio(s) enfileirado(s) pra sair do Full`);
           } catch (erro) {
             log(`   verificação de sem estoque falhou: ${mensagemAmigavel(erro)}`);
+          }
+
+          // Uma vez por dia, recataloga as promoções. Fica junto da patrulha porque
+          // aqui já sabemos que a fila está vazia — não disputa com as tarefas dele.
+          if (Date.now() - ultimaVarreduraPromo > VARREDURA_PROMO_MS) {
+            ultimaVarreduraPromo = Date.now();
+            log('🏷 recatalogando promoções...');
+            try {
+              await varrerPromocoes({ log: (m) => log(m) });
+              log('   promoções recatalogadas');
+            } catch (erro) {
+              log(`   varredura de promoções falhou: ${mensagemAmigavel(erro)}`);
+            }
           }
         }
       }
