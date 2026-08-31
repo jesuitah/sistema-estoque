@@ -33,10 +33,34 @@ function conectar() {
   return createClient('https://pylkufhziohxvwbbaued.supabase.co', chave);
 }
 
+// Toda chamada tem prazo.
+//
+// Sem isto, uma única requisição pendurada congela o robô INTEIRO: a varredura roda
+// dentro do laço principal, então nada mais anda — nem as tarefas que o Matheus
+// mandou. Aconteceu de verdade: travou em 450 de 493 e ficou 35 minutos parado.
+async function buscar(url, opcoes = {}, segundos = 20) {
+  const abortar = new AbortController();
+  const relogio = setTimeout(() => abortar.abort(), segundos * 1000);
+  try {
+    return await fetch(url, { ...opcoes, signal: abortar.signal });
+  } finally {
+    clearTimeout(relogio);
+  }
+}
+
+// A varredura demora minutos. Se o Matheus mandar uma tarefa nesse meio tempo, ela
+// espera a varredura acabar — o que é errado: a fila dele vem primeiro.
+async function temTarefaDoMatheus(sb) {
+  const { data } = await sb.from('ml_tarefas_robo')
+    .select('id').eq('status', 'pendente')
+    .not('tipo', 'in', '("patrulha_agora","varrer_promocoes")').limit(1);
+  return !!(data && data.length);
+}
+
 async function idsAtivos(userId, auth) {
   const ids = [];
   for (let offset = 0; offset < 5000; offset += 100) {
-    const r = await fetch(
+    const r = await buscar(
       `https://api.mercadolibre.com/users/${userId}/items/search?status=active&limit=100&offset=${offset}`,
       { headers: auth });
     if (!r.ok) break;
@@ -55,7 +79,7 @@ async function idsAtivos(userId, auth) {
 async function dadosDosAnuncios(ids, auth) {
   const mapa = {};
   for (let i = 0; i < ids.length; i += 20) {
-    const r = await fetch(
+    const r = await buscar(
       `https://api.mercadolibre.com/items?ids=${ids.slice(i, i + 20).join(',')}`
       + `&attributes=id,title,seller_custom_field,attributes`,
       { headers: auth });
@@ -88,7 +112,7 @@ async function varrerConta(sb, conta, log) {
   for (let i = 0; i < ids.length; i++) {
     const id = ids[i];
     try {
-      const r = await fetch(
+      const r = await buscar(
         `https://api.mercadolibre.com/seller-promotions/items/${id}?app_version=v2`,
         { headers: auth });
       if (!r.ok) { erros++; continue; }
@@ -130,6 +154,13 @@ async function varrerConta(sb, conta, log) {
         ultima_batida: new Date().toISOString(),
         detalhe: { varrendo_promocoes: true, conta, lidos: i + 1, total: ids.length },
       }).eq('id', 1).then(() => {}, () => {});
+
+      // Chegou tarefa do Matheus? Ela vem primeiro. Interrompemos a varredura sem
+      // gravar nada — o cache antigo continua valendo e a varredura recomeça depois.
+      if (await temTarefaDoMatheus(sb)) {
+        log(`  ${conta}: tarefa na fila — interrompendo a varredura pra atender`);
+        return { conta, anuncios: ids.length, interrompida: true };
+      }
     }
   }
 
