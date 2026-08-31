@@ -157,7 +157,7 @@ async function estadoReal(auth, userProductId) {
   if (!ids.length) return null;
 
   const r = await fetch(
-    `https://api.mercadolibre.com/items/${ids[0]}?attributes=id,status,shipping`,
+    `https://api.mercadolibre.com/items/${ids[0]}?attributes=id,status,sub_status,available_quantity,shipping`,
     { headers: auth.headers }
   );
   if (!r.ok) return null;
@@ -165,8 +165,25 @@ async function estadoReal(auth, userProductId) {
   return {
     itemId: it.id,
     status: it.status,
+    unidades: it.available_quantity,
+    semEstoque: (it.sub_status || []).includes('out_of_stock') || it.available_quantity === 0,
     noFull: it.shipping?.logistic_type === 'fulfillment',
   };
+}
+
+// Anúncio sem estoque NÃO pode voltar pro Full.
+//
+// Aqui moram dois automatismos com objetivos opostos: a aba "Reativar anúncios"
+// TIRA do Full quem ficou sem estoque (pra ir pra Inativos), e a patrulha PÕE de
+// volta quando o painel sugere "Ofereça o Full novamente". Sem esta trava, um
+// desfazia o outro — o anúncio voltava pro Full com 0 unidades, continuava sem
+// vender e ainda reaparecia como "sem estoque". Aconteceu com 4 anúncios da KMP.
+//
+// Oferecer Full a quem não tem unidade não vende nada de qualquer forma.
+function podeOferecerFull(acao, estado) {
+  if (!estado) return true;                      // sem informação, não bloqueia
+  if (/REACTIVATE/i.test(acao.executar)) return true;  // reativar anúncio é outra coisa
+  return !estado.semEstoque;
 }
 
 // Deu certo é o anúncio VENDENDO: no Full e ativo.
@@ -371,11 +388,17 @@ async function patrulharConta(sb, conta, executar, log) {
     // mexer em qualquer coisa, perguntamos à API quem realmente precisa — assim o robô
     // não age em anúncio que já está certo.
     const precisamMesmo = [];
+    let semEstoque = 0;
     for (const item of paraAgir) {
       const estado = await estadoReal(auth, item.user_product_id);
       if (deuCerto(item.acao, estado)) {
         log(`  ${conta}: ${item.codigo_ml} já está certo (a tela é que está atrasada)`);
         item.jaEstava = true;
+      } else if (!podeOferecerFull(item.acao, estado)) {
+        // Não é falha: é o robô respeitando a decisão do outro fluxo.
+        log(`  ${conta}: ${item.codigo_ml} sem estoque — NÃO volta pro Full (é caso de Inativos)`);
+        item.semEstoque = true;
+        semEstoque++;
       } else {
         precisamMesmo.push(item);
       }
@@ -449,6 +472,11 @@ async function patrulharConta(sb, conta, executar, log) {
     let agidos = 0;
 
     for (const item of paraAgir) {
+      // Quem foi pulado por estar sem estoque não entra nesta conta: não foi
+      // resolvido nem falhou — foi deliberadamente deixado pro fluxo de Inativos.
+      // Sem isto, ele seria marcado como "voltou pro Full", que é mentira.
+      if (item.semEstoque) continue;
+
       const tentativas = tentativasPorItem[item.codigo_ml] || 1;
       const saiu = !aindaTravados.has(item.codigo_ml);
       if (saiu) agidos++;
@@ -481,6 +509,7 @@ async function patrulharConta(sb, conta, executar, log) {
       conta, lidos: lista.length, alvos: alvos.length, agidos,
       resolvidos: resolvidos.length,
       insistindo: restantes.length,
+      sem_estoque: semEstoque,
       tentativas: rodada,
       cedeu_a_vez: cedeuAVez || undefined,
     };
