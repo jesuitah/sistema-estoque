@@ -2818,7 +2818,9 @@
                   e('p', {className: 'text-slate-400 text-sm'},
                     'Escolha a loja, a promoção e marque os anúncios. Você define o percentual de cada ' +
                     'grupo: pode ativar 10 anúncios com 10% e outros 20 com 30%, na mesma promoção. ' +
-                    'O desconto é sempre sobre o preço cheio.'),
+                    'O desconto é sempre sobre o preço cheio. Um anúncio pode estar em várias promoções ' +
+                    'ao mesmo tempo — o cliente sempre vê o menor preço, então entrar numa promoção ' +
+                    'nunca encarece o produto.'),
 
                   varrendo && e('div', {className: 'mt-3'},
                     e('div', {className: 'flex justify-between text-xs text-sky-200 font-bold mb-1'},
@@ -2941,20 +2943,26 @@
                         var problema = foraDoLimite(it, pct);
                         var marcado = !!promoMarcados[it.item_id];
 
-                        // Já está em outra promoção? Se o desconto de lá for MELHOR que
-                        // o que você vai aplicar, entrar aqui pode piorar o preço.
+                        // Em quais outras promoções ele já está, e qual preço o cliente
+                        // vê hoje.
+                        //
+                        // COMPROVADO EM TESTE REAL: o Mercado Livre aceita o anúncio em
+                        // várias promoções ao mesmo tempo e mostra ao cliente sempre o
+                        // MENOR preço. Entrar numa promoção nunca encarece o produto —
+                        // no pior caso a nova fica atrás de uma melhor e não muda nada.
                         var outras = promoOutras[it.item_id] || [];
                         var melhorOutra = null;
                         outras.forEach(function(o) {
                           if (o.preco != null && (melhorOutra === null || Number(o.preco) < Number(melhorOutra.preco))) melhorOutra = o;
                         });
-                        var pioraria = melhorOutra && novoPreco !== null && novoPreco > Number(melhorOutra.preco);
+                        var precoHoje = melhorOutra ? Number(melhorOutra.preco) : null;
+                        // Este desconto passaria a ser o preço que o cliente vê?
+                        var venceria = novoPreco !== null && (precoHoje === null || novoPreco < precoHoje);
 
                         return e('div', {
                           key: it.item_id,
                           className: 'text-xs rounded px-2 py-1.5 border ' +
                             (marcado ? 'bg-blue-900 bg-opacity-30 border-blue-700'
-                             : pioraria ? 'bg-amber-900 bg-opacity-20 border-amber-700'
                              : ativo ? 'bg-emerald-900 bg-opacity-20 border-emerald-800'
                              : 'bg-slate-900 border-slate-700')
                         },
@@ -2976,17 +2984,22 @@
                                   ? 'o Mercado Livre exige um desconto maior neste anúncio'
                                   : 'o Mercado Livre não permite um desconto tão grande neste anúncio'},
                                 problema === 'pouco' ? '⚠ % baixo demais' : '⚠ % alto demais')
-                            : novoPreco !== null && e('span', {className: (pioraria ? 'text-amber-300' : 'text-blue-300') + ' font-bold whitespace-nowrap'},
+                            : novoPreco !== null && e('span', {className: (venceria ? 'text-blue-300' : 'text-slate-500') + ' font-bold whitespace-nowrap'},
                                 '→ R$ ' + novoPreco.toFixed(2).replace('.', ','))
                           ),
 
-                          // A linha de aviso: onde ele já está e por quanto.
-                          outras.length > 0 && e('div', {className: 'mt-1 pl-6 ' + (pioraria ? 'text-amber-300 font-bold' : 'text-slate-500')},
-                            (pioraria ? '⚠ ' : '• ') + 'já está em ' +
+                          // Onde ele já está e o que muda pro cliente. O ML mostra sempre
+                          // o menor preço entre as promoções ativas.
+                          outras.length > 0 && e('div', {className: 'mt-1 pl-6 text-slate-500'},
+                            '• já está em ' +
                             outras.map(function(o) {
                               return o.nome + (o.preco != null ? ' por R$ ' + Number(o.preco).toFixed(2).replace('.', ',') : '');
-                            }).join(' · ') +
-                            (pioraria ? ' — este desconto deixaria o produto MAIS CARO' : '')
+                            }).join(' · '),
+                            precoHoje !== null && novoPreco !== null && (venceria
+                              ? e('span', {className: 'text-blue-300 font-bold'},
+                                  ' → o cliente passaria a ver R$ ' + novoPreco.toFixed(2).replace('.', ','))
+                              : e('span', {className: 'text-slate-400'},
+                                  ' → não muda nada: o cliente continua vendo R$ ' + precoHoje.toFixed(2).replace('.', ',')))
                           )
                         );
                       })
