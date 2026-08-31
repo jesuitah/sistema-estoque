@@ -23,6 +23,7 @@ const { createClient } = require('@supabase/supabase-js');
 const { abrirNavegador, identificarConta, USER_IDS_ESPERADOS } = require('./navegador');
 const { patrulhar } = require('./patrulha-full');
 const { varrer: varrerPromocoes } = require('./promocoes');
+const { vigiar } = require('./vigia');
 
 const SUPABASE_URL = 'https://pylkufhziohxvwbbaued.supabase.co';
 const SUPABASE_KEY = process.env.SUPABASE_KEY || lerChaveDoSite();
@@ -139,6 +140,10 @@ let patrulhaEmAndamento = false;
 // tela força na hora quando o Matheus quiser.
 const VARREDURA_PROMO_MS = 24 * 60 * 60 * 1000;
 let ultimaVarreduraPromo = 0;
+
+// O robô conferindo a si mesmo. Grava o que encontra em robo_alertas e a tela mostra.
+const VIGIA_MS = 15 * 60 * 1000;
+let ultimoVigia = 0;
 
 // Roda a patrulha marcando o sinalizador, e garante que ele seja limpo mesmo se der erro.
 async function rodarPatrulha(opcoes) {
@@ -642,6 +647,18 @@ async function main() {
       if (Date.now() - ultimoResgate > 5 * 60 * 1000) {
         await resgatarTarefasOrfas();
         ultimoResgate = Date.now();
+      }
+
+      // O vigia: confere se o próprio robô está dando conta e anota o que achar.
+      // Roda mesmo com tarefas na fila — é rápido e não usa navegador.
+      if (Date.now() - ultimoVigia > VIGIA_MS) {
+        ultimoVigia = Date.now();
+        try {
+          const r = await vigiar({ log: (m) => log(m) });
+          if (r.problemas) log(`👁 vigia: ${r.problemas} problema(s) em aberto`);
+        } catch (erro) {
+          log(`👁 vigia falhou: ${mensagemAmigavel(erro)}`);
+        }
       }
 
       // Patrulha do "fora de venda": roda sozinha, sem ninguém pedir. O Mercado Livre

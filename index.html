@@ -533,6 +533,11 @@
       var promoPedindo = promoPedindoState[0];
       var setPromoPedindo = promoPedindoState[1];
 
+      // Problemas que o próprio robô encontrou. Quem grava é o vigia, dentro do robô.
+      var alertasState = useState([]);
+      var alertas = alertasState[0];
+      var setAlertas = alertasState[1];
+
       // histórico do que foi feito nos anúncios (pelo sistema e pelo robô)
       var logAcoesState = useState([]);
       var logAcoes = logAcoesState[0];
@@ -962,6 +967,12 @@
       }
 
       function carregarStatusRobo() {
+        // Problemas em aberto que o vigia anotou. Vêm junto porque são lidos no mesmo
+        // ritmo do status do robô.
+        supabase.from('robo_alertas').select('*').is('resolvido_em', null)
+          .order('gravidade').order('criado_em')
+          .then(function(r) { if (!r.error && r.data) setAlertas(r.data); });
+
         supabase.from('robo_status').select('*').eq('id', 1).maybeSingle()
           .then(function(r) { if (!r.error) setRoboStatus(r.data); });
 
@@ -2812,6 +2823,25 @@
         ),
 
         e('main', {className: 'max-w-7xl mx-auto px-4 py-6'},
+          // O que o robô encontrou de errado. Fica no topo, em qualquer aba: problema
+          // escondido numa aba que ninguém abre é problema que ninguém resolve.
+          alertas.length > 0 && e('div', {className: 'mb-5 space-y-2'},
+            alertas.map(function(a) {
+              var grave = a.gravidade === 'grave';
+              return e('div', {
+                key: a.id,
+                className: 'flex items-start gap-2 text-sm rounded-lg px-4 py-3 border ' +
+                  (grave ? 'bg-red-900 bg-opacity-30 border-red-700 text-red-200'
+                         : 'bg-amber-900 bg-opacity-25 border-amber-700 text-amber-200')
+              },
+                e('span', {className: 'font-bold'}, grave ? '⚠' : '•'),
+                e('span', {className: 'flex-1'}, a.mensagem),
+                e('span', {className: 'text-xs opacity-60 whitespace-nowrap'},
+                  'desde ' + new Date(a.criado_em).toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'}))
+              );
+            })
+          ),
+
           activeTab === 'promocoes' && (function() {
             var daConta = promoLista.filter(function(p) { return p.conta === promoConta; })
               .sort(function(a, b) { return (b.candidatos || 0) - (a.candidatos || 0); });
