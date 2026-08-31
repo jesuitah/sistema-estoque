@@ -990,7 +990,7 @@
           .then(function(r) { if (!r.error && r.data) setPatrulhaExec(r.data); });
 
         supabase.from('ml_tarefas_robo')
-          .select('id, conta, tipo, params, status, erro, resultado, criado_em')
+          .select('id, conta, tipo, params, status, erro, resultado, criado_em, concluido_em')
           .order('criado_em', { ascending: false })
           .limit(200)
           .then(function(r) {
@@ -3785,8 +3785,23 @@
                           // depois. A tela dizia "Feito ✅" com o anúncio parado sem vender.
                           var tarefa = roboTarefas[item.item_id];
                           var emFila = tarefa && (tarefa.status === 'pendente' || tarefa.status === 'rodando');
-                          var voltou = tarefa && tarefa.status === 'feito';
                           var falhou = tarefa && tarefa.status === 'falhou';
+
+                          // "Acabou de fazer" e "voltou pro Full" são coisas MUITO
+                          // diferentes, e antes eu tratava as duas como a mesma.
+                          //
+                          // Logo depois do robô concluir, esta lista ainda é a de antes
+                          // (ela vem de uma verificação feita no ML minutos atrás). O
+                          // anúncio aparece aqui com a tarefa 'feito' — e eu mostrava
+                          // "já foi tirado antes e voltou pro Full", assustando à toa.
+                          //
+                          // Voltar pro Full de verdade leva tempo: só acusamos isso se a
+                          // tarefa tiver terminado há mais de 10 minutos.
+                          var terminouHa = tarefa && tarefa.status === 'feito' && tarefa.concluido_em
+                            ? (Date.now() - new Date(tarefa.concluido_em).getTime()) / 60000
+                            : null;
+                          var recemFeito = terminouHa !== null && terminouHa < 10;
+                          var voltou = terminouHa !== null && terminouHa >= 10;
 
                           return e('div', {key: item.item_id, className: 'text-xs rounded px-2 py-1 border ' +
                             (emFila ? 'bg-sky-900 bg-opacity-30 border-sky-800' : 'bg-amber-900 bg-opacity-30 border-amber-800')},
@@ -3798,10 +3813,13 @@
                               emFila
                                 ? e('span', {className: 'text-sky-300 font-bold'},
                                     tarefa.status === 'rodando' ? '⚙ o robô está fazendo agora...' : '⏳ na fila do robô')
-                                : e('button', {
-                                    onClick: function() { enviarParaRobo(item, c); },
-                                    className: 'bg-blue-600 hover:bg-blue-500 text-white px-2 py-0.5 rounded font-bold'
-                                  }, '🤖 tirar do Full pelo robô'),
+                                : recemFeito
+                                  ? e('span', {className: 'text-emerald-300 font-bold'},
+                                      '✅ o robô acabou de tirar — esta lista atualiza em instantes')
+                                  : e('button', {
+                                      onClick: function() { enviarParaRobo(item, c); },
+                                      className: 'bg-blue-600 hover:bg-blue-500 text-white px-2 py-0.5 rounded font-bold'
+                                    }, '🤖 tirar do Full pelo robô'),
                               voltou && e('span', {className: 'text-amber-300'},
                                 '⚠ já foi tirado antes e voltou pro Full'),
                               falhou && e('span', {className: 'text-red-300', title: tarefa.erro || ''}, '⚠ tentativa anterior falhou')
