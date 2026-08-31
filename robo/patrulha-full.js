@@ -229,6 +229,9 @@ async function esperarComVezDoMatheus(sb, totalMs) {
 async function anotarProgresso(sb, conta, restantes, tentativasPorItem) {
   const tentativa = Math.max(0, ...restantes.map((r) => tentativasPorItem[r.codigo_ml] || 0));
   await sb.from('robo_status').update({
+    // Bate ponto junto: a patrulha trava o laço principal do robô, e sem isto o site
+    // mostra "Robô desligado" justamente enquanto ele está trabalhando.
+    ultima_batida: new Date().toISOString(),
     detalhe: {
       patrulhando: true, conta, insistindo: restantes.length, tentativa,
       titulo: restantes[0] ? restantes[0].titulo : null,
@@ -304,6 +307,7 @@ async function patrulharConta(sb, conta, executar, log) {
     // que nada acontece — e o Matheus perde a noção de que o robô está vivo.
     const lista = await lerLista(pagina, async (lidos, total) => {
       await sb.from('robo_status').update({
+        ultima_batida: new Date().toISOString(),
         detalhe: { patrulhando: true, conta, lidos, total },
       }).eq('id', 1).then(() => {}, () => {});
     });

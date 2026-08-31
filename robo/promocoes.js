@@ -101,9 +101,15 @@ async function varrerConta(sb, conta, log) {
       }
     } catch (_e) { erros++; }
 
-    if ((i + 1) % 100 === 0) {
-      log(`  ${conta}: ${i + 1}/${ids.length}`);
+    // Bate ponto junto com o progresso.
+    //
+    // A varredura trava o laço principal do robô por vários minutos. Sem atualizar a
+    // ultima_batida aqui, o site conclui que o robô morreu e mostra "Robô desligado"
+    // bem enquanto ele está trabalhando — foi o que aconteceu na primeira vez.
+    if ((i + 1) % 25 === 0) {
+      if ((i + 1) % 100 === 0) log(`  ${conta}: ${i + 1}/${ids.length}`);
       await sb.from('robo_status').update({
+        ultima_batida: new Date().toISOString(),
         detalhe: { varrendo_promocoes: true, conta, lidos: i + 1, total: ids.length },
       }).eq('id', 1).then(() => {}, () => {});
     }
