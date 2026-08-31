@@ -49,17 +49,25 @@ async function idsAtivos(userId, auth) {
 
 // Título e SKU de cada anúncio. O SKU é o que o Matheus usa pra reconhecer a peça —
 // sem ele a lista vira um monte de título parecido.
+//
+// O SKU NÃO está em `seller_custom_field` (vem nulo nesta conta): ele vive no atributo
+// SELLER_SKU. Foi verificado num anúncio real antes de escrever isto.
 async function dadosDosAnuncios(ids, auth) {
   const mapa = {};
   for (let i = 0; i < ids.length; i += 20) {
     const r = await fetch(
-      `https://api.mercadolibre.com/items?ids=${ids.slice(i, i + 20).join(',')}&attributes=id,title,seller_custom_field`,
+      `https://api.mercadolibre.com/items?ids=${ids.slice(i, i + 20).join(',')}`
+      + `&attributes=id,title,seller_custom_field,attributes`,
       { headers: auth });
     if (!r.ok) continue;
     for (const x of await r.json()) {
-      if (x.code === 200 && x.body) {
-        mapa[x.body.id] = { title: x.body.title, sku: x.body.seller_custom_field || null };
-      }
+      if (x.code !== 200 || !x.body) continue;
+      const attr = (x.body.attributes || []).find((a) => a.id === 'SELLER_SKU');
+      const sku = attr ? (attr.value_name || (attr.values && attr.values[0] && attr.values[0].name)) : null;
+      mapa[x.body.id] = {
+        title: x.body.title,
+        sku: sku || x.body.seller_custom_field || null,
+      };
     }
   }
   return mapa;
