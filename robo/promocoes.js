@@ -47,15 +47,19 @@ async function idsAtivos(userId, auth) {
   return ids;
 }
 
-async function titulos(ids, auth) {
+// Título e SKU de cada anúncio. O SKU é o que o Matheus usa pra reconhecer a peça —
+// sem ele a lista vira um monte de título parecido.
+async function dadosDosAnuncios(ids, auth) {
   const mapa = {};
   for (let i = 0; i < ids.length; i += 20) {
     const r = await fetch(
-      `https://api.mercadolibre.com/items?ids=${ids.slice(i, i + 20).join(',')}&attributes=id,title,available_quantity`,
+      `https://api.mercadolibre.com/items?ids=${ids.slice(i, i + 20).join(',')}&attributes=id,title,seller_custom_field`,
       { headers: auth });
     if (!r.ok) continue;
     for (const x of await r.json()) {
-      if (x.code === 200 && x.body) mapa[x.body.id] = x.body.title;
+      if (x.code === 200 && x.body) {
+        mapa[x.body.id] = { title: x.body.title, sku: x.body.seller_custom_field || null };
+      }
     }
   }
   return mapa;
@@ -69,7 +73,7 @@ async function varrerConta(sb, conta, log) {
 
   const ids = await idsAtivos(tok.user_id, auth);
   log(`  ${conta}: ${ids.length} anúncios ativos`);
-  const nomes = await titulos(ids, auth);
+  const dados = await dadosDosAnuncios(ids, auth);
 
   const linhas = [];
   let erros = 0;
@@ -82,7 +86,13 @@ async function varrerConta(sb, conta, log) {
       if (!r.ok) { erros++; continue; }
       for (const p of await r.json()) {
         linhas.push({
-          conta, item_id: id, title: nomes[id] || null,
+          conta, item_id: id,
+          title: (dados[id] || {}).title || null,
+          sku: (dados[id] || {}).sku || null,
+          // Quando a promoção começa e acaba. O ML manda em formatos diferentes
+          // conforme o tipo; guardamos como veio e a tela formata.
+          data_inicio: p.start_date || null,
+          data_fim: p.finish_date || p.deadline_date || null,
           // PRICE_DISCOUNT não tem id de campanha (é o desconto avulso do anúncio).
           // Damos um id fixo pra ele virar uma aba como as outras.
           promocao_id: p.id || `PD-${p.type}`,

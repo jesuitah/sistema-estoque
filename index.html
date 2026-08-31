@@ -1054,6 +1054,7 @@
         if (!termo) return promoItens;
         return promoItens.filter(function(it) {
           return (it.title || '').toLowerCase().indexOf(termo) !== -1
+              || (it.sku || '').toLowerCase().indexOf(termo) !== -1
               || (it.item_id || '').toLowerCase().indexOf(termo) !== -1;
         });
       }
@@ -1070,6 +1071,30 @@
           if (marcar) novo[it.item_id] = true; else delete novo[it.item_id];
         });
         setPromoMarcados(novo);
+      }
+
+      // "03/08 a 02/09" — o período em que a promoção vale.
+      function periodoDaPromocao(p) {
+        function dia(d) {
+          if (!d) return null;
+          var x = new Date(d);
+          if (isNaN(x.getTime())) return null;
+          return x.toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit'});
+        }
+        var i = dia(p.data_inicio), f = dia(p.data_fim);
+        if (i && f) return '📅 ' + i + ' a ' + f;
+        if (f) return '📅 até ' + f;
+        if (i) return '📅 desde ' + i;
+        return '';
+      }
+
+      // Quantos dias faltam pra promoção acabar. Serve pra pintar de amarelo o que
+      // está terminando — ativar numa campanha que acaba amanhã é trabalho perdido.
+      function diasAteFim(dataFim) {
+        if (!dataFim) return null;
+        var x = new Date(dataFim);
+        if (isNaN(x.getTime())) return null;
+        return Math.ceil((x.getTime() - Date.now()) / 86400000);
       }
 
       // Preço que o anúncio vai ficar com o percentual escolhido. Sempre sobre o cheio.
@@ -2817,7 +2842,12 @@
                       },
                         e('div', null, p.promocao_nome),
                         e('div', {className: 'font-normal opacity-70 mt-0.5'},
-                          (p.ativos || 0) + ' ativos · ' + (p.candidatos || 0) + ' podem entrar')
+                          (p.ativos || 0) + ' ativos · ' + (p.candidatos || 0) + ' podem entrar'),
+                        // Quando a promoção vale. Sem isso não dá pra saber se está
+                        // ativando numa campanha que acaba amanhã.
+                        (p.data_inicio || p.data_fim) && e('div', {
+                          className: 'font-normal mt-0.5 ' + (diasAteFim(p.data_fim) !== null && diasAteFim(p.data_fim) <= 3 ? 'text-amber-400' : 'opacity-60')
+                        }, periodoDaPromocao(p))
                       );
                     })
                   ),
@@ -2901,6 +2931,7 @@
                           }),
                           e('span', {className: 'flex-1 truncate ' + (ativo ? 'text-emerald-200' : 'text-slate-300'), title: it.title || ''},
                             it.title || it.item_id),
+                          it.sku && e('span', {className: 'text-slate-500 whitespace-nowrap', title: 'SKU'}, it.sku),
                           ativo && e('span', {className: 'text-emerald-400 font-bold whitespace-nowrap'}, '✅ já ativo'),
                           e('span', {className: 'text-slate-400 whitespace-nowrap'},
                             'R$ ' + Number(it.preco_cheio || 0).toFixed(2).replace('.', ',')),
