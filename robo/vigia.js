@@ -39,13 +39,37 @@ async function main() {
   if (st && st.parar) problemas.push('ROBO PARADO pelo botao de panico');
 
   // 2) aba "sem estoque" do ML com anúncio ainda no Full
+  //
+  // Anúncio vende tudo o tempo todo — aparecer aqui é rotina, e a patrulha da hora
+  // cheia resolve. Só é problema se NINGUÉM está cuidando: sem tarefa na fila e com
+  // a última patrulha já passada. Sem esse filtro o vigia gritava de 15 em 15 minutos
+  // por algo que já tinha solução marcada, e alarme falso ensina a ignorar o vigia.
+  const { data: ultima } = await sb.from('ml_patrulha_execucoes')
+    .select('quando').order('quando', { ascending: false }).limit(1);
+  const minDesdePatrulha = ultima && ultima[0]
+    ? (Date.now() - new Date(ultima[0].quando).getTime()) / 60000 : 999;
+
   try {
     const r = await fetch('https://pylkufhziohxvwbbaued.supabase.co/functions/v1/ml-reativar-anuncios');
     const d = await r.json();
     for (const [conta, res] of Object.entries(d)) {
       if (!res || typeof res !== 'object') continue;
-      const noFull = (res.precisa_acao_manual_full || []).length;
-      if (noFull > 0) problemas.push(`${conta}: ${noFull} anuncio(s) sem estoque AINDA no Full`);
+
+      const noFull = res.precisa_acao_manual_full || [];
+      if (noFull.length) {
+        // Quais já estão na fila do robô?
+        const { data: naFila } = await sb.from('ml_tarefas_robo')
+          .select('params').eq('conta', conta).eq('tipo', 'tirar_do_full')
+          .in('status', ['pendente', 'rodando']);
+        const cuidando = new Set((naFila || []).map((t) => t.params?.item_id));
+        const largados = noFull.filter((it) => !cuidando.has(it.item_id));
+
+        // Largados só viram problema se a patrulha já passou e não os pegou.
+        if (largados.length && minDesdePatrulha > 70) {
+          problemas.push(`${conta}: ${largados.length} anuncio(s) sem estoque no Full e ninguem cuidando`);
+        }
+      }
+
       const desconhecidos = (res.sku_nao_reconhecido || []).length;
       if (desconhecidos > 0) problemas.push(`${conta}: ${desconhecidos} SKU(s) nao cadastrado(s)`);
     }
