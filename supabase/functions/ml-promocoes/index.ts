@@ -181,21 +181,27 @@ async function ativar(corpo: {
 
     const payload: Record<string, unknown> = { promotion_id: promocao_id, promotion_type: promocao_tipo };
 
-    // Promoções com percentual definido pelo ML não aceitam preço: é só entrar.
-    const temPrecoLivre = info.preco_min != null && info.preco_max != null;
+    // Quem manda o preço somos nós; nestas o ML define o desconto e não aceita valor.
+    const PRECO_LIVRE = ['SELLER_CAMPAIGN', 'DEAL', 'PRICE_DISCOUNT', 'DOD'];
+    const temPrecoLivre = PRECO_LIVRE.includes(promocao_tipo);
+
     if (temPrecoLivre) {
       if (!percentual) { recusados.push({ item_id: itemId, title: info.title, motivo: 'esta promoção precisa de um percentual' }); continue; }
       const cheio = Number(info.preco_cheio);
       const preco = Math.round(cheio * (1 - percentual / 100) * 100) / 100;
 
-      if (preco > Number(info.preco_max)) {
+      // Os limites só existem pra quem ainda NÃO está na promoção — o ML não os
+      // devolve pra quem já entrou (432 ativos, só 14 com limite). Então validamos
+      // aqui quando dá, e nos outros casos deixamos o próprio ML recusar e mostramos
+      // o motivo dele. Melhor isso do que não mandar preço e a alteração não valer.
+      if (info.preco_max != null && preco > Number(info.preco_max)) {
         recusados.push({
           item_id: itemId, title: info.title,
           motivo: `${percentual}% é pouco — o mínimo aqui é ${percentualDe(cheio, info.preco_max)}%`,
         });
         continue;
       }
-      if (preco < Number(info.preco_min)) {
+      if (info.preco_min != null && preco < Number(info.preco_min)) {
         recusados.push({
           item_id: itemId, title: info.title,
           motivo: `${percentual}% é demais — o máximo aqui é ${percentualDe(cheio, info.preco_min)}%`,
@@ -205,15 +211,55 @@ async function ativar(corpo: {
       payload.deal_price = preco;
     }
 
-    const r = await fetch(`https://api.mercadolibre.com/seller-promotions/items/${itemId}?app_version=v2`, {
-      method: 'POST', headers: auth, body: JSON.stringify(payload),
+    // ENTRAR = POST · ALTERAR O PERCENTUAL = PUT
+    //
+    // Reenviar POST num anúncio que já está na promoção não muda nada: o ML mantém o
+    // preço da primeira vez. Já o PUT troca o valor de quem está dentro.
+    //
+    // Comprovado em teste real: anúncio com 13% na SETEMBRO, PUT com 21% → passou a
+    // 21%. A mudança leva uns 15 segundos pra aparecer na API.
+    const url = `https://api.mercadolibre.com/seller-promotions/items/${itemId}?app_version=v2`;
+    const jaEstava = info.status === 'started';
+
+    let r = await fetch(url, {
+      method: jaEstava ? 'PUT' : 'POST', headers: auth, body: JSON.stringify(payload),
     });
+    let erro = r.ok ? null : await r.json().catch(() => ({}));
+
+    // DIMINUIR O DESCONTO EXIGE SAIR E VOLTAR
+    //
+    // O PUT só aceita preço MENOR que o atual: "New deal_price must be lower than
+    // current deal_price". Ou seja, dá pra aumentar o desconto, nunca reduzir.
+    // Pra reduzir, o jeito é tirar da promoção e colocar de novo com o valor novo.
+    let saiuEVoltou = false;
+    if (!r.ok && /must be lower/i.test(String(erro?.message ?? ''))) {
+      const saida = await fetch(
+        `https://api.mercadolibre.com/seller-promotions/items/${itemId}`
+        + `?app_version=v2&promotion_type=${promocao_tipo}&promotion_id=${promocao_id}`,
+        { method: 'DELETE', headers: auth });
+
+      if (saida.ok) {
+        await new Promise((espera) => setTimeout(espera, 1500));
+        r = await fetch(url, { method: 'POST', headers: auth, body: JSON.stringify(payload) });
+        erro = r.ok ? null : await r.json().catch(() => ({}));
+        saiuEVoltou = true;
+      }
+    }
 
     if (r.ok) {
-      ativados.push({ item_id: itemId, title: info.title, preco: payload.deal_price ?? null });
+      ativados.push({
+        item_id: itemId, title: info.title,
+        preco: payload.deal_price ?? null,
+        alterado: jaEstava || undefined,
+      });
     } else {
-      const e = await r.json().catch(() => ({}));
-      recusados.push({ item_id: itemId, title: info.title, motivo: e.message ?? `o ML respondeu ${r.status}` });
+      recusados.push({
+        item_id: itemId, title: info.title,
+        // Se tiramos e não conseguimos repor, o anúncio ficou FORA da promoção.
+        // Isso não pode passar despercebido.
+        motivo: (saiuEVoltou ? '⚠ SAIU DA PROMOÇÃO e não voltou: ' : '')
+          + (erro?.message ?? `o ML respondeu ${r.status}`),
+      });
     }
   }
 
