@@ -141,6 +141,41 @@ async function rodarPatrulha(opcoes) {
   }
 }
 
+// Verifica a aba "sem estoque" das 3 lojas e enfileira quem precisa sair do Full.
+//
+// A regra de negócio (reativar com 89 unidades se houver peça aqui, ou pausar e mandar
+// pra Inativos se não houver) já vive na função ml-reativar-anuncios — ela é a mesma
+// que o botão do site chama. Aqui só a executamos sozinhos, de hora em hora, e cuidamos
+// da parte que ela não consegue fazer: tirar do Full, que exige o painel.
+async function enfileirarSemEstoque() {
+  const r = await fetch('https://pylkufhziohxvwbbaued.supabase.co/functions/v1/ml-reativar-anuncios');
+  if (!r.ok) throw new Error(`a verificação respondeu ${r.status}`);
+  const dados = await r.json();
+
+  let enfileirados = 0;
+  for (const [conta, res] of Object.entries(dados)) {
+    if (!res || typeof res !== 'object') continue;
+    for (const item of res.precisa_acao_manual_full || []) {
+      // Não duplica: se já existe tarefa esperando pra este anúncio, deixa quieto.
+      const { data: ja } = await sb.from('ml_tarefas_robo')
+        .select('id').eq('conta', conta).eq('tipo', 'tirar_do_full')
+        .in('status', ['pendente', 'rodando'])
+        .contains('params', { item_id: item.item_id }).limit(1);
+      if (ja && ja.length) continue;
+
+      await sb.from('ml_tarefas_robo').insert({
+        conta, tipo: 'tirar_do_full', status: 'pendente',
+        params: {
+          item_id: item.item_id, title: item.title,
+          sku_bruto: item.sku_bruto, acao_depois: item.acao_depois,
+        },
+      });
+      enfileirados++;
+    }
+  }
+  return enfileirados;
+}
+
 async function obterCsrf(pagina, conta, forcar) {
   const guardado = csrfPorConta[conta];
   if (!forcar && guardado && (Date.now() - guardado.quando) < VALIDADE_CSRF_MS) {
@@ -583,6 +618,17 @@ async function main() {
             log(`   patrulha concluída — ${agidos} ação(ões), ${resolvidos} voltaram a vender`);
           } catch (erro) {
             log(`   patrulha falhou: ${mensagemAmigavel(erro)}`);
+          }
+
+          // Logo depois da patrulha, cuida do "sem estoque" — anúncio que vendeu tudo
+          // e precisa sair do Full pra ir pra Inativos (ou voltar a vender, se houver
+          // peça aqui). Isso acontece todos os dias; ficar esperando alguém clicar em
+          // "Verificar e reativar" é o que deixava anúncio parado sem ninguém notar.
+          try {
+            const n = await enfileirarSemEstoque();
+            if (n) log(`   sem estoque: ${n} anúncio(s) enfileirado(s) pra sair do Full`);
+          } catch (erro) {
+            log(`   verificação de sem estoque falhou: ${mensagemAmigavel(erro)}`);
           }
         }
       }
