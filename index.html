@@ -494,6 +494,38 @@
       var roboTarefas = roboTarefasState[0];
       var setRoboTarefas = roboTarefasState[1];
 
+      // ── Promoções ──────────────────────────────────────────────────────────
+      var promoContaState = useState('KMP');
+      var promoConta = promoContaState[0];
+      var setPromoConta = promoContaState[1];
+      var promoListaState = useState([]);          // as promoções de cada loja
+      var promoLista = promoListaState[0];
+      var setPromoLista = promoListaState[1];
+      var promoSelState = useState(null);          // a promoção aberta
+      var promoSel = promoSelState[0];
+      var setPromoSel = promoSelState[1];
+      var promoItensState = useState([]);
+      var promoItens = promoItensState[0];
+      var setPromoItens = promoItensState[1];
+      var promoMarcadosState = useState({});       // item_id -> true
+      var promoMarcados = promoMarcadosState[0];
+      var setPromoMarcados = promoMarcadosState[1];
+      var promoPercentualState = useState('10');
+      var promoPercentual = promoPercentualState[0];
+      var setPromoPercentual = promoPercentualState[1];
+      var promoBuscaState = useState('');
+      var promoBusca = promoBuscaState[0];
+      var setPromoBusca = promoBuscaState[1];
+      var promoCarregandoState = useState(false);
+      var promoCarregando = promoCarregandoState[0];
+      var setPromoCarregando = promoCarregandoState[1];
+      var promoAtivandoState = useState(false);
+      var promoAtivando = promoAtivandoState[0];
+      var setPromoAtivando = promoAtivandoState[1];
+      var promoResultadoState = useState(null);    // { ativados, recusados }
+      var promoResultado = promoResultadoState[0];
+      var setPromoResultado = promoResultadoState[1];
+
       // histórico do que foi feito nos anúncios (pelo sistema e pelo robô)
       var logAcoesState = useState([]);
       var logAcoes = logAcoesState[0];
@@ -967,6 +999,116 @@
             if (tinhaTrabalho && emAndamento === 0 && anunciosReativarResultado) {
               reativarAnunciosSemEstoque();
             }
+          });
+      }
+
+      // ── Promoções: conversa com o servidor ─────────────────────────────────
+      //
+      // A varredura (descobrir o que cada anúncio aceita) roda no robô, porque são
+      // ~1.100 chamadas por loja e o servidor tem tempo limite. A tela aqui só LÊ o
+      // resultado guardado, então abre na hora. A ativação é no servidor.
+      var PROMO_URL = 'https://pylkufhziohxvwbbaued.supabase.co/functions/v1/ml-promocoes';
+      function promoCabecalhos() {
+        return { 'Authorization': 'Bearer ' + supabaseKey, 'apikey': supabaseKey, 'Content-Type': 'application/json' };
+      }
+
+      function carregarPromocoes() {
+        supabase.from('ml_promocoes_resumo').select('*')
+          .then(function(r) { if (!r.error && r.data) setPromoLista(r.data); });
+      }
+
+      function abrirPromocao(p) {
+        setPromoSel(p);
+        setPromoMarcados({});
+        setPromoResultado(null);
+        setPromoBusca('');
+        setPromoCarregando(true);
+        supabase.from('ml_promocoes_itens').select('*')
+          .eq('conta', p.conta).eq('promocao_id', p.promocao_id)
+          .then(function(r) {
+            setPromoCarregando(false);
+            if (r.error || !r.data) return;
+            // Os que já estão numa promoção vêm em cima, como o Matheus pediu.
+            var ordenados = r.data.slice().sort(function(a, b) {
+              if (a.status !== b.status) return a.status === 'started' ? -1 : 1;
+              return (a.title || '').localeCompare(b.title || '');
+            });
+            setPromoItens(ordenados);
+          });
+      }
+
+      // Filtra pela busca. Serve como "por categoria" na prática: o Matheus digita
+      // "termostática" ou o SKU e a lista se reduz ao que interessa.
+      function promoItensVisiveis() {
+        var termo = promoBusca.trim().toLowerCase();
+        if (!termo) return promoItens;
+        return promoItens.filter(function(it) {
+          return (it.title || '').toLowerCase().indexOf(termo) !== -1
+              || (it.item_id || '').toLowerCase().indexOf(termo) !== -1;
+        });
+      }
+
+      function alternarMarcado(itemId) {
+        var novo = Object.assign({}, promoMarcados);
+        if (novo[itemId]) delete novo[itemId]; else novo[itemId] = true;
+        setPromoMarcados(novo);
+      }
+
+      function marcarTodosVisiveis(marcar) {
+        var novo = Object.assign({}, promoMarcados);
+        promoItensVisiveis().forEach(function(it) {
+          if (marcar) novo[it.item_id] = true; else delete novo[it.item_id];
+        });
+        setPromoMarcados(novo);
+      }
+
+      // Preço que o anúncio vai ficar com o percentual escolhido. Sempre sobre o cheio.
+      function precoComDesconto(item, percentual) {
+        var cheio = Number(item.preco_cheio || 0);
+        if (!cheio || !percentual) return null;
+        return Math.round(cheio * (1 - percentual / 100) * 100) / 100;
+      }
+
+      // O ML impõe um limite por anúncio. Aqui só avisamos ANTES de enviar, pra tela
+      // não prometer o que vai ser recusado.
+      function foraDoLimite(item, percentual) {
+        var preco = precoComDesconto(item, percentual);
+        if (preco === null || item.preco_min == null || item.preco_max == null) return null;
+        if (preco > Number(item.preco_max)) return 'pouco';
+        if (preco < Number(item.preco_min)) return 'muito';
+        return null;
+      }
+
+      function ativarPromocao() {
+        if (!promoSel) return;
+        var ids = Object.keys(promoMarcados);
+        if (!ids.length) return;
+        var pct = parseFloat(String(promoPercentual).replace(',', '.'));
+        setPromoAtivando(true);
+        setPromoResultado(null);
+
+        fetch(PROMO_URL + '?acao=ativar', {
+          method: 'POST',
+          headers: promoCabecalhos(),
+          body: JSON.stringify({
+            conta: promoSel.conta,
+            promocao_id: promoSel.promocao_id,
+            promocao_tipo: promoSel.promocao_tipo,
+            percentual: isNaN(pct) ? null : pct,
+            itens: ids,
+          }),
+        })
+          .then(function(r) { return r.json(); })
+          .then(function(d) {
+            setPromoAtivando(false);
+            setPromoResultado(d);
+            setPromoMarcados({});
+            abrirPromocao(promoSel);   // recarrega pra mostrar quem entrou
+            carregarPromocoes();
+          })
+          .catch(function() {
+            setPromoAtivando(false);
+            setPromoResultado({ erro: 'não consegui falar com o servidor' });
           });
       }
 
@@ -2556,6 +2698,13 @@
               },
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'anuncios' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
             }, '📢 Anúncios'),
+            podeVerAba(perfilAtivo, 'promocoes') && e('button', {
+              onClick: function() {
+                setActiveTab('promocoes');
+                carregarPromocoes();
+              },
+              className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'promocoes' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
+            }, '🏷 Promoções'),
             podeVerAba(perfilAtivo, 'tarefas') && e('button', {
               onClick: function() { setActiveTab('tarefas'); },
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'tarefas' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
@@ -2576,6 +2725,153 @@
         ),
 
         e('main', {className: 'max-w-7xl mx-auto px-4 py-6'},
+          activeTab === 'promocoes' && (function() {
+            var daConta = promoLista.filter(function(p) { return p.conta === promoConta; })
+              .sort(function(a, b) { return (b.candidatos || 0) - (a.candidatos || 0); });
+            var visiveis = promoItensVisiveis();
+            var marcados = Object.keys(promoMarcados);
+            var pct = parseFloat(String(promoPercentual).replace(',', '.'));
+            var todosMarcados = visiveis.length > 0 && visiveis.every(function(it) { return promoMarcados[it.item_id]; });
+
+            return e('div', {className: 'space-y-4'},
+              e('div', {className: 'bg-slate-800 border border-slate-700 p-5 rounded-lg'},
+                e('h2', {className: 'text-lg font-bold mb-2'}, '🏷 Promoções'),
+                e('p', {className: 'text-slate-400 text-sm'},
+                  'Escolha a loja, a promoção e marque os anúncios. Você define o percentual de cada ' +
+                  'grupo: pode ativar 10 anúncios com 10% e outros 20 com 30%, na mesma promoção. ' +
+                  'O desconto é sempre sobre o preço cheio.')
+              ),
+
+              // Lojas
+              e('div', {className: 'flex gap-2 flex-wrap'},
+                ['KMP', 'ERP', 'LTS'].map(function(c) {
+                  return e('button', {
+                    key: c,
+                    onClick: function() { setPromoConta(c); setPromoSel(null); setPromoItens([]); },
+                    className: 'px-4 py-2 rounded-lg font-bold text-sm transition-colors ' +
+                      (promoConta === c ? getCorContaML(c) : 'bg-slate-800 text-slate-400 hover:text-white border border-slate-700')
+                  }, c);
+                })
+              ),
+
+              // Promoções da loja
+              daConta.length === 0
+                ? e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg p-5 text-sm text-slate-400'},
+                    'Nenhuma promoção catalogada para essa loja ainda. A varredura roda no robô — ' +
+                    'peça pra ela rodar ou aguarde a próxima.')
+                : e('div', {className: 'flex gap-2 flex-wrap'},
+                    daConta.map(function(p) {
+                      var aberta = promoSel && promoSel.promocao_id === p.promocao_id && promoSel.conta === p.conta;
+                      return e('button', {
+                        key: p.conta + p.promocao_id,
+                        onClick: function() { abrirPromocao(p); },
+                        className: 'px-3 py-2 rounded-lg text-xs font-bold border transition-colors text-left ' +
+                          (aberta ? 'bg-blue-600 border-blue-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white')
+                      },
+                        e('div', null, p.promocao_nome),
+                        e('div', {className: 'font-normal opacity-70 mt-0.5'},
+                          (p.ativos || 0) + ' ativos · ' + (p.candidatos || 0) + ' podem entrar')
+                      );
+                    })
+                  ),
+
+              // Anúncios da promoção escolhida
+              promoSel && e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg p-4 space-y-3'},
+                e('div', {className: 'flex items-center justify-between gap-3 flex-wrap'},
+                  e('div', {className: 'font-bold text-sm'}, promoSel.promocao_nome),
+                  e('input', {
+                    type: 'text', value: promoBusca,
+                    onChange: function(ev) { setPromoBusca(ev.target.value); },
+                    placeholder: 'filtrar por título ou código...',
+                    className: 'bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm flex-1 min-w-[200px]'
+                  })
+                ),
+
+                // Barra de ação
+                e('div', {className: 'flex items-center gap-3 flex-wrap bg-slate-900 rounded-lg px-3 py-2'},
+                  e('label', {className: 'flex items-center gap-2 text-xs text-slate-300 cursor-pointer'},
+                    e('input', {
+                      type: 'checkbox', checked: todosMarcados,
+                      onChange: function(ev) { marcarTodosVisiveis(ev.target.checked); },
+                      className: 'w-4 h-4'
+                    }),
+                    'selecionar todos' + (promoBusca ? ' (' + visiveis.length + ' filtrados)' : '')
+                  ),
+                  e('div', {className: 'flex items-center gap-2 text-xs'},
+                    e('span', {className: 'text-slate-400'}, 'desconto:'),
+                    e('input', {
+                      type: 'text', value: promoPercentual,
+                      onChange: function(ev) { setPromoPercentual(ev.target.value); },
+                      className: 'bg-slate-800 border border-slate-700 rounded px-2 py-1 w-16 text-center font-bold'
+                    }),
+                    e('span', {className: 'text-slate-400'}, '%')
+                  ),
+                  e('button', {
+                    onClick: ativarPromocao,
+                    disabled: promoAtivando || marcados.length === 0,
+                    className: 'ml-auto bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-1.5 rounded-lg font-bold text-xs ' +
+                      ((promoAtivando || marcados.length === 0) ? 'opacity-50 cursor-not-allowed' : '')
+                  }, promoAtivando ? '⏳ ativando...' : '✅ ativar ' + marcados.length + ' selecionado(s)')
+                ),
+
+                // Resultado da última ativação
+                promoResultado && e('div', {className: 'space-y-2'},
+                  promoResultado.erro && e('div', {className: 'text-xs text-red-300 bg-red-900 bg-opacity-25 border border-red-800 rounded px-3 py-2'},
+                    '⚠ ' + promoResultado.erro),
+                  (promoResultado.ativados || []).length > 0 && e('div', {className: 'text-xs text-emerald-300 bg-emerald-900 bg-opacity-25 border border-emerald-800 rounded px-3 py-2'},
+                    '✅ ' + promoResultado.ativados.length + ' anúncio(s) entraram na promoção'),
+                  (promoResultado.recusados || []).length > 0 && e('div', {className: 'text-xs bg-amber-900 bg-opacity-25 border border-amber-800 rounded px-3 py-2'},
+                    e('div', {className: 'text-amber-300 font-bold mb-1'},
+                      '⚠ ' + promoResultado.recusados.length + ' não entraram — o Mercado Livre recusou:'),
+                    e('div', {className: 'space-y-0.5 max-h-40 overflow-y-auto'},
+                      promoResultado.recusados.map(function(r) {
+                        return e('div', {key: r.item_id, className: 'text-amber-200 truncate'},
+                          (r.title || r.item_id) + ' — ' + r.motivo);
+                      }))
+                  )
+                ),
+
+                promoCarregando
+                  ? e('div', {className: 'text-sm text-slate-400 py-4 text-center'}, 'carregando anúncios...')
+                  : e('div', {className: 'space-y-1 max-h-[32rem] overflow-y-auto'},
+                      visiveis.map(function(it) {
+                        var ativo = it.status === 'started';
+                        var novoPreco = precoComDesconto(it, pct);
+                        var problema = foraDoLimite(it, pct);
+                        var marcado = !!promoMarcados[it.item_id];
+
+                        return e('div', {
+                          key: it.item_id,
+                          className: 'text-xs rounded px-2 py-1.5 border flex items-center gap-2 ' +
+                            (marcado ? 'bg-blue-900 bg-opacity-30 border-blue-700'
+                             : ativo ? 'bg-emerald-900 bg-opacity-20 border-emerald-800'
+                             : 'bg-slate-900 border-slate-700')
+                        },
+                          e('input', {
+                            type: 'checkbox', checked: marcado,
+                            onChange: function() { alternarMarcado(it.item_id); },
+                            className: 'w-4 h-4 flex-shrink-0'
+                          }),
+                          e('span', {className: 'flex-1 truncate ' + (ativo ? 'text-emerald-200' : 'text-slate-300'), title: it.title || ''},
+                            it.title || it.item_id),
+                          ativo && e('span', {className: 'text-emerald-400 font-bold whitespace-nowrap'}, '✅ já ativo'),
+                          e('span', {className: 'text-slate-400 whitespace-nowrap'},
+                            'R$ ' + Number(it.preco_cheio || 0).toFixed(2).replace('.', ',')),
+                          problema
+                            ? e('span', {className: 'text-amber-400 font-bold whitespace-nowrap',
+                                title: problema === 'pouco'
+                                  ? 'o Mercado Livre exige um desconto maior neste anúncio'
+                                  : 'o Mercado Livre não permite um desconto tão grande neste anúncio'},
+                                problema === 'pouco' ? '⚠ % baixo demais' : '⚠ % alto demais')
+                            : novoPreco !== null && e('span', {className: 'text-blue-300 font-bold whitespace-nowrap'},
+                                '→ R$ ' + novoPreco.toFixed(2).replace('.', ','))
+                        );
+                      })
+                    )
+              )
+            );
+          })(),
+
           activeTab === 'sku' && e('div', null,
             e('div', {className: 'bg-slate-800 border border-slate-700 p-6 rounded-lg mb-5'},
               e('h2', {className: 'text-lg font-bold mb-4'}, 'Registro de SKU'),
