@@ -525,6 +525,10 @@
       var promoResultadoState = useState(null);    // { ativados, recusados }
       var promoResultado = promoResultadoState[0];
       var setPromoResultado = promoResultadoState[1];
+      // item_id -> [{nome, preco}] das OUTRAS promoções em que o anúncio já está
+      var promoOutrasState = useState({});
+      var promoOutras = promoOutrasState[0];
+      var setPromoOutras = promoOutrasState[1];
 
       // histórico do que foi feito nos anúncios (pelo sistema e pelo robô)
       var logAcoesState = useState([]);
@@ -1044,6 +1048,26 @@
               return (a.title || '').localeCompare(b.title || '');
             });
             setPromoItens(ordenados);
+          });
+
+        // Em quais OUTRAS promoções esses anúncios já estão.
+        //
+        // Sem isso, você poderia ativar 10% num anúncio que já está com 25% em outra
+        // campanha — e trocar um desconto bom por um pior sem perceber. O Mercado
+        // Livre não avisa: ele lista o anúncio como elegível do mesmo jeito.
+        supabase.from('ml_promocoes_itens')
+          .select('item_id, promocao_id, promocao_nome, preco_promo')
+          .eq('conta', p.conta).eq('status', 'started')
+          .then(function(r) {
+            if (r.error || !r.data) return;
+            var mapa = {};
+            r.data.forEach(function(x) {
+              if (x.promocao_id === p.promocao_id) return;   // a própria não conta
+              (mapa[x.item_id] = mapa[x.item_id] || []).push({
+                nome: x.promocao_nome, preco: x.preco_promo,
+              });
+            });
+            setPromoOutras(mapa);
           });
       }
 
@@ -2917,13 +2941,24 @@
                         var problema = foraDoLimite(it, pct);
                         var marcado = !!promoMarcados[it.item_id];
 
+                        // Já está em outra promoção? Se o desconto de lá for MELHOR que
+                        // o que você vai aplicar, entrar aqui pode piorar o preço.
+                        var outras = promoOutras[it.item_id] || [];
+                        var melhorOutra = null;
+                        outras.forEach(function(o) {
+                          if (o.preco != null && (melhorOutra === null || Number(o.preco) < Number(melhorOutra.preco))) melhorOutra = o;
+                        });
+                        var pioraria = melhorOutra && novoPreco !== null && novoPreco > Number(melhorOutra.preco);
+
                         return e('div', {
                           key: it.item_id,
-                          className: 'text-xs rounded px-2 py-1.5 border flex items-center gap-2 ' +
+                          className: 'text-xs rounded px-2 py-1.5 border ' +
                             (marcado ? 'bg-blue-900 bg-opacity-30 border-blue-700'
+                             : pioraria ? 'bg-amber-900 bg-opacity-20 border-amber-700'
                              : ativo ? 'bg-emerald-900 bg-opacity-20 border-emerald-800'
                              : 'bg-slate-900 border-slate-700')
                         },
+                          e('div', {className: 'flex items-center gap-2'},
                           e('input', {
                             type: 'checkbox', checked: marcado,
                             onChange: function() { alternarMarcado(it.item_id); },
@@ -2941,8 +2976,18 @@
                                   ? 'o Mercado Livre exige um desconto maior neste anúncio'
                                   : 'o Mercado Livre não permite um desconto tão grande neste anúncio'},
                                 problema === 'pouco' ? '⚠ % baixo demais' : '⚠ % alto demais')
-                            : novoPreco !== null && e('span', {className: 'text-blue-300 font-bold whitespace-nowrap'},
+                            : novoPreco !== null && e('span', {className: (pioraria ? 'text-amber-300' : 'text-blue-300') + ' font-bold whitespace-nowrap'},
                                 '→ R$ ' + novoPreco.toFixed(2).replace('.', ','))
+                          ),
+
+                          // A linha de aviso: onde ele já está e por quanto.
+                          outras.length > 0 && e('div', {className: 'mt-1 pl-6 ' + (pioraria ? 'text-amber-300 font-bold' : 'text-slate-500')},
+                            (pioraria ? '⚠ ' : '• ') + 'já está em ' +
+                            outras.map(function(o) {
+                              return o.nome + (o.preco != null ? ' por R$ ' + Number(o.preco).toFixed(2).replace('.', ',') : '');
+                            }).join(' · ') +
+                            (pioraria ? ' — este desconto deixaria o produto MAIS CARO' : '')
+                          )
                         );
                       })
                     )
