@@ -3281,30 +3281,34 @@
                       ),
                       e('div', {className: 'space-y-1'},
                         full.map(function(item) {
+                          // REGRA DESTA LISTA: o anúncio só aparece aqui porque a verificação
+                          // ACABOU de perguntar ao Mercado Livre e ele AINDA está no Full.
+                          // Logo, ele nunca está "Feito" — estar aqui é a prova do contrário.
+                          //
+                          // Antes o rótulo vinha do registro da tarefa, que é histórico: a
+                          // tarefa tinha dado certo dias atrás e o anúncio voltou pro Full
+                          // depois. A tela dizia "Feito ✅" com o anúncio parado sem vender.
                           var tarefa = roboTarefas[item.item_id];
                           var emFila = tarefa && (tarefa.status === 'pendente' || tarefa.status === 'rodando');
-                          var concluido = tarefa && tarefa.status === 'feito';
+                          var voltou = tarefa && tarefa.status === 'feito';
                           var falhou = tarefa && tarefa.status === 'falhou';
 
                           return e('div', {key: item.item_id, className: 'text-xs rounded px-2 py-1 border ' +
-                            (concluido ? 'bg-emerald-900 bg-opacity-30 border-emerald-700' : 'bg-amber-900 bg-opacity-30 border-amber-800')},
+                            (emFila ? 'bg-sky-900 bg-opacity-30 border-sky-800' : 'bg-amber-900 bg-opacity-30 border-amber-800')},
                             e('div', {className: 'flex justify-between gap-2'},
-                              e('span', {className: concluido ? 'text-emerald-200' : 'text-amber-200'}, item.title),
-                              e('span', {className: (concluido ? 'text-emerald-400' : 'text-amber-400') + ' whitespace-nowrap'}, item.sku_bruto)
+                              e('span', {className: emFila ? 'text-sky-200' : 'text-amber-200'}, item.title),
+                              e('span', {className: (emFila ? 'text-sky-400' : 'text-amber-400') + ' whitespace-nowrap'}, item.sku_bruto)
                             ),
                             e('div', {className: 'flex items-center gap-2 mt-1 flex-wrap'},
-                              // Concluído mostra o resultado e NÃO oferece o botão de novo —
-                              // reaparecer o botão dava a impressão de que nada tinha sido feito.
-                              concluido
-                                ? e('span', {className: 'text-emerald-300 font-bold'},
-                                    'Feito ✅' + (tarefa.resultado && tarefa.resultado.nada_a_fazer ? ' (já estava fora do Full)' : ''))
-                                : emFila
-                                  ? e('span', {className: 'text-sky-300 font-bold'},
-                                      tarefa.status === 'rodando' ? '⚙ o robô está fazendo agora...' : '⏳ na fila do robô')
-                                  : e('button', {
-                                      onClick: function() { enviarParaRobo(item, c); },
-                                      className: 'bg-blue-600 hover:bg-blue-500 text-white px-2 py-0.5 rounded font-bold'
-                                    }, '🤖 tirar do Full pelo robô'),
+                              emFila
+                                ? e('span', {className: 'text-sky-300 font-bold'},
+                                    tarefa.status === 'rodando' ? '⚙ o robô está fazendo agora...' : '⏳ na fila do robô')
+                                : e('button', {
+                                    onClick: function() { enviarParaRobo(item, c); },
+                                    className: 'bg-blue-600 hover:bg-blue-500 text-white px-2 py-0.5 rounded font-bold'
+                                  }, '🤖 tirar do Full pelo robô'),
+                              voltou && e('span', {className: 'text-amber-300'},
+                                '⚠ já foi tirado antes e voltou pro Full'),
                               falhou && e('span', {className: 'text-red-300', title: tarefa.erro || ''}, '⚠ tentativa anterior falhou')
                             )
                           );
