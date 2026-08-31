@@ -1032,6 +1032,18 @@
         // robô só olha a fila a cada 3s e a tela só relê o status a cada 30s — e você
         // não sabe se o clique funcionou.
         setPromoPedindo(true);
+        // Não empilha pedidos. Clicar 3x criava 3 varreduras seguidas da mesma loja —
+        // ~18 minutos de trabalho repetido pelo mesmo resultado.
+        supabase.from('ml_tarefas_robo')
+          .select('id').eq('tipo', 'varrer_promocoes').eq('conta', conta)
+          .in('status', ['pendente', 'rodando']).limit(1)
+          .then(function(r) {
+            if (r.data && r.data.length) { carregarStatusRobo(); return; }
+            enfileirarVarredura(conta);
+          });
+      }
+
+      function enfileirarVarredura(conta) {
         supabase.from('ml_tarefas_robo').insert({
           conta: conta, tipo: 'varrer_promocoes', status: 'pendente',
           params: { conta: conta },
