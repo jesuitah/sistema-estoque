@@ -395,6 +395,16 @@ function ehNavegadorMorto(erro) {
     .test(String(erro && erro.message ? erro.message : erro));
 }
 
+// A página do painel não terminou de carregar e o código de segurança não apareceu.
+// Está certo o robô se recusar a continuar (não dá pra chutar um token), mas isso é
+// um tropeço da rede ou do carregamento, não uma decisão do Mercado Livre — acontece,
+// por exemplo, quando o robô é reiniciado no meio de uma tarefa. Vale tentar de novo
+// em vez de marcar como falha e obrigar o Matheus a reenviar na mão.
+function ehPaginaNaoCarregou(erro) {
+  return /x-csrf-token|não encontrei o x-csrf|Timeout .*exceeded|net::ERR_/i
+    .test(String(erro && erro.message ? erro.message : erro));
+}
+
 // O perfil do navegador só aceita UM programa por vez. Se outra coisa estiver usando
 // (uma leitura manual, outro robô), o Chrome nem sobe: "spawn UNKNOWN". Isso é
 // temporário — não é motivo pra marcar a tarefa como falha e obrigar o Matheus a
@@ -507,6 +517,23 @@ async function processar(tarefa, navegadores) {
         await descartarNavegador(navegadores, tarefa.conta);
         const { nav, pagina } = await navegadorDaConta(navegadores, tarefa.conta);
         resultado = await executor(nav, pagina, tarefa, cred.access_token);
+      } else if (ehPaginaNaoCarregou(erro)) {
+        // Página não carregou por completo. Descarta, abre de novo e tenta mais duas
+        // vezes antes de desistir — evita que um tropeço de rede vire trabalho manual.
+        let conseguiu = false;
+        for (let tentativa = 1; tentativa <= 2 && !conseguiu; tentativa++) {
+          log(`  a página não carregou direito — tentando de novo (${tentativa}/2)`);
+          await descartarNavegador(navegadores, tarefa.conta);
+          await new Promise((r) => setTimeout(r, tentativa * 10000));
+          try {
+            const { nav, pagina } = await navegadorDaConta(navegadores, tarefa.conta);
+            resultado = await executor(nav, pagina, tarefa, cred.access_token);
+            conseguiu = true;
+          } catch (novoErro) {
+            if (!ehPaginaNaoCarregou(novoErro)) throw novoErro;
+          }
+        }
+        if (!conseguiu) throw new Error('a página do Mercado Livre não carregou depois de 3 tentativas');
       } else {
         throw erro;
       }
