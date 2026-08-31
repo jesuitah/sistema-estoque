@@ -978,7 +978,9 @@
 
         // Histórico: sem isto, a tela esquece o que aconteceu assim que atualiza.
         supabase.from('ml_log_acoes')
-          .select('*').order('quando', { ascending: false }).limit(60)
+          // 200 e não 60: as duas abas leem daqui, e com o limite baixo o histórico de
+          // uma engolia o da outra — a patrulha sumia atrás das ações do "sem estoque".
+          .select('*').order('quando', { ascending: false }).limit(200)
           .then(function(r) { if (!r.error && r.data) setLogAcoes(r.data); });
 
         supabase.from('ml_patrulha_full')
@@ -4091,16 +4093,21 @@
                     );
                   }),
 
-                  // Histórico das passadas — o rastro do trabalho, mesmo quando não
-                  // houve nada a fazer.
+                  // Histórico do que o robô consertou. As passadas em si não entram —
+                  // elas estão no resumo do dia e no "verificada há X min" dos cards.
                   patrulhaExec.length > 0 && e('div', {className: 'mt-6 pt-4 border-t border-slate-700'},
                     e('button', {
                       onClick: function() { setPatrulhaHistAberto(!patrulhaHistAberto); },
                       className: 'w-full flex items-center justify-between gap-2 text-left px-1 py-1 rounded hover:bg-slate-800 transition-colors'
                     },
                       e('span', {className: 'text-sm font-bold text-slate-400'},
-                        (patrulhaHistAberto ? '▾' : '▸') + ' 🕐 Histórico das passadas'),
-                      e('span', {className: 'text-xs text-slate-600'}, patrulhaExec.length + ' passadas registradas')
+                        (patrulhaHistAberto ? '▾' : '▸') + ' 🕐 Histórico do que foi consertado'),
+                      e('span', {className: 'text-xs text-slate-600'}, (function() {
+                        var n = logAcoes.filter(function(l) {
+                          return l.acao === 'reativado' && /Full/i.test(l.detalhe || '');
+                        }).length;
+                        return n ? n + ' anúncio(s) reativados' : 'nada precisou de conserto';
+                      })())
                     ),
                     // Resumo antes da lista: 30 linhas iguais de "nada a fazer" não
                     // contam nada. O que importa é o volume verificado e o que mudou.
@@ -4122,48 +4129,73 @@
                       );
                     })(),
 
-                    patrulhaHistAberto && e('div', {className: 'space-y-1 max-h-72 overflow-y-auto mt-2 bg-slate-900 bg-opacity-40 rounded-lg p-3'},
-                      patrulhaExec.map(function(x) {
-                        // Mesmas cores e mesmo peso de letra do histórico da aba "Reativar
-                        // anúncios" — verde = deu certo, vermelho = problema. Sem variação.
-                        var visual = x.erro
-                          ? { cor: 'text-red-300', icone: '⚠', texto: x.erro }
-                          : (x.agidos || x.resolvidos)
-                          ? { cor: 'text-emerald-300', icone: '✅', texto: (function() {
-                              var partes = [];
-                              if (x.agidos) partes.push(x.agidos + ' anúncio(s) reativados automaticamente');
-                              if (x.resolvidos) partes.push(x.resolvidos + ' voltaram a vender');
-                              if (x.insistindo) partes.push(x.insistindo + ' não cederam ainda');
-                              return partes.join(' · ');
-                            })() }
-                          // Achou anúncio pra consertar e não consertou nenhum NÃO é "ok".
-                          // Foi assim que o robô passou 110 vezes sem fazer nada, todo verde.
-                          : x.alvos > 0
-                          ? { cor: 'text-amber-300', icone: '⏳', texto: x.alvos + ' anúncio(s) não cederam' +
-                              (x.tentativas ? ' em ' + x.tentativas + ' tentativas' : '') + ' — volta na próxima passada' }
-                          : { cor: 'text-emerald-300', icone: '✅', texto: 'Feito, ok' };
+                    patrulhaHistAberto && (function() {
+                      // O histórico mostra O QUE FOI FEITO, não que a passada aconteceu.
+                      //
+                      // Antes cada passada virava uma linha "Feito, ok" — 58 linhas iguais
+                      // por dia dizendo que nada precisou ser feito. Isso enterrava as
+                      // poucas linhas que importam. A prova de que o robô está passando já
+                      // está no resumo do dia acima e no "verificada há X min" dos cards.
+                      //
+                      // Aqui ficam só as ações reais, com o nome do anúncio — no mesmo
+                      // formato da aba "Reativar anúncios".
+                      var acoes = logAcoes.filter(function(l) {
+                        var d = l.detalhe || '';
+                        // As da patrulha: reativação que fala em Full, ou desistência dela.
+                        return (l.acao === 'reativado' && /Full/i.test(d))
+                            || (l.acao === 'falhou' && /não reativou em .* passadas/i.test(d));
+                      });
 
-                        var q = new Date(x.quando);
+                      // Erros das passadas também aparecem: são problemas de verdade.
+                      var errosPassada = patrulhaExec.filter(function(x) { return x.erro; });
+
+                      if (!acoes.length && !errosPassada.length) {
+                        return e('div', {className: 'mt-2 text-xs text-slate-500 bg-slate-900 bg-opacity-40 rounded-lg p-4 text-center'},
+                          'Nenhuma ação foi necessária ainda. Quando o robô reativar algum anúncio, ele aparece aqui com nome e horário.');
+                      }
+
+                      function horarioDe(quando) {
+                        var q = new Date(quando);
                         var hoje = new Date().toDateString() === q.toDateString();
-                        var horario = hoje
+                        return hoje
                           ? q.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})
                           : q.toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit'}) + ' ' +
                             q.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'});
+                      }
 
-                        return e('div', {key: x.id, className: 'text-xs border-b border-slate-700 py-1.5'},
-                          e('div', {className: 'flex items-center gap-2'},
-                            e('span', {className: 'text-slate-500 whitespace-nowrap w-16'}, horario),
-                            e('span', {className: getCorContaML(x.conta) + ' px-1.5 rounded text-xs font-bold'}, x.conta),
-                            e('span', {className: 'flex-1 text-slate-300 truncate'},
-                              x.lidos.toLocaleString('pt-BR') + ' anúncios conferidos')
-                          ),
-                          e('div', {
-                            className: visual.cor + ' font-bold pl-[4.5rem] mt-0.5 truncate',
-                            title: visual.texto
-                          }, visual.icone + ' ' + visual.texto)
-                        );
-                      })
-                    )
+                      var linhas = acoes.map(function(l) {
+                        var deuCerto = l.acao === 'reativado';
+                        return {
+                          chave: 'a' + l.id, quando: l.quando, conta: l.conta,
+                          titulo: l.title || l.item_id,
+                          cor: deuCerto ? 'text-emerald-300' : 'text-amber-300',
+                          icone: deuCerto ? '✅' : '⚠',
+                          desfecho: deuCerto ? 'voltou a vender' : (l.detalhe || 'não conseguiu'),
+                        };
+                      }).concat(errosPassada.map(function(x) {
+                        return {
+                          chave: 'e' + x.id, quando: x.quando, conta: x.conta,
+                          titulo: 'a passada não terminou',
+                          cor: 'text-red-300', icone: '⚠', desfecho: x.erro,
+                        };
+                      })).sort(function(a, b) { return new Date(b.quando) - new Date(a.quando); });
+
+                      return e('div', {className: 'space-y-1 max-h-72 overflow-y-auto mt-2 bg-slate-900 bg-opacity-40 rounded-lg p-3'},
+                        linhas.map(function(l) {
+                          return e('div', {key: l.chave, className: 'text-xs border-b border-slate-700 py-1.5'},
+                            e('div', {className: 'flex items-center gap-2'},
+                              e('span', {className: 'text-slate-500 whitespace-nowrap w-16'}, horarioDe(l.quando)),
+                              e('span', {className: getCorContaML(l.conta) + ' px-1.5 rounded text-xs font-bold'}, l.conta),
+                              e('span', {className: 'flex-1 text-slate-300 truncate', title: l.titulo}, l.titulo)
+                            ),
+                            e('div', {
+                              className: l.cor + ' font-bold pl-[4.5rem] mt-0.5 truncate',
+                              title: l.desfecho
+                            }, l.icone + ' ' + l.desfecho)
+                          );
+                        })
+                      );
+                    })()
                   )
                 );
               })(),
