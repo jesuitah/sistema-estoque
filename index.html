@@ -529,6 +529,9 @@
       var promoOutrasState = useState({});
       var promoOutras = promoOutrasState[0];
       var setPromoOutras = promoOutrasState[1];
+      var promoPedindoState = useState(false);   // clicou e o robô ainda não começou
+      var promoPedindo = promoPedindoState[0];
+      var setPromoPedindo = promoPedindoState[1];
 
       // histórico do que foi feito nos anúncios (pelo sistema e pelo robô)
       var logAcoesState = useState([]);
@@ -1025,10 +1028,23 @@
       // chamadas por loja — o servidor corta antes de terminar. A tela acompanha o
       // andamento pelo robo_status, igual à patrulha.
       function pedirVarreduraPromocoes(conta) {
+        // Marca "pedido" na hora. Sem isto o botão fica mudo por até meio minuto — o
+        // robô só olha a fila a cada 3s e a tela só relê o status a cada 30s — e você
+        // não sabe se o clique funcionou.
+        setPromoPedindo(true);
         supabase.from('ml_tarefas_robo').insert({
           conta: conta, tipo: 'varrer_promocoes', status: 'pendente',
           params: { conta: conta },
-        }).then(function() { carregarStatusRobo(); });
+        }).then(function() {
+          carregarStatusRobo();
+          // Enquanto o robô não começa, insistimos em reler o status a cada 3s.
+          var tentativas = 0;
+          var relogio = setInterval(function() {
+            tentativas++;
+            carregarStatusRobo();
+            if (tentativas > 20) { clearInterval(relogio); setPromoPedindo(false); }
+          }, 3000);
+        }, function() { setPromoPedindo(false); });
       }
 
       function abrirPromocao(p) {
@@ -2807,13 +2823,15 @@
                     e('h2', {className: 'text-lg font-bold'}, '🏷 Promoções'),
                     e('button', {
                       onClick: function() { pedirVarreduraPromocoes(promoConta); },
-                      disabled: !!varrendo || naFila || !roboEstaOnline(roboStatus),
+                      disabled: !!varrendo || naFila || promoPedindo || !roboEstaOnline(roboStatus),
                       title: !roboEstaOnline(roboStatus)
                         ? 'O robô precisa estar ligado — é ele que faz a varredura'
                         : 'Relê as promoções desta loja no Mercado Livre',
                       className: 'flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors ' +
-                        ((varrendo || naFila || !roboEstaOnline(roboStatus)) ? 'opacity-60 cursor-not-allowed' : '')
-                    }, varrendo || naFila ? '⏳ atualizando...' : '🔄 atualizar lista')
+                        ((varrendo || naFila || promoPedindo || !roboEstaOnline(roboStatus)) ? 'opacity-60 cursor-not-allowed' : '')
+                    }, varrendo ? '⏳ atualizando...'
+                       : (naFila || promoPedindo) ? '⏳ o robô vai começar...'
+                       : '🔄 atualizar lista')
                   ),
                   e('p', {className: 'text-slate-400 text-sm'},
                     'Escolha a loja, a promoção e marque os anúncios. Você define o percentual de cada ' +
@@ -2821,6 +2839,9 @@
                     'O desconto é sempre sobre o preço cheio. Um anúncio pode estar em várias promoções ' +
                     'ao mesmo tempo — o cliente sempre vê o menor preço, então entrar numa promoção ' +
                     'nunca encarece o produto.'),
+
+                  !varrendo && (naFila || promoPedindo) && e('div', {className: 'mt-3 text-xs text-sky-300 bg-sky-900 bg-opacity-25 border border-sky-800 rounded px-3 py-2'},
+                    '⏳ Pedido enviado. O robô pega em alguns segundos e a leitura leva uns 6 minutos.'),
 
                   varrendo && e('div', {className: 'mt-3'},
                     e('div', {className: 'flex justify-between text-xs text-sky-200 font-bold mb-1'},
