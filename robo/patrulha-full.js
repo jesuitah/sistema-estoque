@@ -110,7 +110,17 @@ async function extrairLinhas(pagina) {
       const bruto = c[0] || '';
       return {
         codigo_ml: (bruto.match(/C[óo]digo ML:\s*([A-Z0-9]+)/i) || [])[1] || null,
-        titulo: limpar(bruto.replace(/.*C[óo]digo ML:\s*[A-Z0-9]+/i, '').replace(/^[\s+\d]*/, '')).slice(0, 70),
+        // O título vem grudado com o tamanho e o estado do anúncio, porque a célula
+        // junta tudo: "Válvula Termostática ... PEQUENO Inativa". No histórico isso
+        // ficava feio e confuso — o estado ali é o de ONTEM, não o de agora.
+        // Cortamos fora esses rótulos e ficamos só com o nome do produto.
+        titulo: limpar(
+          bruto
+            .replace(/.*C[óo]digo ML:\s*[A-Z0-9]+/i, '')
+            .replace(/^[\s+\d]*/, '')
+            .replace(/\s*(EXTRAGRANDE|GRANDE|M[ÉE]DIO|PEQUENO)\b/gi, '')
+            .replace(/\s*(Inativa|Pausada|Ativa|Sem estoque)\b\.?\s*$/gi, '')
+        ).slice(0, 70),
         acao_sugerida: c[8] || null,
         // O id que a reativação precisa (MLBU...) é colhido AQUI, junto com o resto
         // da linha. Antes ele era procurado depois, numa segunda passada — e como a
@@ -157,13 +167,16 @@ async function estadoReal(auth, userProductId) {
   if (!ids.length) return null;
 
   const r = await fetch(
-    `https://api.mercadolibre.com/items/${ids[0]}?attributes=id,status,sub_status,available_quantity,shipping`,
+    `https://api.mercadolibre.com/items/${ids[0]}?attributes=id,title,status,sub_status,available_quantity,shipping`,
     { headers: auth.headers }
   );
   if (!r.ok) return null;
   const it = await r.json();
   return {
     itemId: it.id,
+    // O título da API vem inteiro. O da tela do painel vem cortado com "..." e
+    // grudado no tamanho e no estado — por isso o histórico ficava feio.
+    titulo: it.title || null,
     status: it.status,
     unidades: it.available_quantity,
     semEstoque: (it.sub_status || []).includes('out_of_stock') || it.available_quantity === 0,
@@ -318,7 +331,7 @@ async function patrulharConta(sb, conta, executar, log) {
     // Quem estava pendente e NÃO apareceu mais: sumiu da lista = resolvido.
     const codigosNaTela = new Set(lista.map((l) => l.codigo_ml));
     const { data: pendentes } = await sb.from('ml_patrulha_full')
-      .select('id, codigo_ml, tentativas').eq('conta', conta).is('resolvido_em', null);
+      .select('id, codigo_ml, titulo, tentativas').eq('conta', conta).is('resolvido_em', null);
     const resolvidos = (pendentes || []).filter((p) => !codigosNaTela.has(p.codigo_ml));
     if (resolvidos.length && executar) {
       await sb.from('ml_patrulha_full')
@@ -326,7 +339,9 @@ async function patrulharConta(sb, conta, executar, log) {
         .in('id', resolvidos.map((r) => r.id));
       for (const r of resolvidos) {
         await sb.from('ml_log_acoes').insert({
-          conta, item_id: r.codigo_ml, title: null, acao: 'reativado', origem: 'robo',
+          // Sem o título, o histórico mostrava só o código (ZRJK92424) e ninguém
+          // reconhecia a peça. Ele já está guardado desde que o anúncio entrou na fila.
+          conta, item_id: r.codigo_ml, title: r.titulo || null, acao: 'reativado', origem: 'robo',
           detalhe: `voltou a vender no Full (após ${r.tentativas} tentativa(s))`,
         });
       }
@@ -459,6 +474,8 @@ async function patrulharConta(sb, conta, executar, log) {
         }
 
         if (deuCerto(item.acao, estado)) {
+          // Guarda o nome de verdade, vindo da API — é o que vai pro histórico.
+          if (estado.titulo) item.titulo = estado.titulo;
           log(`  ${conta}: ✅ ${item.codigo_ml} vendendo no Full — confirmado pela API (${estado.itemId})`);
         } else {
           sobraram.push(item);
