@@ -26,9 +26,16 @@ async function main() {
   const problemas = [];
 
   // 1) robô vivo?
-  const { data: st } = await sb.from('robo_status').select('ultima_batida, parar').eq('id', 1).maybeSingle();
+  //
+  // Trabalho longo (patrulha, varredura de promoções) trava o laço principal e o ponto
+  // atrasa. Isso NÃO é robô morto — e gritar "fora do ar" nessas horas é alarme falso,
+  // que ensina a ignorar o vigia. Se o detalhe mostra trabalho em andamento, sabemos
+  // que ele está vivo.
+  const { data: st } = await sb.from('robo_status').select('ultima_batida, parar, detalhe').eq('id', 1).maybeSingle();
+  const trabalhando = !!(st?.detalhe?.patrulhando || st?.detalhe?.varrendo_promocoes);
   const minutos = st ? (Date.now() - new Date(st.ultima_batida).getTime()) / 60000 : 999;
-  if (minutos > 5) problemas.push(`ROBO FORA DO AR ha ${Math.round(minutos)} min`);
+  if (!trabalhando && minutos > 5) problemas.push(`ROBO FORA DO AR ha ${Math.round(minutos)} min`);
+  if (trabalhando && minutos > 45) problemas.push(`ROBO TRAVADO num trabalho longo ha ${Math.round(minutos)} min`);
   if (st && st.parar) problemas.push('ROBO PARADO pelo botao de panico');
 
   // 2) aba "sem estoque" do ML com anúncio ainda no Full
