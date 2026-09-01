@@ -735,6 +735,19 @@ async function main() {
 
       await processar(tarefa, navegadores);
       ultimaTarefa = Date.now();
+
+      // Terminou a fila? Confere na hora, sem esperar os 15 minutos do vigia.
+      //
+      // O alerta é criado quando o problema aparece e só fecha quando o vigia passa de
+      // novo. Sem isto, o robô conserta às 08:54 e a tarja vermelha fica na tela até
+      // 09:04 falando de algo já resolvido — foi o que o Matheus viu.
+      const { data: aindaTem } = await sb.from('ml_tarefas_robo')
+        .select('id').in('status', ['pendente', 'rodando']).limit(1);
+      if (!aindaTem || !aindaTem.length) {
+        ultimoVigia = Date.now();
+        try { await vigiar({ log: (m) => log(m) }); } catch (_e) { /* silencioso */ }
+      }
+
       await new Promise((r) => setTimeout(r, PAUSA_ENTRE_TAREFAS_MS));
     } catch (erro) {
       log(`erro no ciclo: ${erro.message}`);
