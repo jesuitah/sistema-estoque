@@ -148,6 +148,27 @@ async function varrerConta(sb, conta, log) {
   log(`  ${conta}: ${ids.length} anúncios ativos`);
   const dados = await dadosDosAnuncios(ids, auth);
 
+  // Datas das campanhas.
+  //
+  // Quando perguntamos "quais promoções este anúncio aceita", o ML devolve as datas
+  // só de algumas. Nas dele (Impulsione, Acelere o Full) vêm vazias — e o cartão
+  // ficava sem prazo, sem o Matheus saber até quando vale. A lista de campanhas da
+  // conta traz essas datas, então buscamos uma vez e completamos o que faltar.
+  const datasDaCampanha = {};
+  try {
+    const r = await buscar(
+      `https://api.mercadolibre.com/seller-promotions/users/${tok.user_id}?app_version=v2`,
+      { headers: auth });
+    if (r.ok) {
+      for (const c of (await r.json()).results || []) {
+        datasDaCampanha[c.id] = {
+          inicio: c.start_date || null,
+          fim: c.finish_date || c.deadline_date || null,
+        };
+      }
+    }
+  } catch (_e) { /* segue sem as datas */ }
+
   const linhas = [];
   const cacheTarifa = {};
   let erros = 0;
@@ -171,10 +192,10 @@ async function varrerConta(sb, conta, log) {
           tarifa_percentual: tarifa ? tarifa.percentual : null,
           tarifa_fixa: tarifa ? tarifa.fixa : null,
           frete_gratis: d.freteGratis ?? null,
-          // Quando a promoção começa e acaba. O ML manda em formatos diferentes
-          // conforme o tipo; guardamos como veio e a tela formata.
-          data_inicio: p.start_date || null,
-          data_fim: p.finish_date || p.deadline_date || null,
+          // Quando a promoção começa e acaba. Vem no próprio anúncio quando o ML
+          // manda; quando não manda, usamos a data da campanha.
+          data_inicio: p.start_date || (datasDaCampanha[p.id] || {}).inicio || null,
+          data_fim: p.finish_date || p.deadline_date || (datasDaCampanha[p.id] || {}).fim || null,
           // PRICE_DISCOUNT não tem id de campanha (é o desconto avulso do anúncio).
           // Damos um id fixo pra ele virar uma aba como as outras.
           promocao_id: p.id || `PD-${p.type}`,
