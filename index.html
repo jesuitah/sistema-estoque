@@ -1216,13 +1216,13 @@
             ),
             e('div', {className: 'text-right ' + (simulado ? 'opacity-60 italic' : '')},
               descontoReais != null ? moeda(descontoReais) : '—',
-              descontoPct != null && e('div', {className: 'text-slate-500 text-[11px]'}, '(' + descontoPct + '%)')
+              descontoPct != null && e('div', {className: 'text-slate-500 text-[12px]'}, '(' + descontoPct + '%)')
             ),
             e('div', {className: 'text-right ' + (simulado ? 'opacity-60 italic' : '')},
               preco != null ? moeda(preco) : '—'),
             e('div', {className: 'text-right ' + (simulado ? 'opacity-60 italic' : '')},
               e('div', {className: 'text-teal-300 font-bold'}, sobra != null ? moeda(sobra) : '—'),
-              bancaReais && e('div', {className: 'text-emerald-400 font-semibold text-[10.5px] leading-tight mt-0.5'},
+              bancaReais && e('div', {className: 'text-emerald-400 font-semibold text-[11.5px] leading-snug mt-1'},
                 'Reduzimos ' + moeda(bancaReais) + ' das suas tarifas por cada venda')
             ),
             e('div', {className: 'text-right'},
