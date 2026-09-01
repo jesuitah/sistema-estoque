@@ -1105,7 +1105,18 @@
         setPromoMarcados({});
         setPromoResultado(null);
         setPromoBusca('');
-        setPromoCarregando(true);
+        recarregarItens(p, true);
+      }
+
+      // Relê os anúncios da loja.
+      //
+      // `mostrarCarregando` é o que separa ABRIR de ATUALIZAR. Ao abrir uma promoção,
+      // trocar a lista por "carregando..." é certo. Depois de aplicar um desconto, NÃO:
+      // a lista some por um instante, a página encolhe, o navegador joga a rolagem lá
+      // pra cima e você perde o lugar onde estava trabalhando. Aqui a lista fica de pé
+      // e só troca de conteúdo quando os dados novos chegam.
+      function recarregarItens(p, mostrarCarregando) {
+        if (mostrarCarregando) setPromoCarregando(true);
         // Carrega TODAS as promoções da loja, não só a aberta: cada anúncio mostra a
         // lista inteira dele, pra você comparar antes de decidir. Vem em páginas
         // porque o Supabase devolve no máximo 1000 linhas por vez, e a KMP tem 2.300.
@@ -1407,7 +1418,9 @@
             setPromoAtivando(false);
             setPromoLinhaEdit(null);
             setPromoResultado(d);
-            if (promoSel) abrirPromocao(promoSel);
+            // Atualização silenciosa: sem apagar a lista, sem limpar a busca nem as
+            // caixinhas marcadas, e sem perder onde você estava na página.
+            if (promoSel) recarregarItens(promoSel, false);
             carregarPromocoes();
           })
           .catch(function() {
@@ -1440,7 +1453,7 @@
             setPromoAtivando(false);
             setPromoResultado(d);
             setPromoMarcados({});
-            abrirPromocao(promoSel);   // recarrega pra mostrar quem entrou
+            recarregarItens(promoSel, false);   // mostra quem entrou sem perder o lugar
             carregarPromocoes();
           })
           .catch(function() {
@@ -3121,9 +3134,13 @@
                 return (a.base.title || '').toLowerCase().indexOf(termo) !== -1
                     || (a.base.sku || '').toLowerCase().indexOf(termo) !== -1;
               })
+              // Ordem alfabética e SÓ alfabética.
+              //
+              // Antes os já ativos vinham primeiro. Parecia útil, mas quebrava o
+              // trabalho: você desce a lista aplicando um a um e, no instante em que
+              // ativa um anúncio, ele salta pro topo e leva todo o resto de lugar —
+              // você perde onde estava. Ordem fixa: a lista não se mexe embaixo de você.
               .sort(function(a, b) {
-                var aAtivo = a.nesta.status === 'started', bAtivo = b.nesta.status === 'started';
-                if (aAtivo !== bAtivo) return aAtivo ? -1 : 1;
                 return (a.base.title || '').localeCompare(b.base.title || '');
               });
 
