@@ -2973,7 +2973,15 @@
           ),
 
           activeTab === 'promocoes' && (function() {
-            var daConta = promoLista.filter(function(p) { return p.conta === promoConta; })
+            // Só as campanhas que o Matheus criou e as em que o Mercado Livre abate
+            // alguma coisa. O resto (cupom, oferta relâmpago, desconto avulso, ofertas
+            // de data sem contrapartida) não entra: ele não trabalha com elas e só
+            // ocupavam a tela.
+            var daConta = promoLista
+              .filter(function(p) {
+                return p.conta === promoConta
+                  && (p.promocao_tipo === 'SELLER_CAMPAIGN' || Number(p.meli_percentual) > 0);
+              })
               .sort(function(a, b) { return (b.candidatos || 0) - (a.candidatos || 0); });
             var marcados = Object.keys(promoMarcados);
             var pct = parseFloat(String(promoPercentual).replace(',', '.'));
