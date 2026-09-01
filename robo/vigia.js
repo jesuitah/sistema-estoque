@@ -94,14 +94,23 @@ async function levantarProblemas(sb) {
   const desde = new Date(Date.now() - 90 * 60 * 1000).toISOString();
   const { data: exec } = await sb.from('ml_patrulha_execucoes')
     .select('conta, insistindo, erro').gte('quando', desde);
-  const porConta = {};
   for (const x of exec || []) {
     if (x.erro) {
       achados.push({ chave: `patrulha_erro:${x.conta}`, gravidade: 'grave', mensagem: `Patrulha da ${x.conta}: ${x.erro}` });
-    } else if ((x.insistindo || 0) > 0) {
-      porConta[x.conta] = Math.max(porConta[x.conta] || 0, x.insistindo);
     }
   }
+
+  // Quem ainda está de fato pendente AGORA.
+  //
+  // Antes isto lia o campo `insistindo` das execuções das últimas 90 minutos — ou seja,
+  // uma FOTO do passado. Um anúncio que estava insistindo às 14:47 e cedeu às 14:51
+  // mantinha o alerta aceso por mais uma hora e meia, porque a execução velha continuava
+  // dentro da janela. Aconteceu de verdade. Agora perguntamos à lista de pendências o
+  // que continua em aberto neste instante — some da lista, some o alerta.
+  const { data: pendentes } = await sb.from('ml_patrulha_full')
+    .select('conta').is('resolvido_em', null).is('desistiu_em', null);
+  const porConta = {};
+  for (const p of pendentes || []) porConta[p.conta] = (porConta[p.conta] || 0) + 1;
   for (const [conta, qtd] of Object.entries(porConta)) {
     achados.push({
       chave: `patrulha_travada:${conta}`, gravidade: 'aviso',

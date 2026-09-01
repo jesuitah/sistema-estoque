@@ -1238,7 +1238,10 @@
             // Nas campanhas dele o realce não dizia nada (é ele quem paga o desconto
             // inteiro), e ainda competia com as etiquetas, que já contam o status.
             className: 'grid items-center gap-2 px-3 py-2 text-xs border-b border-slate-800 ' +
-              'grid-cols-[1fr_90px_100px_150px_80px] ' +
+              // A última coluna tem 132px porque é ela que abriga o campo de digitar o
+              // percentual (número + % + confirmar + cancelar). Com 80px o campo não
+              // cabia e vazava por cima da coluna "Você recebe".
+              'grid-cols-[1fr_90px_100px_150px_132px] ' +
               (bancaReais
                 ? 'bg-emerald-900 bg-opacity-20 border-l-[3px] border-l-emerald-500'
                 : 'border-l-[3px] border-l-transparent')
@@ -1267,25 +1270,31 @@
             (function() {
               var chave = a.id + '|' + l.promocao_id;
               if (promoLinhaEdit === chave) {
-                return e('div', {className: 'flex items-center gap-1 justify-end'},
-                  e('input', {
-                    type: 'text', value: promoPctLinha, autoFocus: true,
-                    onChange: function(ev) { setPromoPctLinha(ev.target.value); },
-                    onKeyDown: function(ev) {
-                      if (ev.key === 'Enter') aplicarNaLinha(a.id, l);
-                      if (ev.key === 'Escape') setPromoLinhaEdit(null);
-                    },
-                    className: 'bg-slate-950 border border-blue-600 rounded w-11 text-center text-slate-100 font-bold py-0.5'
-                  }),
-                  e('span', {className: 'text-slate-500 text-[11px]'}, '%'),
+                return e('div', {className: 'flex items-center gap-1.5 justify-end'},
+                  // Número e "%" moram na mesma caixinha, como na barra de cima —
+                  // o "%" solto ao lado do campo ficava perdido.
+                  e('div', {className: 'flex items-center bg-slate-950 border border-blue-600 rounded h-7 pr-1.5'},
+                    e('input', {
+                      type: 'text', value: promoPctLinha, autoFocus: true,
+                      onChange: function(ev) { setPromoPctLinha(ev.target.value); },
+                      onKeyDown: function(ev) {
+                        if (ev.key === 'Enter') aplicarNaLinha(a.id, l);
+                        if (ev.key === 'Escape') setPromoLinhaEdit(null);
+                      },
+                      className: 'bg-transparent border-0 outline-none w-9 text-center text-slate-100 font-bold text-xs'
+                    }),
+                    e('span', {className: 'text-slate-500 text-[11px]'}, '%')
+                  ),
                   e('button', {
                     onClick: function() { aplicarNaLinha(a.id, l); },
                     disabled: promoAtivando,
-                    className: 'bg-emerald-600 hover:bg-emerald-500 text-white rounded px-1.5 py-0.5 text-[11px] font-bold'
+                    title: 'aplicar',
+                    className: 'bg-emerald-600 hover:bg-emerald-500 text-white rounded h-7 w-7 flex items-center justify-center text-xs font-bold flex-shrink-0'
                   }, promoAtivando ? '…' : '✓'),
                   e('button', {
                     onClick: function() { setPromoLinhaEdit(null); },
-                    className: 'text-slate-500 hover:text-slate-300 text-[11px] px-1'
+                    title: 'cancelar',
+                    className: 'text-slate-500 hover:text-slate-300 h-7 w-5 flex items-center justify-center text-xs flex-shrink-0'
                   }, '✕')
                 );
               }
@@ -1323,7 +1332,7 @@
               base.frete_gratis && e('div', {className: 'text-slate-500 text-[11px] mt-0.5'}, 'frete grátis')
             )
           ),
-          e('div', {className: 'grid gap-2 px-3 py-2 text-[10px] uppercase tracking-wide text-slate-500 border-b border-slate-700 grid-cols-[1fr_90px_100px_150px_80px]'},
+          e('div', {className: 'grid gap-2 px-3 py-2 text-[10px] uppercase tracking-wide text-slate-500 border-b border-slate-700 grid-cols-[1fr_90px_100px_150px_132px]'},
             e('div', null, 'Promoção'),
             e('div', {className: 'text-right'}, 'Desconto'),
             e('div', {className: 'text-right'}, 'Preço final'),
