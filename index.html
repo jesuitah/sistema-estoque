@@ -1165,7 +1165,14 @@
         var cheio = Number(base.preco_cheio || 0);
         var marcado = !!promoMarcados[a.id];
 
-        var principais = a.linhas.filter(promocaoRelevante);
+        // A promoção que você abriu vem sempre primeiro. É nela que você está
+        // trabalhando — procurá-la no meio da lista a cada anúncio é trabalho à toa.
+        var principais = a.linhas.filter(promocaoRelevante).sort(function(x, y) {
+          var xAberta = promoSel && x.promocao_id === promoSel.promocao_id;
+          var yAberta = promoSel && y.promocao_id === promoSel.promocao_id;
+          if (xAberta !== yAberta) return xAberta ? -1 : 1;
+          return (x.promocao_nome || '').localeCompare(y.promocao_nome || '');
+        });
 
         // QUAL PROMOÇÃO O CLIENTE REALMENTE VÊ
         // O ML aceita o anúncio em várias ao mesmo tempo e mostra sempre o MENOR
