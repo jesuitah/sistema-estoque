@@ -533,6 +533,15 @@
       var promoPedindo = promoPedindoState[0];
       var setPromoPedindo = promoPedindoState[1];
 
+      // Linha que está sendo editada individualmente ("item|promocao") e o percentual
+      // digitado nela. Serve pra mexer num anúncio só, sem passar pela barra de cima.
+      var promoLinhaEditState = useState(null);
+      var promoLinhaEdit = promoLinhaEditState[0];
+      var setPromoLinhaEdit = promoLinhaEditState[1];
+      var promoPctLinhaState = useState('');
+      var promoPctLinha = promoPctLinhaState[0];
+      var setPromoPctLinha = promoPctLinhaState[1];
+
       // Problemas que o próprio robô encontrou. Quem grava é o vigia, dentro do robô.
       var alertasState = useState([]);
       var alertas = alertasState[0];
@@ -1234,11 +1243,44 @@
               bancaReais && e('div', {className: 'text-emerald-400 font-semibold text-[11.5px] leading-snug mt-1'},
                 'Reduzimos ' + moeda(bancaReais) + ' das suas tarifas por cada venda')
             ),
-            e('div', {className: 'text-right'},
-              ativa
-                ? e('span', {className: 'text-slate-500 text-[11px]'}, 'ativa')
-                : e('span', {className: 'text-blue-400 text-[11px]'}, 'pode entrar')
-            )
+            // Ação individual: clica, digita o percentual ali mesmo e confirma.
+            // Sem marcar caixinha e sem subir até a barra — é o ajuste pontual.
+            (function() {
+              var chave = a.id + '|' + l.promocao_id;
+              if (promoLinhaEdit === chave) {
+                return e('div', {className: 'flex items-center gap-1 justify-end'},
+                  e('input', {
+                    type: 'text', value: promoPctLinha, autoFocus: true,
+                    onChange: function(ev) { setPromoPctLinha(ev.target.value); },
+                    onKeyDown: function(ev) {
+                      if (ev.key === 'Enter') aplicarNaLinha(a.id, l);
+                      if (ev.key === 'Escape') setPromoLinhaEdit(null);
+                    },
+                    className: 'bg-slate-950 border border-blue-600 rounded w-11 text-center text-slate-100 font-bold py-0.5'
+                  }),
+                  e('span', {className: 'text-slate-500 text-[11px]'}, '%'),
+                  e('button', {
+                    onClick: function() { aplicarNaLinha(a.id, l); },
+                    disabled: promoAtivando,
+                    className: 'bg-emerald-600 hover:bg-emerald-500 text-white rounded px-1.5 py-0.5 text-[11px] font-bold'
+                  }, promoAtivando ? '…' : '✓'),
+                  e('button', {
+                    onClick: function() { setPromoLinhaEdit(null); },
+                    className: 'text-slate-500 hover:text-slate-300 text-[11px] px-1'
+                  }, '✕')
+                );
+              }
+              return e('div', {className: 'text-right'},
+                e('button', {
+                  onClick: function() {
+                    setPromoLinhaEdit(chave);
+                    // Começa com o percentual que já está valendo, ou o da barra.
+                    setPromoPctLinha(descontoPct != null ? String(descontoPct) : String(promoPercentual));
+                  },
+                  className: 'text-[11px] ' + (ativa ? 'text-slate-400 hover:text-slate-200' : 'text-blue-400 hover:text-blue-300')
+                }, ativa ? 'alterar' : 'participar')
+              );
+            })()
           );
         }
 
@@ -1312,6 +1354,38 @@
         if (preco > Number(item.preco_max)) return 'pouco';
         if (preco < Number(item.preco_min)) return 'muito';
         return null;
+      }
+
+      // Aplica em UM anúncio, na promoção daquela linha — que nem sempre é a que está
+      // aberta. Serve pro ajuste pontual, sem marcar caixinha nem subir até a barra.
+      function aplicarNaLinha(itemId, linha) {
+        var pct = parseFloat(String(promoPctLinha).replace(',', '.'));
+        if (isNaN(pct)) return;
+        setPromoAtivando(true);
+
+        fetch(PROMO_URL + '?acao=ativar', {
+          method: 'POST',
+          headers: promoCabecalhos(),
+          body: JSON.stringify({
+            conta: linha.conta,
+            promocao_id: linha.promocao_id,
+            promocao_tipo: linha.promocao_tipo,
+            percentual: pct,
+            itens: [itemId],
+          }),
+        })
+          .then(function(r) { return r.json(); })
+          .then(function(d) {
+            setPromoAtivando(false);
+            setPromoLinhaEdit(null);
+            setPromoResultado(d);
+            if (promoSel) abrirPromocao(promoSel);
+            carregarPromocoes();
+          })
+          .catch(function() {
+            setPromoAtivando(false);
+            setPromoResultado({ erro: 'não consegui falar com o servidor' });
+          });
       }
 
       function ativarPromocao() {
@@ -3107,7 +3181,9 @@
 
               promoSel && e('div', {className: 'space-y-3'},
                 // Barra de ação: marcar (leve), buscar (neutro), agir (destacado).
-                e('div', {className: 'flex items-center gap-4 flex-wrap bg-slate-900 border border-slate-800 rounded-xl px-4 py-3'},
+                // Fica grudada no topo ao rolar — com dezenas de anúncios na tela, ter
+                // que subir até em cima pra aplicar era trabalho repetido a cada lote.
+                e('div', {className: 'sticky top-0 z-20 flex items-center gap-4 flex-wrap bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 shadow-lg shadow-slate-950/50'},
                   e('label', {className: 'flex items-center gap-2 text-sm text-slate-400 cursor-pointer whitespace-nowrap'},
                     e('input', {
                       type: 'checkbox', checked: todosMarcados,
