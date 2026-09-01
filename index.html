@@ -1287,6 +1287,11 @@
                   e('div', {className: 'flex items-center bg-slate-950 border border-blue-600 rounded h-7 pr-1.5'},
                     e('input', {
                       type: 'text', value: promoPctLinha, autoFocus: true,
+                      // O campo abre com o percentual atual já escrito. Sem selecionar
+                      // tudo, digitar 12 em cima de um 10 podia virar 102, 120 ou 1210
+                      // dependendo de onde o cursor caiu — e você só descobria depois de
+                      // aplicar. Agora o texto já vem marcado: digitar substitui.
+                      onFocus: function(ev) { ev.target.select(); },
                       onChange: function(ev) { setPromoPctLinha(ev.target.value); },
                       onKeyDown: function(ev) {
                         if (ev.key === 'Enter') aplicarNaLinha(a.id, l);
@@ -3277,8 +3282,14 @@
                 promoResultado && e('div', {className: 'space-y-2'},
                   promoResultado.erro && e('div', {className: 'text-xs text-red-300 bg-red-900 bg-opacity-25 border border-red-800 rounded px-3 py-2'},
                     '⚠ ' + promoResultado.erro),
+                  // Mostra o percentual que o SERVIDOR recebeu, não o que está na
+                  // caixinha. Se um dia sair diferente do que você digitou, dá pra ver
+                  // na hora em vez de descobrir pelo preço final.
                   (promoResultado.ativados || []).length > 0 && e('div', {className: 'text-xs text-emerald-300 bg-emerald-900 bg-opacity-25 border border-emerald-800 rounded px-3 py-2'},
-                    '✅ ' + promoResultado.ativados.length + ' anúncio(s) aplicados'),
+                    '✅ ' + promoResultado.ativados.length + ' anúncio(s) aplicados'
+                    + (promoResultado.percentual_recebido != null
+                        ? ' com ' + promoResultado.percentual_recebido + '% de desconto'
+                        : '')),
                   (promoResultado.recusados || []).length > 0 && e('div', {className: 'text-xs bg-amber-900 bg-opacity-25 border border-amber-800 rounded px-3 py-2'},
                     e('div', {className: 'text-amber-300 font-bold mb-1'},
                       '⚠ ' + promoResultado.recusados.length + ' não entraram — o Mercado Livre recusou:'),
