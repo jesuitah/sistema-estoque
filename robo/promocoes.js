@@ -81,7 +81,7 @@ async function dadosDosAnuncios(ids, auth) {
   for (let i = 0; i < ids.length; i += 20) {
     const r = await buscar(
       `https://api.mercadolibre.com/items?ids=${ids.slice(i, i + 20).join(',')}`
-      + `&attributes=id,title,seller_custom_field,attributes`,
+      + `&attributes=id,title,seller_custom_field,attributes,category_id,listing_type_id,shipping,price`,
       { headers: auth });
     if (!r.ok) continue;
     for (const x of await r.json()) {
@@ -91,10 +91,51 @@ async function dadosDosAnuncios(ids, auth) {
       mapa[x.body.id] = {
         title: x.body.title,
         sku: sku || x.body.seller_custom_field || null,
+        categoria: x.body.category_id || null,
+        tipoAnuncio: x.body.listing_type_id || null,
+        freteGratis: !!(x.body.shipping && x.body.shipping.free_shipping),
+        preco: x.body.price,
       };
     }
   }
   return mapa;
+}
+
+// TARIFA DE VENDA
+//
+// Quanto o ML cobra depende da CATEGORIA e do TIPO do anúncio, não do anúncio em si.
+// Então perguntamos uma vez por combinação e reaproveitamos — são poucas dezenas de
+// combinações pra mais de mil anúncios. Perguntar item a item seria mil chamadas pelo
+// mesmo resultado.
+async function tarifaDe(sb, cache, categoria, tipo, preco, auth) {
+  if (!categoria || !tipo) return null;
+  const chave = `${categoria}|${tipo}`;
+  if (cache[chave] !== undefined) return cache[chave];
+
+  const { data } = await sb.from('ml_tarifas')
+    .select('percentual, taxa_fixa').eq('categoria', categoria).eq('tipo_anuncio', tipo).maybeSingle();
+  if (data) {
+    cache[chave] = { percentual: Number(data.percentual), fixa: Number(data.taxa_fixa) };
+    return cache[chave];
+  }
+
+  const r = await buscar(
+    `https://api.mercadolibre.com/sites/MLB/listing_prices?price=${preco}`
+    + `&listing_type_id=${tipo}&category_id=${categoria}`,
+    { headers: auth }).catch(() => null);
+  if (!r || !r.ok) { cache[chave] = null; return null; }
+
+  const j = await r.json();
+  const pct = j.sale_fee_details?.percentage_fee;
+  if (pct == null) { cache[chave] = null; return null; }
+
+  cache[chave] = { percentual: Number(pct), fixa: Number(j.sale_fee_details?.fixed_fee || 0) };
+  await sb.from('ml_tarifas').upsert({
+    categoria, tipo_anuncio: tipo,
+    percentual: cache[chave].percentual, taxa_fixa: cache[chave].fixa,
+    atualizado_em: new Date().toISOString(),
+  }).then(() => {}, () => {});
+  return cache[chave];
 }
 
 async function varrerConta(sb, conta, log) {
@@ -108,19 +149,28 @@ async function varrerConta(sb, conta, log) {
   const dados = await dadosDosAnuncios(ids, auth);
 
   const linhas = [];
+  const cacheTarifa = {};
   let erros = 0;
   for (let i = 0; i < ids.length; i++) {
     const id = ids[i];
+    const d = dados[id] || {};
     try {
       const r = await buscar(
         `https://api.mercadolibre.com/seller-promotions/items/${id}?app_version=v2`,
         { headers: auth });
       if (!r.ok) { erros++; continue; }
+
+      // Tarifa do anúncio, pra tela conseguir mostrar quanto sobra em cada promoção.
+      const tarifa = await tarifaDe(sb, cacheTarifa, d.categoria, d.tipoAnuncio, d.preco, auth);
+
       for (const p of await r.json()) {
         linhas.push({
           conta, item_id: id,
-          title: (dados[id] || {}).title || null,
-          sku: (dados[id] || {}).sku || null,
+          title: d.title || null,
+          sku: d.sku || null,
+          tarifa_percentual: tarifa ? tarifa.percentual : null,
+          tarifa_fixa: tarifa ? tarifa.fixa : null,
+          frete_gratis: d.freteGratis ?? null,
           // Quando a promoção começa e acaba. O ML manda em formatos diferentes
           // conforme o tipo; guardamos como veio e a tela formata.
           data_inicio: p.start_date || null,
