@@ -1166,7 +1166,6 @@
         var marcado = !!promoMarcados[a.id];
 
         var principais = a.linhas.filter(promocaoRelevante);
-        var outras = a.linhas.length - principais.length;
 
         // QUAL PROMOÇÃO O CLIENTE REALMENTE VÊ
         // O ML aceita o anúncio em várias ao mesmo tempo e mostra sempre o MENOR
@@ -1260,9 +1259,7 @@
             e('div', {className: 'text-right'}, 'Você recebe'),
             e('div', null)
           ),
-          principais.map(linhaDaPromocao),
-          outras > 0 && e('div', {className: 'px-4 py-2 text-[11px] text-slate-600'},
-            '+ ' + outras + ' outra(s) promoção(ões) que este anúncio aceita')
+          principais.map(linhaDaPromocao)
         );
       }
 
