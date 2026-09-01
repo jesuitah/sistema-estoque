@@ -533,6 +533,25 @@
       var promoPedindo = promoPedindoState[0];
       var setPromoPedindo = promoPedindoState[1];
 
+      // Altura do cabeçalho do sistema, medida de verdade.
+      //
+      // O cabeçalho (logo, contadores, abas) é fixo no topo. Qualquer barra que grude
+      // em "top: 0" fica ESCONDIDA atrás dele. Chutar um valor quebraria quando o
+      // cabeçalho mudasse de tamanho — então medimos e reagimos ao redimensionamento.
+      var alturaTopoState = useState(0);
+      var alturaTopo = alturaTopoState[0];
+      var setAlturaTopo = alturaTopoState[1];
+
+      useEffect(function() {
+        function medir() {
+          var h = document.querySelector('header');
+          if (h) setAlturaTopo(h.getBoundingClientRect().height);
+        }
+        medir();
+        window.addEventListener('resize', medir);
+        return function() { window.removeEventListener('resize', medir); };
+      }, []);
+
       // Linha que está sendo editada individualmente ("item|promocao") e o percentual
       // digitado nela. Serve pra mexer num anúncio só, sem passar pela barra de cima.
       var promoLinhaEditState = useState(null);
@@ -3183,7 +3202,10 @@
                 // Barra de ação: marcar (leve), buscar (neutro), agir (destacado).
                 // Fica grudada no topo ao rolar — com dezenas de anúncios na tela, ter
                 // que subir até em cima pra aplicar era trabalho repetido a cada lote.
-                e('div', {className: 'sticky top-0 z-20 flex items-center gap-4 flex-wrap bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 shadow-lg shadow-slate-950/50'},
+                e('div', {
+                  style: {top: alturaTopo + 'px'},
+                  className: 'sticky z-20 flex items-center gap-4 flex-wrap bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 shadow-lg shadow-slate-950/50'
+                },
                   e('label', {className: 'flex items-center gap-2 text-sm text-slate-400 cursor-pointer whitespace-nowrap'},
                     e('input', {
                       type: 'checkbox', checked: todosMarcados,
