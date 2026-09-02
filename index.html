@@ -1368,7 +1368,7 @@
               className: 'w-4 h-4 mt-0.5 flex-shrink-0'
             }),
             e('div', {className: 'flex-1 min-w-0'},
-              e('div', {className: 'font-semibold text-[13px] truncate', title: base.title || ''}, base.title || a.id),
+              e('div', {className: 'font-semibold text-sm truncate', title: base.title || ''}, base.title || a.id),
               // Preço cheio ao lado do SKU, na mesma linha.
               //
               // Estava sozinho na ponta direita, cinza e pequeno: pra comparar com os
@@ -1376,10 +1376,10 @@
               // Aqui ele fica junto do que identifica a peça, e destacado — é o número
               // de referência de todas as contas de baixo.
               e('div', {className: 'flex items-baseline gap-2 mt-0.5 min-w-0'},
-                base.sku && e('span', {className: 'text-amber-400 text-xs font-semibold truncate'}, base.sku),
+                base.sku && e('span', {className: 'text-amber-400 text-[13px] font-semibold truncate'}, base.sku),
                 // Mesmo tamanho do SKU. Com 15px ao lado de 12px a dupla ficava
                 // desalinhada; o preço se destaca pelo branco e pelo negrito.
-                e('span', {className: 'text-slate-100 text-xs font-bold whitespace-nowrap'}, moeda(cheio))
+                e('span', {className: 'text-slate-100 text-[13px] font-bold whitespace-nowrap'}, moeda(cheio))
               )
             )
           ),
