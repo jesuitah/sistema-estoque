@@ -1315,8 +1315,15 @@
               // meses — mas o Matheus não precisa lê-lo para decidir nada: precisa
               // confiar que já foi descontado. Mostrá-lo em toda linha só atrapalhava
               // a leitura. Fica no hover, pra quando ele quiser conferir a origem.
+              // VERDE SÓ ONDE O MERCADO LIVRE AJUDA.
+              //
+              // Todo valor era verde e a coluna virava um bloco de uma cor só — não
+              // dava pra ver de relance onde havia coparticipação, que é o que
+              // diferencia uma promoção da outra. No painel do ML o número é neutro e
+              // o verde marca o benefício; aqui o verde marca as duas coisas juntas,
+              // como o Matheus pediu: o valor e a frase da redução.
               e('div', {
-                className: 'text-teal-300 font-bold',
+                className: 'font-bold ' + (bancaReais ? 'text-emerald-400' : 'text-slate-100'),
                 title: sobra == null ? '' : explicarQuantoSobra(l, preco),
               }, sobra != null ? moeda(sobra) : '—'),
               // Frase curta desde que a coluna encolheu para caber dois anúncios por
