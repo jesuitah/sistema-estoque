@@ -1295,7 +1295,8 @@
                 className: 'text-[11px] leading-snug mt-0.5 '
                   + (l.frete_origem === 'real' ? 'text-slate-500' : 'text-slate-600 italic'),
                 title: (FRETE_FONTE[l.frete_origem] || function() { return ''; })(l.frete_vendas),
-              }, '− ' + moeda(l.frete_custo) + ' de frete' + (l.frete_origem === 'real' ? '' : ' (média)')),
+              }, 'frete de ' + moeda(l.frete_custo) + ' já descontado'
+                 + (l.frete_origem === 'real' ? '' : ' (média)')),
               bancaReais && e('div', {className: 'text-emerald-400 font-semibold text-[11.5px] leading-snug mt-1'},
                 'Reduzimos ' + moeda(bancaReais) + ' das suas tarifas por cada venda')
             ),
