@@ -118,7 +118,44 @@ async function levantarProblemas(sb) {
     });
   }
 
-  // 3) tarefas que falharam
+  // 3) o frete que sustenta a coluna "Você recebe"
+  //
+  // O número do frete não aparece mais na tela — o Matheus pediu para tirar, e confia
+  // que está certo. Essa confiança precisa de alguém olhando: se a coleta parar, a
+  // coluna continua mostrando um valor bonito, calculado com frete velho ou nenhum, e
+  // não há nada na tela que denuncie. Este alerta é o preço de ter escondido o número.
+  try {
+    const { count: semFrete } = await sb.from('ml_promocoes_itens')
+      .select('item_id', { count: 'exact', head: true })
+      .eq('status', 'started').is('frete_custo', null);
+    if (semFrete > 0) {
+      achados.push({
+        chave: 'frete_faltando', gravidade: 'aviso',
+        mensagem: `${semFrete} anúncio(s) em promoção sem custo de frete — o "Você recebe" deles está otimista`,
+      });
+    }
+
+    // A coleta roda junto da varredura de promoções. Parada há dias significa que
+    // vendas novas não entraram na média.
+    const { data: ultimo } = await sb.from('ml_fretes')
+      .select('criado_em').order('criado_em', { ascending: false }).limit(1);
+    if (ultimo && ultimo[0]) {
+      const dias = (Date.now() - new Date(ultimo[0].criado_em).getTime()) / 86400000;
+      if (dias > 3) {
+        achados.push({
+          chave: 'frete_parado', gravidade: 'aviso',
+          mensagem: `o custo de frete não é atualizado há ${Math.floor(dias)} dias`,
+        });
+      }
+    }
+  } catch (e) {
+    achados.push({
+      chave: 'frete_verificacao', gravidade: 'aviso',
+      mensagem: 'não consegui conferir o custo de frete: ' + e.message,
+    });
+  }
+
+  // 4) tarefas que falharam
   const { data: falhas } = await sb.from('ml_tarefas_robo')
     .select('conta, tipo, erro').eq('status', 'falhou').gte('criado_em', desde);
   for (const f of falhas || []) {

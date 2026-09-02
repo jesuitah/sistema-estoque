@@ -1190,12 +1190,31 @@
           - Number(l.frete_custo || 0);
       }
 
-      // Como explicar de onde saiu o número do frete.
+      // De onde saiu o número do frete, em uma frase.
       var FRETE_FONTE = {
-        real: function(n) { return 'o que você pagou de frete neste anúncio' + (n ? ' em ' + n + ' venda' + (n > 1 ? 's' : '') : ''); },
-        categoria: function() { return 'estimativa: média de frete da categoria — este anúncio ainda não vendeu'; },
-        faixa: function() { return 'estimativa pela faixa de preço — sem histórico da categoria'; },
+        real: function(n) { return 'do que você pagou neste anúncio' + (n ? ' em ' + n + ' venda' + (n > 1 ? 's' : '') : ''); },
+        categoria: function() { return 'média da categoria — este anúncio ainda não vendeu'; },
+        faixa: function() { return 'estimativa pela faixa de preço'; },
       };
+
+      // A conta inteira, para o hover do "Você recebe".
+      //
+      // O frete saiu da tela a pedido do Matheus: atrapalhava a leitura e ele não
+      // precisa lê-lo para decidir — precisa é confiar que já está descontado. Aqui
+      // fica o detalhe, para conferir sem abrir o banco.
+      function explicarQuantoSobra(l, preco) {
+        var partes = ['preço ' + moeda(preco)];
+        if (l.tarifa_percentual != null) {
+          partes.push('− tarifa ' + Number(l.tarifa_percentual) + '%  '
+            + moeda(preco * Number(l.tarifa_percentual) / 100));
+        }
+        if (Number(l.tarifa_fixa) > 0) partes.push('− taxa fixa  ' + moeda(l.tarifa_fixa));
+        if (Number(l.frete_custo) > 0) {
+          var origem = (FRETE_FONTE[l.frete_origem] || function() { return ''; })(l.frete_vendas);
+          partes.push('− frete  ' + moeda(l.frete_custo) + (origem ? '  (' + origem + ')' : ''));
+        }
+        return partes.join('\n');
+      }
 
       var moeda = function(v) {
         return 'R$ ' + Number(v).toFixed(2).replace('.', ',');
@@ -1281,22 +1300,16 @@
             e('div', {className: 'text-right ' + (simulado ? 'opacity-60 italic' : '')},
               preco != null ? moeda(preco) : '—'),
             e('div', {className: 'text-right ' + (simulado ? 'opacity-60 italic' : '')},
-              e('div', {className: 'text-teal-300 font-bold'}, sobra != null ? moeda(sobra) : '—'),
-              // O frete abaixo do valor, discreto. Fica claro que já foi descontado —
-              // sem isso o número parece a conta antiga e você não sabe se confia.
-              l.frete_custo != null && sobra != null && e('div', {
-                className: 'text-[12.5px] leading-snug mt-0.5 text-slate-300',
-                title: (FRETE_FONTE[l.frete_origem] || function() { return ''; })(l.frete_vendas),
-              },
-                // UMA LINHA SEMPRE, com ou sem estimativa.
-                //
-                // "(média)" não cabia ao lado do valor e caía para uma segunda linha —
-                // então dois anúncios com o mesmo número de promoções ficavam com
-                // alturas diferentes, e o grid abria um vazio no menor. O til faz o
-                // mesmo papel em um caractere; o hover explica por extenso.
-                l.frete_origem === 'real' ? 'frete de ' : 'frete ~',
-                e('span', {className: 'font-semibold text-slate-100'}, moeda(l.frete_custo))
-              ),
+              // O FRETE ENTRA NA CONTA MAS NÃO APARECE NA TELA.
+              //
+              // Ele é indispensável pro número estar certo — são R$ 45 mil em dois
+              // meses — mas o Matheus não precisa lê-lo para decidir nada: precisa
+              // confiar que já foi descontado. Mostrá-lo em toda linha só atrapalhava
+              // a leitura. Fica no hover, pra quando ele quiser conferir a origem.
+              e('div', {
+                className: 'text-teal-300 font-bold',
+                title: sobra == null ? '' : explicarQuantoSobra(l, preco),
+              }, sobra != null ? moeda(sobra) : '—'),
               // Frase curta desde que a coluna encolheu para caber dois anúncios por
               // linha: a do Mercado Livre ("Reduzimos R$ X das suas tarifas por cada
               // venda") quebrava em três linhas e esticava o bloco inteiro. O sentido
