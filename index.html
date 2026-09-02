@@ -118,18 +118,17 @@
 
     // Quem vê o quê. `null` = vê tudo.
     //
-    // Em 02/09/2026 o Matheus liberou todas as abas para todos os perfis. Antes o
-    // Leonardo e a Letícia não viam Promoções nem Importar SKUs, e a Expedição só via
-    // Pedidos e Busca.
-    //
-    // A estrutura continua aqui de propósito: se um dia for preciso fechar de novo,
-    // basta trocar o `null` pela lista de abas daquele perfil — nada mais no código
-    // precisa mudar.
+    // Em 02/09/2026 o Matheus liberou todas as abas para todos — MENOS "Importar
+    // SKUs", que ficou só para ele. Não é questão de confiança: aquela aba sobrescreve
+    // a quantidade e o custo de TODOS os SKUs de uma vez, a partir de uma planilha.
+    // Feita errada, é chata de desfazer, e é o dado que decide se o robô reativa um
+    // anúncio ou manda pra Inativos.
+    var TODAS_MENOS_IMPORTAR = ['robo', 'pedidosML', 'sku', 'precos', 'anuncios', 'promocoes', 'tarefas'];
     var ABAS_POR_PERFIL = {
-      mestre: null,
-      leonardo: null,
-      leticia: null,
-      expedicao: null,
+      mestre: null,                        // null = vê tudo
+      leonardo: TODAS_MENOS_IMPORTAR,
+      leticia: TODAS_MENOS_IMPORTAR,
+      expedicao: TODAS_MENOS_IMPORTAR,
     };
     var NOMES_PERFIL = { mestre: 'Mestre', leonardo: 'Leonardo', leticia: 'Letícia', expedicao: 'Expedição' };
 

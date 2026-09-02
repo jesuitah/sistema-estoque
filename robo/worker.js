@@ -186,6 +186,31 @@ async function atualizarCustos(contas, log) {
   }
 }
 
+// Relê o catálogo de anúncios das 3 lojas.
+//
+// Ficou meses dependendo de alguém clicar no botão da aba Anúncios — foi encontrado
+// desatualizado havia 19 horas. O problema não é a lista de oportunidades de clonagem
+// ficar velha: é que a CATEGORIA de cada anúncio sai daqui, e é a categoria que define
+// o frete e a tarifa de todo anúncio que ainda não vendeu. Anúncio criado hoje ficava
+// sem categoria até alguém lembrar do botão.
+//
+// É a mesma Edge Function que o botão do site chama.
+async function recatalogarAnuncios(log) {
+  log('📢 recatalogando anúncios das 3 lojas...');
+  try {
+    for (const conta of ['KMP', 'ERP', 'LTS']) {
+      const r = await fetch(
+        `https://pylkufhziohxvwbbaued.supabase.co/functions/v1/ml-sincronizar-anuncios?conta=${conta}`);
+      if (!r.ok) throw new Error(`${conta}: o servidor respondeu ${r.status}`);
+    }
+    log('   catálogo atualizado');
+  } catch (erro) {
+    // Não derruba o resto: as promoções e os custos seguem valendo com o catálogo
+    // anterior, que é melhor do que não rodar nada.
+    log(`   recatalogação falhou (o resto segue): ${mensagemAmigavel(erro)}`);
+  }
+}
+
 // Verifica a aba "sem estoque" das 3 lojas e enfileira quem precisa sair do Full.
 //
 // A regra de negócio (reativar com 89 unidades se houver peça aqui, ou pausar e mandar
@@ -735,6 +760,14 @@ async function main() {
           // aqui já sabemos que a fila está vazia — não disputa com as tarefas dele.
           if (Date.now() - ultimaVarreduraPromo > VARREDURA_PROMO_MS) {
             ultimaVarreduraPromo = Date.now();
+            // O CATÁLOGO VEM PRIMEIRO, e não é detalhe de ordem.
+            //
+            // É de `ml_anuncios` que sai a CATEGORIA de cada anúncio, e é a categoria
+            // que define o frete e a tarifa de quem ainda não vendeu. Anúncio novo que
+            // o catálogo não conhece fica sem categoria e cai na estimativa mais grossa.
+            // Recatalogar depois de calcular os custos seria calcular com dado velho.
+            await recatalogarAnuncios(log);
+
             log('🏷 recatalogando promoções...');
             try {
               await varrerPromocoes({ log: (m) => log(m) });
