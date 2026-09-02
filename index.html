@@ -3180,13 +3180,22 @@
                 return (a.base.title || '').toLowerCase().indexOf(termo) !== -1
                     || (a.base.sku || '').toLowerCase().indexOf(termo) !== -1;
               })
-              // Ordem alfabética e SÓ alfabética.
+              // Primeiro agrupa por QUANTAS promoções o anúncio tem; dentro do grupo,
+              // ordem alfabética.
               //
-              // Antes os já ativos vinham primeiro. Parecia útil, mas quebrava o
-              // trabalho: você desce a lista aplicando um a um e, no instante em que
-              // ativa um anúncio, ele salta pro topo e leva todo o resto de lugar —
-              // você perde onde estava. Ordem fixa: a lista não se mexe embaixo de você.
+              // Com dois cards por linha, o grid estica os dois até a altura do mais
+              // alto — então um anúncio de 2 promoções ao lado de um de 3 ganha um
+              // vazio emoldurado embaixo. Emparelhando quem tem a mesma quantidade,
+              // quase toda linha fica casada. Não fica perfeito (número ímpar num
+              // grupo empurra um card para o grupo seguinte), mas resolve a maioria.
+              //
+              // Continua ESTÁVEL, que é o que importa pra trabalhar: a quantidade de
+              // promoções que um anúncio aceita não muda quando você ativa uma delas,
+              // então a lista não se mexe embaixo de você no meio do trabalho.
               .sort(function(a, b) {
+                var qa = a.linhas.filter(promocaoRelevante).length;
+                var qb = b.linhas.filter(promocaoRelevante).length;
+                if (qa !== qb) return qa - qb;
                 return (a.base.title || '').localeCompare(b.base.title || '');
               });
 
