@@ -1287,11 +1287,20 @@
           },
             e('div', {className: 'flex items-center gap-2 flex-wrap min-w-0'},
               e('span', {className: 'text-slate-200 truncate'}, l.promocao_nome),
-              venceu
-                ? e('span', {className: 'bg-emerald-700 text-emerald-100 text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap'}, 'ATIVA E GANHANDO')
-                : ativa
-                  ? e('span', {className: 'bg-emerald-900 text-emerald-300 text-[10px] font-bold px-2 py-0.5 rounded-full'}, 'ATIVA')
-                  : null
+              // Duas etiquetas, com as cores do painel do Mercado Livre.
+              //
+              // VERDE "ATIVA" = é esta que o cliente está pagando.
+              // AZUL "PROGRAMADA" = está valendo também, mas outra tem preço menor e é
+              // aquela que vale. Fica esperando a vez.
+              //
+              // Antes as duas eram verdes ("ATIVA" e "ATIVA E GANHANDO") e o bloco
+              // inteiro virava um borrão da mesma cor — não dava pra achar de relance
+              // qual estava valendo, que é justamente a pergunta.
+              ativa && (
+                (!vencedora || venceu)
+                  ? e('span', {className: 'bg-emerald-900 text-emerald-300 text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap'}, 'ATIVA')
+                  : e('span', {className: 'bg-sky-900 text-sky-300 text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap'}, 'PROGRAMADA')
+              )
             ),
             e('div', {className: 'text-right ' + (simulado ? 'opacity-60 italic' : '')},
               descontoReais != null ? moeda(descontoReais) : '—',
