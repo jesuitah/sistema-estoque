@@ -1067,6 +1067,35 @@
         return (Date.now() - new Date(quando).getTime()) > limiteHoras * 3600000;
       }
 
+      // O selo que substituiu os botões "rodar agora" das abas de trabalho.
+      //
+      // Os botões saíram porque viraram duplicata: tudo o que eles faziam agora vive na
+      // aba Robô, junto do estado dele e do histórico. Ficar espalhado dava a impressão
+      // de que era preciso clicar em cada aba pra manter o sistema em dia — quando na
+      // verdade o robô já faz tudo sozinho.
+      //
+      // O que ficou é a informação que importa aqui: está em dia ou não. Clicar leva
+      // pra aba Robô, que é onde se resolve.
+      function seloAtualizacao(chave, limiteHoras) {
+        var quando = roboUltimas[chave];
+        var atrasado = estaAtrasada(quando, limiteHoras);
+        return e('button', {
+          onClick: function() {
+            setActiveTab('robo');
+            carregarStatusRobo();
+            carregarUltimasExecucoes();
+          },
+          title: 'Ver na aba Robô',
+          className: 'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-bold border transition-colors ' +
+            (atrasado
+              ? 'bg-amber-900 bg-opacity-40 border-amber-600 text-amber-200 hover:bg-opacity-60'
+              : 'bg-emerald-900 bg-opacity-40 border-emerald-700 text-emerald-300 hover:bg-opacity-60')
+        },
+          atrasado ? '⚠ precisa atualizar' : '✅ atualizado',
+          e('span', {className: 'font-normal opacity-70'}, desdeQuando(quando))
+        );
+      }
+
       // O botão mestre: roda de uma vez o que o Matheus faria clicando em três abas.
       //
       // Fora as promoções, que levam 18 minutos e têm outro ritmo — campanha nova não
@@ -3174,7 +3203,16 @@
                 setActiveTab('anuncios');
                 setAnunciosSubTab('reativar');   // sempre abre na primeira opção
                 carregarStatusRobo();
+                carregarUltimasExecucoes();      // alimenta o selo "atualizado / precisa atualizar"
                 if (anunciosGaps.length === 0) carregarAnunciosGaps();
+                // A verificação começa sozinha ao entrar.
+                //
+                // Antes a aba abria vazia e só mostrava as lojas depois de clicar em
+                // "Verificar e reativar" — enquanto a aba vizinha ("fora de venda") já
+                // abria com tudo na tela, porque lê do banco. Aqui a informação vem de
+                // uma consulta ao vivo ao Mercado Livre, então disparamos a consulta na
+                // entrada em vez de esperar um clique.
+                if (!anunciosReativarResultado && !anunciosReativando) reativarAnunciosSemEstoque();
               },
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'anuncios' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
             }, '📢 Anúncios'),
@@ -3904,7 +3942,13 @@
             return e('div', {className: 'space-y-4'},
               e('div', {className: 'flex gap-2 items-center flex-wrap'},
                 e('button', {
-                  onClick: function() { setAnunciosSubTab('reativar'); carregarStatusRobo(); },
+                  onClick: function() {
+                    setAnunciosSubTab('reativar');
+                    carregarStatusRobo();
+                    // Mesma verificação automática da entrada pela aba: quem volta por
+                    // aqui também não deveria encontrar a tela vazia.
+                    if (!anunciosReativarResultado && !anunciosReativando) reativarAnunciosSemEstoque();
+                  },
                   className: 'px-4 py-2 rounded-lg text-sm font-bold transition-colors ' + (anunciosSubTab === 'reativar' ? 'bg-blue-600 text-white' : 'bg-slate-800 border border-slate-600 text-slate-300 hover:border-slate-400')
                 }, '📦 Reativar anúncios'),
                 e('button', {
@@ -3920,22 +3964,10 @@
                   className: 'px-4 py-2 rounded-lg text-sm font-bold transition-colors ' + (anunciosSubTab === 'criar' ? 'bg-blue-600 text-white' : 'bg-slate-800 border border-slate-600 text-slate-300 hover:border-slate-400')
                 }, '➕ Criar novo anúncio'),
 
-                // Sinalização do robô, sempre visível na aba Anúncios — não é botão de
-                // ligar (uma página da web não consegue iniciar programa no computador),
-                // é o estado dele mais o comando de parar.
-                e('div', {className: 'ml-auto flex items-center gap-2'},
-                  roboEstaOnline(roboStatus)
-                    ? e('span', {className: 'bg-emerald-900 bg-opacity-50 border border-emerald-600 text-emerald-300 px-3 py-1.5 rounded-lg text-sm font-bold'}, '🟢 Robô ligado')
-                    : e('span', {className: 'bg-red-900 bg-opacity-50 border border-red-600 text-red-300 px-3 py-1.5 rounded-lg text-sm font-bold'}, '🔴 Robô desligado'),
-                  roboEstaOnline(roboStatus) && e('button', {
-                    onClick: pararOuRetomarRobo,
-                    title: roboStatus && roboStatus.parar ? 'Deixar o robô voltar a pegar tarefas' : 'Faz o robô parar de pegar tarefas',
-                    className: (roboStatus && roboStatus.parar
-                      ? 'bg-amber-600 hover:bg-amber-500 '
-                      : 'bg-slate-700 hover:bg-slate-600 border border-slate-500 ') +
-                      'text-white px-3 py-1.5 rounded-lg text-sm font-bold transition-colors'
-                  }, roboStatus && roboStatus.parar ? '▶ Retomar robô' : '⏸ Parar robô')
-                )
+                // O estado do robô e o botão de parar saíram daqui: viraram duplicata da
+                // aba Robô, que mostra bem mais (o que ele está fazendo, próxima
+                // patrulha, último sinal de vida). O pontinho colorido no nome da aba
+                // 🤖 Robô continua dando o estado de qualquer lugar do sistema.
               ),
 
               anunciosSubTab === 'criar' && e('div', {className: 'space-y-4 max-w-2xl'},
@@ -4126,11 +4158,9 @@
                 e('div', {className: 'bg-slate-800 border border-slate-700 p-5 rounded-lg'},
                   e('div', {className: 'flex items-center justify-between mb-2 flex-wrap gap-2'},
                     e('h2', {className: 'text-lg font-bold'}, '📦 Reativar anúncios pausados por falta de estoque'),
-                    e('button', {
-                      onClick: reativarAnunciosSemEstoque,
-                      disabled: anunciosReativando,
-                      className: 'flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors ' + (anunciosReativando ? 'opacity-60 cursor-wait' : '')
-                    }, anunciosReativando ? '⏳ Verificando...' : '🔄 Verificar e reativar')
+                    anunciosReativando
+                      ? e('span', {className: 'text-sm text-sky-300 font-bold'}, '⏳ verificando...')
+                      : seloAtualizacao('patrulha', 2)
                   ),
                   e('p', {className: 'text-slate-400 text-sm'}, 'Confere os anúncios pausados por falta de estoque nas 3 lojas e tira todos dessa aba. Tem a peça aqui: reativa com 89 unidades e volta a vender. Não tem: reativa e pausa, indo pra Inativos. Se estiver no Full, o robô tira do Full primeiro e depois faz o que for o caso.'),
 
@@ -4139,7 +4169,7 @@
                   !roboEstaOnline(roboStatus) && e('div', {className: 'mt-3 text-xs text-red-300 bg-red-900 bg-opacity-25 border border-red-800 rounded px-3 py-2'},
                     'O robô está desligado. Você pode mandar tarefas normalmente — elas ficam na fila e rodam sozinhas assim que ele voltar.'),
                   roboStatus && roboStatus.parar && roboEstaOnline(roboStatus) && e('div', {className: 'mt-3 text-xs text-amber-300 bg-amber-900 bg-opacity-25 border border-amber-800 rounded px-3 py-2'},
-                    'O robô está pausado por você. Clique em "Retomar robô" quando quiser que ele volte a trabalhar.'),
+                    'O robô está pausado por você. Retome na aba 🤖 Robô quando quiser que ele volte a trabalhar.'),
 
                   anunciosReativarErro && e('div', {className: 'mt-3 bg-red-900 bg-opacity-40 border border-red-700 rounded-lg p-3 text-red-300 text-sm'}, '⚠ ' + anunciosReativarErro)
                 ),
@@ -4411,13 +4441,9 @@
                   e('div', {className: 'bg-slate-800 border border-slate-700 p-5 rounded-lg'},
                     e('div', {className: 'flex items-center justify-between mb-2 flex-wrap gap-2'},
                       e('h2', {className: 'text-lg font-bold'}, '🔄 Reativar fora de venda'),
-                      e('button', {
-                        onClick: pedirPatrulhaAgora,
-                        disabled: patrulhaRodando || !roboEstaOnline(roboStatus),
-                        title: !roboEstaOnline(roboStatus) ? 'O robô precisa estar ligado' : 'Faz o robô passar agora, sem esperar a próxima hora cheia',
-                        className: 'flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors ' +
-                          ((patrulhaRodando || !roboEstaOnline(roboStatus)) ? 'opacity-60 cursor-not-allowed' : '')
-                      }, patrulhaRodando ? '⏳ Passando agora...' : '🔄 Rodar agora')
+                      patrulhaRodando
+                        ? e('span', {className: 'text-sm text-sky-300 font-bold'}, '⏳ passando agora...')
+                        : seloAtualizacao('patrulha', 2)
                     ),
                     e('p', {className: 'text-slate-400 text-sm'},
                       'O robô passa sozinho de hora em hora, sempre na hora cheia (19:00, 20:00...), dia e noite, nos anúncios que o Mercado Livre tirou ' +
