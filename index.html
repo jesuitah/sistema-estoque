@@ -3553,26 +3553,54 @@
                 ? 'Lendo as promoções da ' + det.conta + ' (' + det.lidos + ' de ' + det.total + ')'
                 : null;
 
-            // Cada rotina, o que faz, quando rodou e em quanto tempo deveria rodar.
+            // As rotinas do botão mestre. As promoções ficam fora daqui, num quadro
+            // próprio no fim: são 18 minutos contra 3, e têm outro ritmo.
             var rotinas = [
               { nome: 'Reativar fora de venda', chave: 'patrulha', limite: 2,
                 oque: 'Devolve à venda o que o Mercado Livre tirou, insistindo até ceder.',
-                ritmo: 'de hora em hora', acao: pedirPatrulhaAgora, rotulo: 'Rodar agora' },
+                ritmo: 'de hora em hora', acao: pedirPatrulhaAgora },
               { nome: 'Reativar sem estoque', chave: 'patrulha', limite: 2,
                 oque: 'Confere a aba "sem estoque" das 3 lojas e resolve cada caso.',
-                ritmo: 'após cada patrulha', acao: reativarAnunciosSemEstoque, rotulo: 'Rodar agora' },
+                ritmo: 'após cada patrulha', acao: reativarAnunciosSemEstoque },
               { nome: 'Catálogo de anúncios', chave: 'catalogo', limite: 26,
                 oque: 'Relê os anúncios das 3 lojas. É daqui que sai a categoria de cada um.',
-                ritmo: '1× por dia', acao: sincronizarAnuncios, rotulo: 'Rodar agora' },
-              { nome: 'Promoções, frete e tarifa', chave: 'promocoes', limite: 26,
-                oque: 'Recataloga as campanhas e recalcula o custo de frete e a tarifa.',
-                ritmo: '1× por dia · leva ~18 min',
-                acao: function() { pedirVarreduraPromocoes(promoConta); }, rotulo: 'Rodar agora' },
+                ritmo: '1× por dia', acao: sincronizarAnuncios },
             ];
+
+            // Uma linha da lista de rotinas.
+            function linhaDaRotina(r) {
+              var quando = roboUltimas[r.chave];
+              var atrasada = estaAtrasada(quando, r.limite);
+              return e('div', {
+                key: r.nome,
+                className: 'flex items-center justify-between gap-4 px-5 py-3 border-b border-slate-800 last:border-0 flex-wrap'
+              },
+                e('div', {className: 'min-w-0 flex-1'},
+                  e('div', {className: 'font-semibold text-sm'}, r.nome),
+                  e('div', {className: 'text-xs text-slate-400 mt-0.5'}, r.oque),
+                  e('div', {className: 'text-xs mt-1'},
+                    e('span', {className: 'text-slate-500'}, r.ritmo + ' · '),
+                    // Âmbar quando passou do prazo em que deveria ter rodado sozinha:
+                    // aí sim vale clicar, ou investigar por que não rodou.
+                    e('span', {className: atrasada ? 'text-amber-400 font-semibold' : 'text-slate-400'},
+                      desdeQuando(quando))
+                  )
+                ),
+                e('button', {
+                  onClick: r.acao,
+                  disabled: !ligado,
+                  className: 'px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap ' +
+                    (ligado ? 'bg-slate-700 hover:bg-slate-600 text-white' : 'bg-slate-800 text-slate-600 cursor-not-allowed')
+                }, 'Rodar agora')
+              );
+            }
 
             return e('div', {className: 'space-y-4'},
 
-              // 1. O ESTADO DELE, em primeiro lugar
+              // 1. ESTADO E VIGILÂNCIA, lado a lado no topo — as duas respondem
+              //    "está tudo bem?", que é a primeira pergunta ao abrir a aba.
+              e('div', {className: 'grid gap-4 lg:grid-cols-2 items-start'},
+
               e('div', {
                 className: 'rounded-lg p-5 border ' +
                   (!ligado ? 'bg-red-900 bg-opacity-25 border-red-700'
@@ -3610,6 +3638,26 @@
                 )
               ),
 
+              // A vigilância, ao lado do estado: as duas contam se está tudo bem.
+              e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg p-5'},
+                e('h3', {className: 'font-bold mb-2'}, 'Vigilância'),
+                alertas.length === 0
+                  ? e('p', {className: 'text-sm text-emerald-400'}, '✅ Nada pendente. Ele confere a si mesmo a cada 15 minutos.')
+                  : e('div', {className: 'space-y-2'},
+                      alertas.map(function(a) {
+                        return e('div', {
+                          key: a.id,
+                          className: 'text-sm rounded px-3 py-2 border ' +
+                            (a.gravidade === 'grave'
+                              ? 'bg-red-900 bg-opacity-30 border-red-700 text-red-200'
+                              : 'bg-amber-900 bg-opacity-25 border-amber-700 text-amber-200')
+                        }, a.mensagem);
+                      })
+                    )
+              )
+
+              ),
+
               // 2. O BOTÃO MESTRE
               e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg p-5'},
                 e('div', {className: 'flex items-center justify-between gap-4 flex-wrap'},
@@ -3645,50 +3693,26 @@
                   e('p', {className: 'text-xs text-slate-500 mt-0.5'},
                     'Tudo aqui roda no relógio, sem você clicar. Os botões servem pra não esperar.')
                 ),
-                rotinas.map(function(r) {
-                  var quando = roboUltimas[r.chave];
-                  var atrasada = estaAtrasada(quando, r.limite);
-                  return e('div', {
-                    key: r.nome,
-                    className: 'flex items-center justify-between gap-4 px-5 py-3 border-b border-slate-800 last:border-0 flex-wrap'
-                  },
-                    e('div', {className: 'min-w-0 flex-1'},
-                      e('div', {className: 'font-semibold text-sm'}, r.nome),
-                      e('div', {className: 'text-xs text-slate-400 mt-0.5'}, r.oque),
-                      e('div', {className: 'text-xs mt-1'},
-                        e('span', {className: 'text-slate-500'}, r.ritmo + ' · '),
-                        // Vermelho quando passou do prazo em que deveria ter rodado
-                        // sozinho: aí sim vale clicar, ou investigar por que não rodou.
-                        e('span', {className: atrasada ? 'text-amber-400 font-semibold' : 'text-slate-400'},
-                          desdeQuando(quando))
-                      )
-                    ),
-                    e('button', {
-                      onClick: r.acao,
-                      disabled: !ligado,
-                      className: 'px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap ' +
-                        (ligado ? 'bg-slate-700 hover:bg-slate-600 text-white' : 'bg-slate-800 text-slate-600 cursor-not-allowed')
-                    }, r.rotulo)
-                  );
-                })
+                rotinas.map(linhaDaRotina)
               ),
 
-              // 4. O QUE ELE ENCONTROU DE ERRADO
-              e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg p-5'},
-                e('h3', {className: 'font-bold mb-2'}, 'Vigilância'),
-                alertas.length === 0
-                  ? e('p', {className: 'text-sm text-emerald-400'}, '✅ Nada pendente. Ele confere a si mesmo a cada 15 minutos.')
-                  : e('div', {className: 'space-y-2'},
-                      alertas.map(function(a) {
-                        return e('div', {
-                          key: a.id,
-                          className: 'text-sm rounded px-3 py-2 border ' +
-                            (a.gravidade === 'grave'
-                              ? 'bg-red-900 bg-opacity-30 border-red-700 text-red-200'
-                              : 'bg-amber-900 bg-opacity-25 border-amber-700 text-amber-200')
-                        }, a.mensagem);
-                      })
-                    )
+              // 4. PROMOÇÕES, EM QUADRO PRÓPRIO E POR ÚLTIMO
+              //
+              // Separada das outras porque tem outro peso: 18 minutos contra 3, e um
+              // ritmo diferente — campanha nova não aparece duas vezes por dia. Junto
+              // das rápidas, dava a impressão de que clicar ali custava o mesmo.
+              e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg overflow-hidden'},
+                e('div', {className: 'px-5 py-3 border-b border-slate-700'},
+                  e('h3', {className: 'font-bold'}, 'Promoções, frete e tarifa'),
+                  e('p', {className: 'text-xs text-slate-500 mt-0.5'},
+                    'Fica fora do "Atualizar tudo" por levar bem mais tempo.')
+                ),
+                linhaDaRotina({
+                  nome: 'Recatalogar promoções das 3 lojas', chave: 'promocoes', limite: 26,
+                  oque: 'Relê as campanhas e recalcula o custo de frete e a tarifa de cada anúncio.',
+                  ritmo: '1× por dia · leva ~18 min',
+                  acao: function() { pedirVarreduraPromocoes(promoConta); },
+                })
               )
             );
           })(),
