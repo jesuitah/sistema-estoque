@@ -25,6 +25,7 @@ const { patrulhar } = require('./patrulha-full');
 const { varrer: varrerPromocoes } = require('./promocoes');
 const { coletar: coletarFretes } = require('./coletar-fretes');
 const { calcular: calcularFretes } = require('./calcular-fretes');
+const { calcular: calcularTarifas } = require('./calcular-tarifas');
 const { vigiar } = require('./vigia');
 
 const SUPABASE_URL = 'https://pylkufhziohxvwbbaued.supabase.co';
@@ -157,24 +158,31 @@ async function rodarPatrulha(opcoes) {
   }
 }
 
-// Atualiza o custo de frete que a aba Promoções usa na coluna "Você recebe".
+// Atualiza os dois custos que a aba Promoções desconta em "Você recebe": o frete e a
+// tarifa do Mercado Livre.
 //
-// Roda depois de cada varredura de promoções, pelo mesmo motivo: o cache acabou de ser
-// trocado e as colunas de frete vieram vazias — sem isto a coluna mostraria a margem
-// sem descontar o frete até alguém rodar o script na mão. Foi assim no primeiro dia.
+// Roda depois de cada varredura porque o cache acabou de ser trocado e essas colunas
+// vieram vazias — sem isto a coluna mostraria a margem sem descontar nada até alguém
+// rodar os scripts na mão. Foi assim no primeiro dia do frete.
 //
-// São duas etapas: buscar o custo das vendas NOVAS (só as que ainda não temos) e
-// recalcular a média de cada anúncio.
+// O frete precisa buscar na API o custo das vendas novas; a tarifa não, porque o valor
+// cobrado (`sale_fee`) já vem dentro de cada pedido que o sistema guarda.
 //
-// NÃO DERRUBA A VARREDURA. Se o frete falhar, as promoções continuam catalogadas — o
-// custo é um complemento, não pode custar o principal.
-async function atualizarFretes(contas, log) {
+// NÃO DERRUBA A VARREDURA. Se estes cálculos falharem, as promoções seguem catalogadas
+// — são um complemento e não podem custar o principal.
+async function atualizarCustos(contas, log) {
   try {
     await coletarFretes({ contas, log: (m) => log(m) });
-    const r = await calcularFretes({ log: (m) => log(m) });
-    log(`   frete: ${r.real} do próprio anúncio · ${r.categoria} pela categoria · ${r.faixa} pela faixa`);
+    const f = await calcularFretes({ log: (m) => log(m) });
+    log(`   frete: ${f.real} do próprio anúncio · ${f.categoria} pela categoria · ${f.faixa} pela faixa`);
   } catch (erro) {
     log(`   atualização do frete falhou (as promoções seguem ok): ${mensagemAmigavel(erro)}`);
+  }
+  try {
+    const t = await calcularTarifas({ log: (m) => log(m) });
+    log(`   tarifa: ${t.real} do próprio anúncio · ${t.categoria} pela categoria · ${t.tabela} pela tabela do ML`);
+  } catch (erro) {
+    log(`   atualização da tarifa falhou (as promoções seguem ok): ${mensagemAmigavel(erro)}`);
   }
 }
 
@@ -505,7 +513,7 @@ async function processar(tarefa, navegadores) {
     if (tarefa.tipo === 'varrer_promocoes') {
       const contas = tarefa.params?.conta ? [tarefa.params.conta] : undefined;
       const r = await varrerPromocoes({ contas, log: (m) => log(m) });
-      await atualizarFretes(contas, log);
+      await atualizarCustos(contas, log);
       await sb.from('ml_tarefas_robo').update({
         status: 'feito',
         resultado: { ok: true, por_conta: r },
@@ -730,7 +738,7 @@ async function main() {
             log('🏷 recatalogando promoções...');
             try {
               await varrerPromocoes({ log: (m) => log(m) });
-              await atualizarFretes(undefined, log);
+              await atualizarCustos(undefined, log);
               log('   promoções recatalogadas');
             } catch (erro) {
               log(`   varredura de promoções falhou: ${mensagemAmigavel(erro)}`);

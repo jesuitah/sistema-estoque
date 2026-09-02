@@ -1182,10 +1182,24 @@
       // O custo vem calculado do banco (real do anúncio, média da categoria ou da
       // faixa de preço, nessa ordem); `frete_origem` diz qual foi, pra tela poder
       // separar o que é fato do que é estimativa.
+      // O Mercado Livre cobra percentuais diferentes acima e abaixo de R$ 79 — a mesma
+      // linha que muda o frete. Como o desconto pode cruzar essa fronteira (um item de
+      // R$ 85 com 20% cai para R$ 68), a tarifa é escolhida pelo preço FINAL daquela
+      // promoção, não pelo preço cheio do anúncio.
+      var CORTE_TARIFA = 79;
+
+      function tarifaDaLinha(l, preco) {
+        if (preco == null) return null;
+        var pct = preco < CORTE_TARIFA ? l.tarifa_pct_baixo : l.tarifa_pct_alto;
+        if (pct == null) pct = l.tarifa_percentual;   // anúncio ainda sem tarifa medida
+        return pct == null ? null : Number(pct);
+      }
+
       function quantoSobra(l, preco) {
-        if (preco == null || l.tarifa_percentual == null) return null;
+        var pct = tarifaDaLinha(l, preco);
+        if (preco == null || pct == null) return null;
         return preco
-          - (preco * Number(l.tarifa_percentual) / 100)
+          - (preco * pct / 100)
           - Number(l.tarifa_fixa || 0)
           - Number(l.frete_custo || 0);
       }
@@ -1204,9 +1218,14 @@
       // fica o detalhe, para conferir sem abrir o banco.
       function explicarQuantoSobra(l, preco) {
         var partes = ['preço ' + moeda(preco)];
-        if (l.tarifa_percentual != null) {
-          partes.push('− tarifa ' + Number(l.tarifa_percentual) + '%  '
-            + moeda(preco * Number(l.tarifa_percentual) / 100));
+        var pct = tarifaDaLinha(l, preco);
+        if (pct != null) {
+          var fonte = l.tarifa_origem === 'real'
+            ? 'do que você pagou' + (l.tarifa_vendas ? ' em ' + l.tarifa_vendas + ' venda' + (l.tarifa_vendas > 1 ? 's' : '') : '')
+            : l.tarifa_origem === 'categoria' ? 'média da categoria'
+            : 'tabela do Mercado Livre';
+          partes.push('− tarifa ' + pct.toFixed(1).replace('.', ',') + '%  '
+            + moeda(preco * pct / 100) + '  (' + fonte + ')');
         }
         if (Number(l.tarifa_fixa) > 0) partes.push('− taxa fixa  ' + moeda(l.tarifa_fixa));
         if (Number(l.frete_custo) > 0) {
