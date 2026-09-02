@@ -3586,11 +3586,13 @@
                       desdeQuando(quando))
                   )
                 ),
+                // Azul como os outros botões de ação da aba: é tudo "faz agora", e o
+                // cinza fazia parecer um botão de segunda categoria.
                 e('button', {
                   onClick: r.acao,
                   disabled: !ligado,
-                  className: 'px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap ' +
-                    (ligado ? 'bg-slate-700 hover:bg-slate-600 text-white' : 'bg-slate-800 text-slate-600 cursor-not-allowed')
+                  className: 'px-4 py-2 rounded-lg text-xs font-bold whitespace-nowrap ' +
+                    (ligado ? 'bg-blue-600 hover:bg-blue-500 text-white' : 'bg-slate-700 text-slate-500 cursor-not-allowed')
                 }, 'Rodar agora')
               );
             }
