@@ -1295,9 +1295,10 @@
                 className: 'text-[12.5px] leading-snug mt-0.5 text-slate-300',
                 title: (FRETE_FONTE[l.frete_origem] || function() { return ''; })(l.frete_vendas),
               },
+                // Sem "já descontado": o valor verde acima já é o final, e a frase longa
+                // quebrava em duas linhas à toa.
                 'frete de ',
                 e('span', {className: 'font-semibold text-slate-100'}, moeda(l.frete_custo)),
-                ' já descontado',
                 // "média" fica menor e apagado: é ressalva, não informação principal.
                 l.frete_origem !== 'real' && e('span', {className: 'text-slate-500 text-[11px]'}, ' (média)')
               ),
