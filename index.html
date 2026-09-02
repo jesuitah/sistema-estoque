@@ -4395,17 +4395,15 @@
               // Esta aba é só de acompanhamento: o robô patrulha sozinho de hora em hora,
               // sem ninguém precisar clicar. Anúncio parado aqui é venda que não acontece.
               anunciosSubTab === 'fora_venda' && (function() {
-                var pendentes = patrulha.filter(function(p) { return !p.resolvido_em && !p.desistiu_em; });
-                // Só o que voltou a vender na ÚLTIMA HORA.
+                // A tela mostra só o que ainda EXIGE algo: o que o robô está tentando e
+                // o que ele desistiu de tentar.
                 //
-                // Antes esta lista trazia tudo que já tinha sido resolvido desde sempre,
-                // então nunca esvaziava: cada passada empilhava mais e o card virava um
-                // monte de anúncio de horas atrás, sem relação com a passada de agora.
-                // O histórico continua guardando tudo — aqui é só o momento.
-                var umaHoraAtras = Date.now() - 60 * 60 * 1000;
-                var resolvidos = patrulha.filter(function(p) {
-                  return p.resolvido_em && new Date(p.resolvido_em).getTime() > umaHoraAtras;
-                });
+                // Resolvido sai daqui na hora. Antes ficava uma hora numa seção verde
+                // "Voltaram a vender", e o Matheus perguntou duas vezes se aqueles
+                // anúncios precisavam de alguma coisa — uma lista de itens, mesmo em
+                // verde, parece uma fila de trabalho. Quem quiser ver o que foi feito
+                // tem o histórico logo abaixo, que guarda tudo.
+                var pendentes = patrulha.filter(function(p) { return !p.resolvido_em && !p.desistiu_em; });
                 var travados = patrulha.filter(function(p) { return p.desistiu_em; });
 
                 function linha(p, cor) {
@@ -4459,7 +4457,6 @@
                     var u = ultimaPorConta[c];
                     var pend = pendentes.filter(function(p) { return p.conta === c; });
                     var trav = travados.filter(function(p) { return p.conta === c; });
-                    var resol = resolvidos.filter(function(p) { return p.conta === c; }).slice(0, 10);
                     var verificandoAgora = andando && andando.conta === c;
 
                     // Acabou de passar aqui: o card fica verde por uns minutos, pra dar o
@@ -4520,14 +4517,7 @@
                           trav.map(function(p) { return linha(p, 'bg-red-900 bg-opacity-25 border-red-800 text-red-200'); }))
                       ),
 
-                      resol.length > 0 && e('div', null,
-                        e('div', {className: 'text-xs font-bold text-emerald-400 uppercase mb-1'},
-                          '✅ Voltaram a vender (' + resol.length + ')'),
-                        e('div', {className: 'space-y-1'},
-                          resol.map(function(p) { return linha(p, 'bg-emerald-900 bg-opacity-25 border-emerald-800 text-emerald-200'); }))
-                      ),
-
-                      pend.length === 0 && trav.length === 0 && resol.length === 0 &&
+                      pend.length === 0 && trav.length === 0 &&
                         e('div', {className: 'text-xs ' + (recemVerificada ? 'text-emerald-300' : 'text-slate-500')},
                           u && u.erro
                             ? '⚠ ' + u.erro
