@@ -47,19 +47,35 @@ async function main() {
   console.log(`\n  ${conta}: conferindo ${origem.length} anúncios da ${nomeOrigem} no ${nomeDestino}`);
   console.log('  (perguntando ao Mercado Livre um por um, sem usar o cache)\n');
 
-  let certos = 0, fora = 0, diferentes = 0;
+  let certos = 0, fora = 0, diferentes = 0, naoConferidos = 0;
   const problemas = [];
+  const semResposta = [];
+
+  // "Não consegui perguntar" NÃO é "não está na promoção".
+  //
+  // O ML devolve 500 de vez em quando, ainda mais depois de muitas chamadas seguidas.
+  // Antes isso entrava na conta de "fora da promoção" e o relatório acusava anúncios
+  // sem desconto que estavam perfeitos. Agora tenta de novo e, se ainda assim não
+  // responder, aparece numa lista à parte — o relatório diz "não sei", não "está fora".
+  async function perguntar(itemId) {
+    for (let tentativa = 1; tentativa <= 3; tentativa++) {
+      const r = await fetch(
+        `https://api.mercadolibre.com/seller-promotions/items/${itemId}?app_version=v2`,
+        { headers: auth }).catch(() => null);
+      if (r && r.ok) return await r.json();
+      if (r && r.status >= 400 && r.status < 500) return null;   // erro nosso, não adianta insistir
+      await new Promise((espera) => setTimeout(espera, tentativa * 1500));
+    }
+    return undefined;   // não conseguimos saber
+  }
 
   for (let i = 0; i < origem.length; i++) {
     const o = origem[i];
     const esperado = pctDe(o.preco_cheio, o.preco_promo);
     try {
-      const r = await fetch(
-        `https://api.mercadolibre.com/seller-promotions/items/${o.item_id}?app_version=v2`,
-        { headers: auth });
-      if (!r.ok) { problemas.push({ o, motivo: `o ML respondeu ${r.status}` }); fora++; continue; }
-
-      const lista = await r.json();
+      const lista = await perguntar(o.item_id);
+      if (lista === undefined) { semResposta.push(o); naoConferidos++; continue; }
+      if (lista === null) { problemas.push({ o, motivo: 'o ML recusou a consulta' }); fora++; continue; }
       const noDestino = lista.find((p) => p.id === destinoId && p.status === 'started');
       if (!noDestino) {
         problemas.push({ o, esperado, motivo: `NÃO está na ${nomeDestino}` });
@@ -86,6 +102,12 @@ async function main() {
   console.log(`  certos ................ ${certos}`);
   console.log(`  fora da ${nomeDestino.padEnd(13)} ${fora}`);
   console.log(`  com % diferente ....... ${diferentes}`);
+  if (naoConferidos) {
+    console.log(`  NÃO CONFERIDOS ........ ${naoConferidos}  (o ML não respondeu — não sabemos, tente de novo)`);
+    semResposta.slice(0, 10).forEach((o) => {
+      console.log(`     ${(o.title || o.item_id).slice(0, 44)}`);
+    });
+  }
   if (problemas.length) {
     console.log('');
     problemas.slice(0, 30).forEach((p) => {
@@ -94,7 +116,7 @@ async function main() {
     if (problemas.length > 30) console.log(`     ... e mais ${problemas.length - 30}`);
   }
   console.log('');
-  process.exit(problemas.length ? 1 : 0);
+  process.exit(problemas.length || naoConferidos ? 1 : 0);
 }
 
 main().catch((e) => { console.error('  ❌ ' + e.message); process.exit(2); });
