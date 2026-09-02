@@ -1292,11 +1292,15 @@
               // O frete abaixo do valor, discreto. Fica claro que já foi descontado —
               // sem isso o número parece a conta antiga e você não sabe se confia.
               l.frete_custo != null && sobra != null && e('div', {
-                className: 'text-[11px] leading-snug mt-0.5 '
-                  + (l.frete_origem === 'real' ? 'text-slate-500' : 'text-slate-600 italic'),
+                className: 'text-[12.5px] leading-snug mt-0.5 text-slate-300',
                 title: (FRETE_FONTE[l.frete_origem] || function() { return ''; })(l.frete_vendas),
-              }, 'frete de ' + moeda(l.frete_custo) + ' já descontado'
-                 + (l.frete_origem === 'real' ? '' : ' (média)')),
+              },
+                'frete de ',
+                e('span', {className: 'font-semibold text-slate-100'}, moeda(l.frete_custo)),
+                ' já descontado',
+                // "média" fica menor e apagado: é ressalva, não informação principal.
+                l.frete_origem !== 'real' && e('span', {className: 'text-slate-500 text-[11px]'}, ' (média)')
+              ),
               bancaReais && e('div', {className: 'text-emerald-400 font-semibold text-[11.5px] leading-snug mt-1'},
                 'Reduzimos ' + moeda(bancaReais) + ' das suas tarifas por cada venda')
             ),
