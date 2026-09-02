@@ -1206,7 +1206,7 @@
       // Como explicar de onde saiu o número do frete.
       var FRETE_FONTE = {
         real: function(n) { return 'o que você pagou de frete neste anúncio' + (n ? ' em ' + n + ' venda' + (n > 1 ? 's' : '') : ''); },
-        categoria: function() { return 'média de frete da categoria — este anúncio ainda não vendeu'; },
+        categoria: function() { return 'estimativa: média de frete da categoria — este anúncio ainda não vendeu'; },
         faixa: function() { return 'estimativa pela faixa de preço — sem histórico da categoria'; },
       };
 
@@ -1295,12 +1295,14 @@
                 className: 'text-[12.5px] leading-snug mt-0.5 text-slate-300',
                 title: (FRETE_FONTE[l.frete_origem] || function() { return ''; })(l.frete_vendas),
               },
-                // Sem "já descontado": o valor verde acima já é o final, e a frase longa
-                // quebrava em duas linhas à toa.
-                'frete de ',
-                e('span', {className: 'font-semibold text-slate-100'}, moeda(l.frete_custo)),
-                // "média" fica menor e apagado: é ressalva, não informação principal.
-                l.frete_origem !== 'real' && e('span', {className: 'text-slate-500 text-[11px]'}, ' (média)')
+                // UMA LINHA SEMPRE, com ou sem estimativa.
+                //
+                // "(média)" não cabia ao lado do valor e caía para uma segunda linha —
+                // então dois anúncios com o mesmo número de promoções ficavam com
+                // alturas diferentes, e o grid abria um vazio no menor. O til faz o
+                // mesmo papel em um caractere; o hover explica por extenso.
+                l.frete_origem === 'real' ? 'frete de ' : 'frete ~',
+                e('span', {className: 'font-semibold text-slate-100'}, moeda(l.frete_custo))
               ),
               // Frase curta desde que a coluna encolheu para caber dois anúncios por
               // linha: a do Mercado Livre ("Reduzimos R$ X das suas tarifas por cada
