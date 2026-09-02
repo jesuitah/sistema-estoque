@@ -3129,6 +3129,26 @@
 
         e('div', {className: 'bg-slate-800 border-b border-slate-700'},
           e('div', {className: 'max-w-7xl mx-auto px-4 flex overflow-x-auto'},
+            // A aba do robô abre a barra e é visível a todos os perfis: qualquer um
+            // que note algo estranho consegue ver se ele está de pé.
+            e('button', {
+              onClick: function() {
+                setActiveTab('robo');
+                carregarStatusRobo();
+                carregarUltimasExecucoes();
+              },
+              className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'robo' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
+            },
+              '🤖 Robô',
+              // Um pontinho ao lado do nome, pra dar o estado sem precisar entrar.
+              e('span', {
+                className: 'ml-2 inline-block w-2 h-2 rounded-full align-middle ' +
+                  (!roboEstaOnline(roboStatus) ? 'bg-red-500'
+                    : (roboStatus && roboStatus.parar) ? 'bg-amber-400' : 'bg-emerald-500'),
+                title: !roboEstaOnline(roboStatus) ? 'desligado'
+                  : (roboStatus && roboStatus.parar) ? 'pausado' : 'trabalhando',
+              })
+            ),
             podeVerAba(perfilAtivo, 'pedidosML') && e('button', {
               onClick: function() { setActiveTab('pedidosML'); },
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap relative ' + (activeTab === 'pedidosML' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
@@ -3164,27 +3184,7 @@
             podeVerAba(perfilAtivo, 'importar') && e('button', {
               onClick: function() { setActiveTab('importar'); },
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'importar' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
-            }, '📊 Importar SKUs'),
-            // A aba do robô fica por último e é visível a todos os perfis: qualquer um
-            // que note algo estranho consegue ver se ele está de pé.
-            e('button', {
-              onClick: function() {
-                setActiveTab('robo');
-                carregarStatusRobo();
-                carregarUltimasExecucoes();
-              },
-              className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'robo' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
-            },
-              '🤖 Robô',
-              // Um pontinho ao lado do nome, pra dar o estado sem precisar entrar.
-              e('span', {
-                className: 'ml-2 inline-block w-2 h-2 rounded-full align-middle ' +
-                  (!roboEstaOnline(roboStatus) ? 'bg-red-500'
-                    : (roboStatus && roboStatus.parar) ? 'bg-amber-400' : 'bg-emerald-500'),
-                title: !roboEstaOnline(roboStatus) ? 'desligado'
-                  : (roboStatus && roboStatus.parar) ? 'pausado' : 'trabalhando',
-              })
-            )
+            }, '📊 Importar SKUs')
           )
         ),
 
