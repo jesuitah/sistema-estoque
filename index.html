@@ -50,16 +50,6 @@
       {bg: 'bg-teal-500',   text: 'text-white'}
     ];
 
-    function getCorLoja(nome, idx) {
-      var n = (nome || '').toUpperCase();
-      if (n.indexOf('KMP') !== -1 || n.indexOf('KARMA') !== -1)
-        return {bg: 'bg-blue-500', text: 'text-white'};
-      if (n.indexOf('ERP') !== -1 || n.indexOf('ERUP') !== -1)
-        return {bg: 'bg-orange-500', text: 'text-white'};
-      if (n.indexOf('LOT') !== -1 || n.indexOf('LTS') !== -1)
-        return {bg: 'bg-yellow-400', text: 'text-gray-900'};
-      return LOJA_CORES_FALLBACK[idx % LOJA_CORES_FALLBACK.length];
-    }
 
     function tempoRelativo(ts) {
       var diff = Date.now() - new Date(ts).getTime();
@@ -74,32 +64,19 @@
 
     function SKUCard(props) {
       var item = props.item;
-      var lojas = props.lojas || [];
       var isZerado = item.unidades === 0;
       var borderColor = isZerado ? 'border-l-4 border-red-400 bg-red-50' : 'border-l-4 border-green-400 bg-green-50';
       var badgeColor = isZerado ? 'bg-red-200 text-red-800' : 'bg-green-200 text-green-800';
       var inputId = 'qty-' + item.id;
 
-      // Quais lojas têm esse SKU anunciado
-      var mk = item.marca ? item.marca.toUpperCase().replace(/\s+/g, '').replace(/[^A-Z0-9]/g, '') : '';
-      var sk = item.sku   ? item.sku.toUpperCase().replace(/\s+/g, '').replace(/[^A-Z0-9]/g, '')   : '';
-      var lojasAnunciadas = lojas.filter(function(l) { return l.skuSet && l.skuSet[mk + '|' + sk]; });
-
       return e('div', {className: borderColor + ' p-4 rounded-lg text-gray-800 shadow'},
-        // Linha superior: marca/SKU à esquerda, badges + x à direita
+        // Linha superior: marca/SKU à esquerda, remover à direita
         e('div', {className: 'flex justify-between items-start mb-2'},
           e('div', null,
             e('div', {className: 'text-xs text-gray-500 font-semibold uppercase'}, item.marca),
             e('div', {className: 'text-lg font-bold text-gray-900'}, item.sku)
           ),
           e('div', {className: 'flex items-center gap-1 ml-2 flex-shrink-0'},
-            lojasAnunciadas.map(function(loja) {
-              var cor = getCorLoja(loja.nome, loja.idx);
-              return e('span', {
-                key: loja.nome,
-                className: cor.bg + ' ' + cor.text + ' px-2 py-0.5 rounded text-xs font-bold'
-              }, loja.nome);
-            }),
             e('button', {
               onClick: function() { props.onDelete(item); },
               className: 'w-6 h-6 flex items-center justify-center hover:bg-red-200 rounded-full text-red-600 font-bold text-sm ml-1'
@@ -309,9 +286,6 @@
       var sortOrder = sortState[0];
       var setSortOrder = sortState[1];
 
-      var mlLojasState = useState([]);
-      var mlLojas = mlLojasState[0];
-      var setMlLojas = mlLojasState[1];
 
       var mlFiltroZeradosState = useState(true);
       var mlFiltroZerados = mlFiltroZeradosState[0];
@@ -405,13 +379,7 @@
       var markupEditValue = markupEditValueState[0];
       var setMarkupEditValue = markupEditValueState[1];
 
-      var vendasDataState = useState([]);
-      var vendasData = vendasDataState[0];
-      var setVendasData = vendasDataState[1];
 
-      var vendasLojaFiltroState = useState('Todas');
-      var vendasLojaFiltro = vendasLojaFiltroState[0];
-      var setVendasLojaFiltro = vendasLojaFiltroState[1];
 
       var vendasStatusFiltroState = useState('Todos');
       var vendasStatusFiltro = vendasStatusFiltroState[0];
@@ -932,15 +900,6 @@
         }).catch(function(err) {
           console.error('Erro de conexão:', err);
           setLoading(false);
-        });
-      }
-
-      function carregarLojasML() {
-        supabase.from('ml_lojas').select('*').order('idx').then(function(result) {
-          if (result.error || !result.data) return;
-          setMlLojas(result.data.map(function(row) {
-            return { nome: row.nome, skuSet: row.sku_set, idx: row.idx };
-          }));
         });
       }
 
@@ -1921,7 +1880,6 @@
 
       useEffect(function() {
         carregarEstoque();
-        carregarLojasML();
         carregarPrecos();
         carregarMarkups();
         carregarMarkupsML();
@@ -2229,59 +2187,6 @@
           }
         });
         return result;
-      }
-
-      function lerSKUsDoArquivoML(file, idx) {
-        // Nome da loja = nome do arquivo sem extensão (ex: KMP.xlsx → KMP)
-        var nomeLoja = file.name.replace(/\.[^.]+$/, '').toUpperCase();
-        var reader = new FileReader();
-        reader.onload = function(evt) {
-          try {
-            var wb = XLSX.read(evt.target.result, { type: 'array' });
-            var sheetName = wb.SheetNames.find(function(n) {
-              return n.toLowerCase().indexOf('an') !== -1;
-            }) || wb.SheetNames[0];
-            var ws = wb.Sheets[sheetName];
-            var rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-            var headerRow = rows[0] || [];
-            var skuColIdx = -1;
-            for (var ci = 0; ci < headerRow.length; ci++) {
-              if (String(headerRow[ci]).toUpperCase() === 'SKU') { skuColIdx = ci; break; }
-            }
-            if (skuColIdx === -1) skuColIdx = 4;
-            var skuSet = {};
-            for (var ri = 4; ri < rows.length; ri++) {
-              var skuCell = rows[ri][skuColIdx];
-              if (!skuCell) continue;
-              var parsed = parseSKUsML(String(skuCell));
-              parsed.forEach(function(p) { skuSet[p.marca + '|' + p.sku] = true; });
-            }
-            // Calcula nova lista fora do setState
-            var novaLista = mlLojas.slice();
-            var existe = novaLista.findIndex(function(l) { return l.nome === nomeLoja; });
-            var actualIdx = existe !== -1 ? existe : Math.min(idx, novaLista.length);
-            if (existe !== -1) {
-              novaLista[existe] = { nome: nomeLoja, skuSet: skuSet, idx: actualIdx };
-            } else {
-              novaLista.push({ nome: nomeLoja, skuSet: skuSet, idx: actualIdx });
-              novaLista = novaLista.map(function(l, i) { return { nome: l.nome, skuSet: l.skuSet, idx: i }; });
-              actualIdx = novaLista.findIndex(function(l) { return l.nome === nomeLoja; });
-            }
-            // Salva no Supabase ANTES de atualizar estado
-            supabase.from('ml_lojas').upsert(
-              { nome: nomeLoja, sku_set: skuSet, idx: actualIdx, updated_at: new Date().toISOString() },
-              { onConflict: 'nome' }
-            ).then(function(res) {
-              if (res.error) {
-                alert('Erro ao salvar loja ML no Supabase: ' + res.error.message);
-              }
-            });
-            setMlLojas(novaLista);
-          } catch(err) {
-            alert('Erro ao ler planilha do ML: ' + err.message);
-          }
-        };
-        reader.readAsArrayBuffer(file);
       }
 
       function carregarPrecos() {
@@ -2886,16 +2791,6 @@
       }
 
 
-      function removerLojaML(nome) {
-        supabase.from('ml_lojas').delete().eq('nome', nome).then(function(res) {
-          if (res.error) { alert('Erro ao remover loja ML: ' + res.error.message); return; }
-          setMlLojas(function(prev) {
-            return prev.filter(function(l) { return l.nome !== nome; })
-                       .map(function(l, i) { return { nome: l.nome, skuSet: l.skuSet, idx: i }; });
-          });
-        });
-      }
-
       function exportarNaoAnunciados(lista, lojas) {
         var header = ['MARCA', 'SKU', 'UNIDADES'].concat(lojas.map(function(l) { return l.nome; }));
         var dados = [header].concat(
@@ -2959,7 +2854,9 @@
           }
           return ler(0);
         }
-        var tabelas = ['estoque', 'precos', 'markup_marcas', 'ml_lojas', 'kanban_listas', 'kanban_cartoes', 'kanban_itens'];
+        // `ml_lojas` saiu daqui junto com a aba "Lojas ML": a tabela está vazia e não
+        // é mais alimentada. Fazia o backup carregar um objeto gigante à toa.
+        var tabelas = ['estoque', 'precos', 'markup_marcas', 'kanban_listas', 'kanban_cartoes', 'kanban_itens'];
         Promise.all(tabelas.map(puxarTudo)).then(function(resultados) {
           var wb = XLSX.utils.book_new();
           tabelas.forEach(function(nome, i) {
@@ -3170,18 +3067,10 @@
               onClick: function() { setActiveTab('tarefas'); },
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'tarefas' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
             }, '✅ Tarefas'),
-            podeVerAba(perfilAtivo, 'vendas') && e('button', {
-              onClick: function() { setActiveTab('vendas'); },
-              className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'vendas' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
-            }, '💰 Vendas'),
             podeVerAba(perfilAtivo, 'importar') && e('button', {
               onClick: function() { setActiveTab('importar'); },
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'importar' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
             }, '📊 Importar SKUs'),
-            podeVerAba(perfilAtivo, 'naoAnunciados') && e('button', {
-              onClick: function() { setActiveTab('naoAnunciados'); },
-              className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'naoAnunciados' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
-            }, '🏪 Lojas ML')
           )
         ),
 
@@ -3522,7 +3411,6 @@
                     return e(SKUCard, {
                       key: item.id,
                       item: item,
-                      lojas: mlLojas,
                       onDelete: deletarSKU,
                       onSaida: function(item, qty) { fazerMovimento(item, qty, 'saida'); },
                       onEntrada: function(item, qty) { fazerMovimento(item, qty, 'entrada'); }
@@ -3553,208 +3441,21 @@
             )
           ),
 
-          activeTab === 'vendas' && (function() {
-            var lojas = [];
-            vendasData.forEach(function(v) { if (lojas.indexOf(v.loja) === -1) lojas.push(v.loja); });
-            lojas.sort();
+          // A aba "Vendas" foi removida em 02/09/2026.
+          //
+          // Ela importava planilhas de venda para montar uma análise de receita por
+          // SKU, mas os dados só viviam na memória do navegador: recarregar a página
+          // apagava tudo — nunca foram gravados em lugar nenhum. Hoje `ml_pedidos`
+          // guarda 2.971 pedidos reais vindos da API, com preço, tarifa, frete e data,
+          // mais completo do que a planilha jamais foi.
 
-            var filtrados = vendasLojaFiltro === 'Todas' ? vendasData : vendasData.filter(function(v) { return v.loja === vendasLojaFiltro; });
-
-            // Calcula custo e status de cada card
-            var cards = filtrados.map(function(v) {
-              // Extrai multiplicador do SKU (ex: "MP2104 - 2UN" → 2)
-              var partes = v.skuRaw.split('+');
-              var custoTotal = 0;
-              var custoOk = true;
-              var componentesDisplay = [];
-              partes.forEach(function(parte) {
-                parte = parte.trim();
-                var multMatch = parte.match(/[-–]\s*(\d+)\s*UN/i);
-                var mult = multMatch ? parseInt(multMatch[1]) : 1;
-                var parteClean = parte.replace(/\s*[-–]\s*\d+\s*UN\s*/i, '').trim();
-                var parsed = parseSKUsML(parteClean);
-                if (parsed.length === 0) { custoOk = false; return; }
-                parsed.forEach(function(c) {
-                  var prod = precos.find(function(p) { return p.marca === c.marca && p.sku === c.sku; });
-                  if (prod) {
-                    custoTotal += (prod.custo_ml ? Number(prod.custo_ml) : Number(prod.custo || 0)) * mult;
-                    componentesDisplay.push(c.marca + ': ' + c.sku + (mult > 1 ? ' ×' + mult : ''));
-                  } else { custoOk = false; }
-                });
-              });
-              var skuDisplay = componentesDisplay.length > 0 ? componentesDisplay.join(' + ') : v.skuRaw;
-              var marcaDisplay = (function() {
-                var p = parseSKUsML(v.skuRaw.split('+')[0].replace(/\s*[-–]\s*\d+\s*UN\s*/i,'').trim());
-                return p.length > 0 ? p[0].marca : v.loja;
-              })();
-              var receitaMedia = v.count > 0 ? v.receitaTotal / v.count : 0;
-              var minimoEsperado = custoTotal * 1.5;
-              var markupReal = custoTotal > 0 ? ((receitaMedia - custoTotal) / custoTotal * 100) : null;
-              var status = !custoOk || custoTotal === 0 ? 'sem-custo'
-                : markupReal >= 49.5 ? 'ok'
-                : markupReal >= 40 ? 'limite'
-                : 'abaixo';
-              var cfgML = markupsML[marcaDisplay] || {};
-              var markupML = cfgML.markup !== undefined ? cfgML.markup : 0;
-              var taxa = cfgML.taxa !== undefined ? cfgML.taxa : 23;
-              var freteAuto = custoTotal <= 32.64 ? 12 : 30;
-              var freteML = cfgML.frete !== null && cfgML.frete !== undefined ? cfgML.frete : freteAuto;
-              var precoMLIdeal = custoTotal > 0 ? (custoTotal * (1 + markupML/100) + freteML) * (1 + taxa/100) : null;
-              return Object.assign({}, v, { custoTotal: custoTotal, custoOk: custoOk, receitaMedia: receitaMedia, minimoEsperado: minimoEsperado, markupReal: markupReal, status: status, skuDisplay: skuDisplay, marcaDisplay: marcaDisplay, precoMLIdeal: precoMLIdeal });
-            }).sort(function(a, b) { return a.marcaDisplay.localeCompare(b.marcaDisplay); });
-
-            var nAbaixo = cards.filter(function(c) { return c.status === 'abaixo'; }).length;
-            var nLimite = cards.filter(function(c) { return c.status === 'limite'; }).length;
-            var nOk = cards.filter(function(c) { return c.status === 'ok'; }).length;
-            var fmt = function(n) { return 'R$ ' + Number(n).toFixed(2).replace('.', ','); };
-            var fmtPct = function(n) { return n !== null ? n.toFixed(0) + '%' : '—'; };
-
-            var borderClass = function(status) {
-              if (status === 'abaixo') return 'border-red-500';
-              if (status === 'limite') return 'border-yellow-400';
-              if (status === 'ok') return 'border-green-500';
-              return 'border-slate-600';
-            };
-
-            return e('div', {className: 'space-y-4'},
-              e('div', {className: 'bg-slate-800 border border-slate-700 p-5 rounded-lg'},
-                e('h2', {className: 'text-lg font-bold mb-2'}, '💰 Análise de Vendas'),
-                e('p', {className: 'text-slate-400 text-sm mb-4'}, 'Renomeie os arquivos com o nome da loja (ex: KMP.xlsx) e selecione um ou mais de uma vez.'),
-                e('label', {className: 'flex items-center justify-center gap-2 w-full bg-blue-600 hover:bg-blue-500 text-white px-4 py-3 rounded-lg font-bold text-sm cursor-pointer transition-colors'},
-                  '📂 Selecionar planilhas de vendas',
-                  e('input', {
-                    type: 'file', accept: '.xlsx,.xls', multiple: true,
-                    style: {display: 'none'},
-                    onChange: function(ev) {
-                      var files = ev.target.files;
-                      if (!files || !files.length) return;
-                      for (var fi = 0; fi < files.length; fi++) importarVendas(files[fi]);
-                      ev.target.value = '';
-                    }
-                  })
-                )
-              ),
-
-              vendasData.length === 0 ? e('p', {className: 'text-slate-500 text-sm text-center py-8'}, 'Importe as planilhas de vendas para ver a análise.') :
-
-              e('div', {className: 'space-y-4'},
-                e('div', {className: 'flex gap-3'},
-                  e('button', {
-                    onClick: function() { setVendasStatusFiltro(vendasStatusFiltro === 'abaixo' ? 'Todos' : 'abaixo'); },
-                    className: 'flex-1 bg-red-900 bg-opacity-40 border rounded-lg px-4 py-3 text-center transition-all cursor-pointer ' + (vendasStatusFiltro === 'abaixo' ? 'border-red-400 ring-2 ring-red-400' : 'border-red-700 hover:border-red-500')
-                  },
-                    e('div', {className: 'text-2xl font-black text-red-400'}, nAbaixo),
-                    e('div', {className: 'text-xs text-red-300 uppercase font-bold'}, 'Abaixo do mínimo')
-                  ),
-                  e('button', {
-                    onClick: function() { setVendasStatusFiltro(vendasStatusFiltro === 'limite' ? 'Todos' : 'limite'); },
-                    className: 'flex-1 bg-yellow-900 bg-opacity-40 border rounded-lg px-4 py-3 text-center transition-all cursor-pointer ' + (vendasStatusFiltro === 'limite' ? 'border-yellow-400 ring-2 ring-yellow-400' : 'border-yellow-700 hover:border-yellow-500')
-                  },
-                    e('div', {className: 'text-2xl font-black text-yellow-400'}, nLimite),
-                    e('div', {className: 'text-xs text-yellow-300 uppercase font-bold'}, 'No limite')
-                  ),
-                  e('button', {
-                    onClick: function() { setVendasStatusFiltro(vendasStatusFiltro === 'ok' ? 'Todos' : 'ok'); },
-                    className: 'flex-1 bg-green-900 bg-opacity-40 border rounded-lg px-4 py-3 text-center transition-all cursor-pointer ' + (vendasStatusFiltro === 'ok' ? 'border-green-400 ring-2 ring-green-400' : 'border-green-700 hover:border-green-500')
-                  },
-                    e('div', {className: 'text-2xl font-black text-green-400'}, nOk),
-                    e('div', {className: 'text-xs text-green-300 uppercase font-bold'}, 'OK')
-                  )
-                ),
-
-                e('div', {className: 'flex gap-2 flex-wrap'},
-                  ['Todas'].concat(lojas).map(function(loja) {
-                    return e('button', {
-                      key: loja,
-                      onClick: function() { setVendasLojaFiltro(loja); },
-                      className: 'px-4 py-2 rounded-lg text-sm font-bold transition-colors ' + (vendasLojaFiltro === loja ? 'bg-blue-600 text-white' : 'bg-slate-800 border border-slate-600 text-slate-300 hover:border-slate-400')
-                    }, loja);
-                  })
-                ),
-
-                e('div', {className: 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4'},
-                  (vendasStatusFiltro === 'Todos' ? cards : cards.filter(function(c) { return c.status === vendasStatusFiltro; })).map(function(c, i) {
-                    return e('div', {
-                      key: c.loja + '||' + c.skuRaw + i,
-                      className: 'bg-slate-800 border-2 rounded-lg p-4 ' + borderClass(c.status)
-                    },
-                      e('div', {className: 'text-xs text-slate-500 font-bold uppercase tracking-wider mb-1'}, c.loja),
-                      e('div', {className: 'text-base font-bold text-white mb-3'}, c.skuDisplay),
-                      e('div', {className: 'flex items-center justify-between mb-1'},
-                        e('span', {className: 'text-xs text-slate-400'}, 'Receita média'),
-                        e('span', {className: 'text-sm text-slate-300'}, fmt(c.receitaMedia))
-                      ),
-                      c.custoOk && c.custoTotal > 0
-                        ? e('div', null,
-                            e('div', {className: 'flex items-center justify-between mb-1'},
-                              e('span', {className: 'text-xs text-slate-400'}, 'Custo'),
-                              e('span', {className: 'text-sm text-slate-300'}, fmt(c.custoTotal))
-                            ),
-                            e('div', {className: 'flex items-center justify-between mb-1'},
-                              e('span', {className: 'text-xs text-slate-400'}, 'Mínimo (50%)'),
-                              e('span', {className: 'text-sm text-slate-300'}, fmt(c.minimoEsperado))
-                            ),
-                            c.precoMLIdeal && e('div', {className: 'flex items-center justify-between mb-1'},
-                              e('span', {className: 'text-xs text-slate-400'}, 'Preço ML ideal'),
-                              e('span', {className: 'text-sm text-blue-300 font-semibold'}, fmt(c.precoMLIdeal))
-                            ),
-                            e('div', {className: 'flex items-center justify-between mt-2 pt-2 border-t border-slate-700'},
-                              e('span', {className: 'text-xs text-slate-400'}, 'Markup real'),
-                              e('span', {
-                                className: 'text-sm font-bold ' + (c.status === 'ok' ? 'text-green-400' : c.status === 'limite' ? 'text-yellow-400' : 'text-red-400')
-                              }, fmtPct(c.markupReal))
-                            )
-                          )
-                        : e('div', {className: 'text-xs text-slate-500 mt-2'}, '⚠ Custo não cadastrado')
-                    );
-                  })
-                )
-              )
-            );
-          })(),
-
-          activeTab === 'naoAnunciados' && e('div', {className: 'space-y-4'},
-            e('div', {className: 'bg-slate-800 border border-slate-700 p-5 rounded-lg'},
-              e('h2', {className: 'text-lg font-bold mb-1'}, '🏪 Lojas Mercado Livre'),
-              e('p', {className: 'text-slate-400 text-sm mb-1'},
-                'Renomeie os arquivos com o nome da loja (ex: ', e('code', {className: 'bg-slate-700 px-1 rounded'}, 'KMP.xlsx'), ', ',
-                e('code', {className: 'bg-slate-700 px-1 rounded'}, 'ERP.xlsx'), ', ',
-                e('code', {className: 'bg-slate-700 px-1 rounded'}, 'LOTTUS.xlsx'), ') e selecione todos de uma vez.'
-              ),
-              e('p', {className: 'text-slate-500 text-xs mb-4'}, 'Os badges coloridos aparecerão automaticamente nos cards da aba Busca.'),
-              e('label', {className: 'flex items-center justify-center gap-2 w-full bg-blue-600 hover:bg-blue-500 text-white px-4 py-3 rounded-lg font-bold text-sm cursor-pointer transition-colors'},
-                '📂 Selecionar planilhas das lojas',
-                e('input', {
-                  type: 'file', accept: '.xlsx,.xls', multiple: true,
-                  style: {display: 'none'},
-                  onChange: function(ev) {
-                    var files = ev.target.files;
-                    if (!files || !files.length) return;
-                    for (var fi = 0; fi < files.length; fi++) {
-                      lerSKUsDoArquivoML(files[fi], fi);
-                    }
-                    ev.target.value = '';
-                  }
-                })
-              ),
-              mlLojas.length > 0 && e('div', {className: 'mt-4 space-y-2'},
-                e('div', {className: 'text-xs font-bold text-slate-400 uppercase mb-2'}, 'Lojas carregadas:'),
-                e('div', {className: 'flex flex-wrap gap-2'},
-                  mlLojas.map(function(loja) {
-                    var cor = getCorLoja(loja.nome, loja.idx);
-                    return e('div', {key: loja.nome, className: 'flex items-center gap-2 bg-slate-700 border border-slate-600 rounded-lg px-3 py-2'},
-                      e('span', {className: cor.bg + ' ' + cor.text + ' px-2 py-0.5 rounded text-xs font-bold'}, loja.nome),
-                      e('span', {className: 'text-green-400 text-xs'}, '✓ carregada'),
-                      e('button', {
-                        onClick: function() { removerLojaML(loja.nome); },
-                        className: 'text-slate-500 hover:text-red-400 font-bold text-base leading-none ml-1'
-                      }, '×')
-                    );
-                  })
-                )
-              )
-            )
-          ),
+          // A aba "Lojas ML" foi removida em 02/09/2026.
+          //
+          // Ela importava uma planilha .xlsx por loja só para saber quais SKUs estavam
+          // anunciados e pintar badges na aba Busca. Desde que as três contas foram
+          // ligadas à API, `ml_anuncios` traz 3.394 anúncios sempre atualizados — a
+          // planilha fazia pior o que a API faz sozinha. A tabela `ml_lojas` estava
+          // vazia havia tempos e ninguém sentiu falta dos badges.
 
           activeTab === 'pedidosML' && e('div', {className: 'space-y-4'},
             e('div', {className: 'bg-slate-800 border border-slate-700 p-5 rounded-lg'},
