@@ -1188,11 +1188,27 @@
             || ['SMART', 'UNHEALTHY_STOCK', 'PRICE_MATCHING', 'BANK'].indexOf(l.promocao_tipo) !== -1;
       }
 
-      // Quanto sobra depois da tarifa do Mercado Livre.
+      // Quanto sobra depois da tarifa do Mercado Livre E DO FRETE.
+      //
+      // O frete estava de fora e a coluna mentia pra cima. Em dois meses foram
+      // R$ 44.875 de frete pago — num anúncio de R$ 85 ele come mais que a tarifa.
+      // O custo vem calculado do banco (real do anúncio, média da categoria ou da
+      // faixa de preço, nessa ordem); `frete_origem` diz qual foi, pra tela poder
+      // separar o que é fato do que é estimativa.
       function quantoSobra(l, preco) {
         if (preco == null || l.tarifa_percentual == null) return null;
-        return preco - (preco * Number(l.tarifa_percentual) / 100) - Number(l.tarifa_fixa || 0);
+        return preco
+          - (preco * Number(l.tarifa_percentual) / 100)
+          - Number(l.tarifa_fixa || 0)
+          - Number(l.frete_custo || 0);
       }
+
+      // Como explicar de onde saiu o número do frete.
+      var FRETE_FONTE = {
+        real: function(n) { return 'o que você pagou de frete neste anúncio' + (n ? ' em ' + n + ' venda' + (n > 1 ? 's' : '') : ''); },
+        categoria: function() { return 'média de frete da categoria — este anúncio ainda não vendeu'; },
+        faixa: function() { return 'estimativa pela faixa de preço — sem histórico da categoria'; },
+      };
 
       var moeda = function(v) {
         return 'R$ ' + Number(v).toFixed(2).replace('.', ',');
@@ -1273,6 +1289,13 @@
               preco != null ? moeda(preco) : '—'),
             e('div', {className: 'text-right ' + (simulado ? 'opacity-60 italic' : '')},
               e('div', {className: 'text-teal-300 font-bold'}, sobra != null ? moeda(sobra) : '—'),
+              // O frete abaixo do valor, discreto. Fica claro que já foi descontado —
+              // sem isso o número parece a conta antiga e você não sabe se confia.
+              l.frete_custo != null && sobra != null && e('div', {
+                className: 'text-[11px] leading-snug mt-0.5 '
+                  + (l.frete_origem === 'real' ? 'text-slate-500' : 'text-slate-600 italic'),
+                title: (FRETE_FONTE[l.frete_origem] || function() { return ''; })(l.frete_vendas),
+              }, '− ' + moeda(l.frete_custo) + ' de frete' + (l.frete_origem === 'real' ? '' : ' (média)')),
               bancaReais && e('div', {className: 'text-emerald-400 font-semibold text-[11.5px] leading-snug mt-1'},
                 'Reduzimos ' + moeda(bancaReais) + ' das suas tarifas por cada venda')
             ),
