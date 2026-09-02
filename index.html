@@ -116,11 +116,20 @@
       );
     }
 
+    // Quem vê o quê. `null` = vê tudo.
+    //
+    // Em 02/09/2026 o Matheus liberou todas as abas para todos os perfis. Antes o
+    // Leonardo e a Letícia não viam Promoções nem Importar SKUs, e a Expedição só via
+    // Pedidos e Busca.
+    //
+    // A estrutura continua aqui de propósito: se um dia for preciso fechar de novo,
+    // basta trocar o `null` pela lista de abas daquele perfil — nada mais no código
+    // precisa mudar.
     var ABAS_POR_PERFIL = {
       mestre: null,
-      leonardo: ['pedidosML', 'sku', 'precos', 'anuncios', 'tarefas'],
-      leticia: ['pedidosML', 'sku', 'precos', 'anuncios', 'tarefas'],
-      expedicao: ['pedidosML', 'sku'],
+      leonardo: null,
+      leticia: null,
+      expedicao: null,
     };
     var NOMES_PERFIL = { mestre: 'Mestre', leonardo: 'Leonardo', leticia: 'Letícia', expedicao: 'Expedição' };
 
