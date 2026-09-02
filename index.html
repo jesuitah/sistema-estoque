@@ -525,10 +525,6 @@
       var promoResultadoState = useState(null);    // { ativados, recusados }
       var promoResultado = promoResultadoState[0];
       var setPromoResultado = promoResultadoState[1];
-      // item_id -> [{nome, preco}] das OUTRAS promoções em que o anúncio já está
-      var promoOutrasState = useState({});
-      var promoOutras = promoOutrasState[0];
-      var setPromoOutras = promoOutrasState[1];
       var promoPedindoState = useState(false);   // clicou e o robô ainda não começou
       var promoPedindo = promoPedindoState[0];
       var setPromoPedindo = promoPedindoState[1];
@@ -1131,38 +1127,11 @@
               setPromoItens(tudo);
             });
         })(0, []);
-
-        // Em quais OUTRAS promoções esses anúncios já estão.
-        //
-        // Sem isso, você poderia ativar 10% num anúncio que já está com 25% em outra
-        // campanha — e trocar um desconto bom por um pior sem perceber. O Mercado
-        // Livre não avisa: ele lista o anúncio como elegível do mesmo jeito.
-        supabase.from('ml_promocoes_itens')
-          .select('item_id, promocao_id, promocao_nome, preco_promo')
-          .eq('conta', p.conta).eq('status', 'started')
-          .then(function(r) {
-            if (r.error || !r.data) return;
-            var mapa = {};
-            r.data.forEach(function(x) {
-              if (x.promocao_id === p.promocao_id) return;   // a própria não conta
-              (mapa[x.item_id] = mapa[x.item_id] || []).push({
-                nome: x.promocao_nome, preco: x.preco_promo,
-              });
-            });
-            setPromoOutras(mapa);
-          });
-      }
-
-      // Filtra pela busca. Serve como "por categoria" na prática: o Matheus digita
-      // "termostática" ou o SKU e a lista se reduz ao que interessa.
-      function promoItensVisiveis() {
-        var termo = promoBusca.trim().toLowerCase();
-        if (!termo) return promoItens;
-        return promoItens.filter(function(it) {
-          return (it.title || '').toLowerCase().indexOf(termo) !== -1
-              || (it.sku || '').toLowerCase().indexOf(termo) !== -1
-              || (it.item_id || '').toLowerCase().indexOf(termo) !== -1;
-        });
+        // Aqui havia uma segunda consulta, montando "em quais outras promoções este
+        // anúncio já está". Ela alimentava o aviso "+3 outras promoções", que foi
+        // removido a pedido do Matheus — e continuou rodando a cada abertura de
+        // promoção, buscando dados que ninguém lia. Cada bloco já mostra todas as
+        // promoções do anúncio, que era o objetivo.
       }
 
       function alternarMarcado(itemId) {
@@ -1171,18 +1140,36 @@
         setPromoMarcados(novo);
       }
 
-      function marcarTodosVisiveis(marcar) {
-        var novo = Object.assign({}, promoMarcados);
-        promoItensVisiveis().forEach(function(it) {
-          if (marcar) novo[it.item_id] = true; else delete novo[it.item_id];
-        });
-        setPromoMarcados(novo);
+      // O termo da busca casa com título, SKU ou número do anúncio.
+      function casaComABusca(base, termo) {
+        if (!termo) return true;
+        return (base.title || '').toLowerCase().indexOf(termo) !== -1
+            || (base.sku || '').toLowerCase().indexOf(termo) !== -1
+            || (base.item_id || '').toLowerCase().indexOf(termo) !== -1;
       }
 
-      // Promoções que interessam: as que o Matheus criou e as em que o Mercado Livre
-      // dá algum benefício. O resto simplesmente não aparece — ele disse que só
-      // trabalha com essas, e mostrar tudo virava poluição.
+      // Quais promoções aparecem na tela.
+      //
+      // REGRA 1 — SE ESTÁ VALENDO, APARECE. Sem exceção.
+      // Uma promoção ativa é o preço que o cliente paga hoje. Escondê-la faz a tela
+      // mentir: o Trocador de Óleo Amarok aparecia por R$ 286,94 (campanha do Matheus)
+      // quando vendia por R$ 270,06, porque a 9.9 estava ativa e filtrada. Eram 401
+      // anúncios nessa situação, e em muitos deles nem o selo ATIVA E GANHANDO
+      // aparecia — a vencedora era justamente a linha escondida.
+      //
+      // REGRA 2 — se é só uma oferta disponível, vale o filtro de sempre: as campanhas
+      // do Matheus e aquelas em que o Mercado Livre banca parte. O resto seriam
+      // centenas de linhas "participar" para decisões que ele não vai tomar.
+      // Promoções em que o preço é escolhido por VOCÊ. Nas outras (Impulsione, Acelere,
+      // Pix, Cobrir concorrência) quem define o desconto é o Mercado Livre, e mandar um
+      // percentual não faz nada.
+      //
+      // É a MESMA lista que a Edge Function usa pra decidir se envia `deal_price`. Se
+      // as duas discordarem, a tela promete um desconto que o servidor não aplica.
+      var PRECO_ESCOLHIDO_POR_VOCE = ['SELLER_CAMPAIGN', 'DEAL', 'PRICE_DISCOUNT', 'DOD'];
+
       function promocaoRelevante(l) {
+        if (l.status === 'started') return true;
         return l.promocao_tipo === 'SELLER_CAMPAIGN'
             || Number(l.meli_percentual) > 0
             || ['SMART', 'UNHEALTHY_STOCK', 'PRICE_MATCHING', 'BANK'].indexOf(l.promocao_tipo) !== -1;
@@ -1242,14 +1229,20 @@
 
         function linhaDaPromocao(l) {
           var ativa = l.status === 'started';
-          var minha = l.promocao_tipo === 'SELLER_CAMPAIGN';
           var preco = l.preco_promo != null ? Number(l.preco_promo) : null;
           var simulado = false;
 
-          // Promoção sua ainda não ativada: mostramos como FICARIA com o percentual
-          // digitado na barra. Sem isso a linha vem toda vazia e não ajuda a decidir.
-          if (preco == null && minha && !isNaN(pct) && cheio) {
-            preco = Math.round(cheio * (1 - pct / 100) * 100) / 100;
+          // Promoção não ativada em que VOCÊ escolhe o preço: mostramos como ficaria
+          // com o percentual digitado na barra. Sem isso a linha vem vazia e não ajuda
+          // a decidir.
+          //
+          // Antes só simulava as campanhas do Matheus. Mas a 9.9 e as Clearance também
+          // aceitam preço livre — abrir uma delas dava uma lista inteira de traços, sem
+          // como comparar. A lista é a mesma que o servidor usa para decidir se manda
+          // `deal_price`; fora dela quem define o desconto é o Mercado Livre.
+          var euEscolhoOPreco = PRECO_ESCOLHIDO_POR_VOCE.indexOf(l.promocao_tipo) !== -1;
+          if (preco == null && euEscolhoOPreco && !isNaN(pct) && cheio) {
+            preco = Math.floor(cheio * (1 - pct / 100) * 100) / 100;
             simulado = true;
           }
 
@@ -1447,8 +1440,14 @@
       // aberta. Serve pro ajuste pontual, sem marcar caixinha nem subir até a barra.
       function aplicarNaLinha(itemId, linha) {
         var pct = parseFloat(String(promoPctLinha).replace(',', '.'));
-        if (isNaN(pct)) return;
+        // Valor impossível não vai pro servidor: antes o campo em branco apenas não
+        // fazia nada, sem dizer por quê.
+        if (isNaN(pct) || pct <= 0 || pct >= 100) {
+          setPromoResultado({ erro: 'Desconto inválido — use um número entre 1 e 99.' });
+          return;
+        }
         setPromoAtivando(true);
+        setPromoResultado(null);
 
         fetch(PROMO_URL + '?acao=ativar', {
           method: 'POST',
@@ -1482,6 +1481,22 @@
         var ids = Object.keys(promoMarcados);
         if (!ids.length) return;
         var pct = parseFloat(String(promoPercentual).replace(',', '.'));
+
+        // Avisa AQUI, antes de mandar.
+        //
+        // Com a caixinha vazia a tela mandava percentual nulo, o servidor tentava um a
+        // um e devolvia "esta promoção precisa de um percentual" repetido para cada
+        // anúncio marcado — uma lista de erros vermelhos para um campo em branco.
+        var precisaPct = PRECO_ESCOLHIDO_POR_VOCE.indexOf(promoSel.promocao_tipo) !== -1;
+        if (precisaPct && (isNaN(pct) || pct <= 0)) {
+          setPromoResultado({ erro: 'Digite o desconto (em %) na caixinha antes de aplicar.' });
+          return;
+        }
+        if (precisaPct && pct >= 100) {
+          setPromoResultado({ erro: 'O desconto tem que ser menor que 100%.' });
+          return;
+        }
+
         setPromoAtivando(true);
         setPromoResultado(null);
 
@@ -3143,16 +3158,25 @@
           ),
 
           activeTab === 'promocoes' && (function() {
-            // Só as campanhas que o Matheus criou e as em que o Mercado Livre abate
-            // alguma coisa. O resto (cupom, oferta relâmpago, desconto avulso, ofertas
-            // de data sem contrapartida) não entra: ele não trabalha com elas e só
-            // ocupavam a tela.
+            // As abas seguem a mesma regra das linhas: campanha do Matheus, campanha
+            // em que o ML abate alguma coisa, OU qualquer uma que já tenha anúncio
+            // dentro. Faltava a última — a 9.9 tinha 401 anúncios ativos nas três
+            // lojas e não virava aba, então não havia por onde abri-la para conferir
+            // ou tirar alguém de lá.
+            //
+            // Ativas primeiro, porque é onde há o que fazer; depois as que têm mais
+            // candidatos esperando.
             var daConta = promoLista
               .filter(function(p) {
                 return p.conta === promoConta
-                  && (p.promocao_tipo === 'SELLER_CAMPAIGN' || Number(p.meli_percentual) > 0);
+                  && (p.promocao_tipo === 'SELLER_CAMPAIGN'
+                      || Number(p.meli_percentual) > 0
+                      || Number(p.ativos) > 0);
               })
-              .sort(function(a, b) { return (b.candidatos || 0) - (a.candidatos || 0); });
+              .sort(function(a, b) {
+                if ((Number(a.ativos) > 0) !== (Number(b.ativos) > 0)) return Number(b.ativos) > 0 ? 1 : -1;
+                return (b.candidatos || 0) - (a.candidatos || 0);
+              });
             var marcados = Object.keys(promoMarcados);
             var pct = parseFloat(String(promoPercentual).replace(',', '.'));
 
@@ -3177,10 +3201,7 @@
                 return { id: id, linhas: linhas, nesta: nesta, base: linhas[0] };
               })
               .filter(function(a) {
-                var termo = promoBusca.trim().toLowerCase();
-                if (!termo) return true;
-                return (a.base.title || '').toLowerCase().indexOf(termo) !== -1
-                    || (a.base.sku || '').toLowerCase().indexOf(termo) !== -1;
+                return casaComABusca(a.base, promoBusca.trim().toLowerCase());
               })
               // Primeiro agrupa por QUANTAS promoções o anúncio tem; dentro do grupo,
               // ordem alfabética.
@@ -3202,6 +3223,9 @@
               });
 
             var todosMarcados = anuncios.length > 0 && anuncios.every(function(a) { return promoMarcados[a.id]; });
+            // Nesta promoção o preço é escolhido por você, ou pelo Mercado Livre?
+            var euEscolhoOPrecoNesta = !!promoSel
+              && PRECO_ESCOLHIDO_POR_VOCE.indexOf(promoSel.promocao_tipo) !== -1;
 
             return e('div', {className: 'space-y-4'},
               (function() {
@@ -3312,7 +3336,11 @@
                       className: 'flex-1 bg-transparent border-0 text-slate-200 text-sm outline-none min-w-0'
                     })
                   ),
-                  e('div', {className: 'flex items-center gap-2 bg-slate-950 border border-slate-800 rounded-lg px-3 h-[38px]'},
+                  // A caixinha de % só faz sentido nas promoções em que VOCÊ escolhe o
+                  // preço. Na Impulsione, na Acelere e no Pix quem define o desconto é
+                  // o Mercado Livre — o número digitado aqui era simplesmente ignorado
+                  // pelo servidor, e a tela dava a entender que valia alguma coisa.
+                  euEscolhoOPrecoNesta && e('div', {className: 'flex items-center gap-2 bg-slate-950 border border-slate-800 rounded-lg px-3 h-[38px]'},
                     e('span', {className: 'text-slate-500 text-xs'}, 'desconto'),
                     e('input', {
                       type: 'text', value: promoPercentual,
@@ -3328,7 +3356,12 @@
                       ((promoAtivando || marcados.length === 0)
                         ? 'bg-slate-800 text-slate-600 cursor-not-allowed'
                         : 'bg-emerald-600 hover:bg-emerald-500 text-white')
-                  }, promoAtivando ? '⏳ aplicando...' : 'aplicar' + (marcados.length ? ' (' + marcados.length + ')' : ''))
+                  }, promoAtivando ? '⏳ aplicando...' : 'aplicar' + (marcados.length ? ' (' + marcados.length + ')' : '')),
+
+                  // Nas promoções do ML não há % pra digitar: dizer isso evita procurar
+                  // um campo que sumiu e achar que a tela quebrou.
+                  !euEscolhoOPrecoNesta && e('span', {className: 'text-[11px] text-slate-500 whitespace-nowrap'},
+                    'o desconto quem define é o Mercado Livre')
                 ),
 
                 promoResultado && e('div', {className: 'space-y-2'},

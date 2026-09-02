@@ -23,6 +23,8 @@ const { createClient } = require('@supabase/supabase-js');
 const { abrirNavegador, identificarConta, USER_IDS_ESPERADOS } = require('./navegador');
 const { patrulhar } = require('./patrulha-full');
 const { varrer: varrerPromocoes } = require('./promocoes');
+const { coletar: coletarFretes } = require('./coletar-fretes');
+const { calcular: calcularFretes } = require('./calcular-fretes');
 const { vigiar } = require('./vigia');
 
 const SUPABASE_URL = 'https://pylkufhziohxvwbbaued.supabase.co';
@@ -152,6 +154,27 @@ async function rodarPatrulha(opcoes) {
     return await patrulhar(opcoes);
   } finally {
     patrulhaEmAndamento = false;
+  }
+}
+
+// Atualiza o custo de frete que a aba Promoções usa na coluna "Você recebe".
+//
+// Roda depois de cada varredura de promoções, pelo mesmo motivo: o cache acabou de ser
+// trocado e as colunas de frete vieram vazias — sem isto a coluna mostraria a margem
+// sem descontar o frete até alguém rodar o script na mão. Foi assim no primeiro dia.
+//
+// São duas etapas: buscar o custo das vendas NOVAS (só as que ainda não temos) e
+// recalcular a média de cada anúncio.
+//
+// NÃO DERRUBA A VARREDURA. Se o frete falhar, as promoções continuam catalogadas — o
+// custo é um complemento, não pode custar o principal.
+async function atualizarFretes(contas, log) {
+  try {
+    await coletarFretes({ contas, log: (m) => log(m) });
+    const r = await calcularFretes({ log: (m) => log(m) });
+    log(`   frete: ${r.real} do próprio anúncio · ${r.categoria} pela categoria · ${r.faixa} pela faixa`);
+  } catch (erro) {
+    log(`   atualização do frete falhou (as promoções seguem ok): ${mensagemAmigavel(erro)}`);
   }
 }
 
@@ -482,6 +505,7 @@ async function processar(tarefa, navegadores) {
     if (tarefa.tipo === 'varrer_promocoes') {
       const contas = tarefa.params?.conta ? [tarefa.params.conta] : undefined;
       const r = await varrerPromocoes({ contas, log: (m) => log(m) });
+      await atualizarFretes(contas, log);
       await sb.from('ml_tarefas_robo').update({
         status: 'feito',
         resultado: { ok: true, por_conta: r },
@@ -706,6 +730,7 @@ async function main() {
             log('🏷 recatalogando promoções...');
             try {
               await varrerPromocoes({ log: (m) => log(m) });
+              await atualizarFretes(undefined, log);
               log('   promoções recatalogadas');
             } catch (erro) {
               log(`   varredura de promoções falhou: ${mensagemAmigavel(erro)}`);
