@@ -1264,11 +1264,11 @@
             // O destaque verde marca onde o MERCADO LIVRE ajuda — não onde está ativa.
             // Nas campanhas dele o realce não dizia nada (é ele quem paga o desconto
             // inteiro), e ainda competia com as etiquetas, que já contam o status.
-            className: 'grid items-center gap-2 px-3 py-2 text-xs border-b border-slate-800 ' +
+            className: 'grid items-center gap-2 px-3 py-1.5 text-xs border-b border-slate-800 ' +
               // A última coluna tem 132px porque é ela que abriga o campo de digitar o
               // percentual (número + % + confirmar + cancelar). Com 80px o campo não
               // cabia e vazava por cima da coluna "Você recebe".
-              'grid-cols-[1fr_90px_100px_150px_132px] ' +
+              'grid-cols-[1fr_66px_74px_104px_92px] ' +
               (bancaReais
                 ? 'bg-emerald-900 bg-opacity-20 border-l-[3px] border-l-emerald-500'
                 : 'border-l-[3px] border-l-transparent')
@@ -1310,10 +1310,14 @@
             (function() {
               var chave = a.id + '|' + l.promocao_id;
               if (promoLinhaEdit === chave) {
-                return e('div', {className: 'flex items-center gap-1.5 justify-end'},
+                return e('div', {className: 'flex items-center gap-1 justify-end'},
                   // Número e "%" moram na mesma caixinha, como na barra de cima —
                   // o "%" solto ao lado do campo ficava perdido.
-                  e('div', {className: 'flex items-center bg-slate-950 border border-blue-600 rounded h-7 pr-1.5'},
+                  //
+                  // Compacto porque a coluna encolheu para caber dois anúncios por
+                  // linha. O ✕ saiu: Esc cancela, e clicar em qualquer outra linha
+                  // também — o botão só ocupava espaço que não havia mais.
+                  e('div', {className: 'flex items-center bg-slate-950 border border-blue-600 rounded h-6 pr-1'},
                     e('input', {
                       type: 'text', value: promoPctLinha, autoFocus: true,
                       // O campo abre com o percentual atual já escrito. Sem selecionar
@@ -1326,21 +1330,16 @@
                         if (ev.key === 'Enter') aplicarNaLinha(a.id, l);
                         if (ev.key === 'Escape') setPromoLinhaEdit(null);
                       },
-                      className: 'bg-transparent border-0 outline-none w-9 text-center text-slate-100 font-bold text-xs'
+                      className: 'bg-transparent border-0 outline-none w-8 text-center text-slate-100 font-bold text-xs'
                     }),
-                    e('span', {className: 'text-slate-500 text-[11px]'}, '%')
+                    e('span', {className: 'text-slate-500 text-[10px]'}, '%')
                   ),
                   e('button', {
                     onClick: function() { aplicarNaLinha(a.id, l); },
                     disabled: promoAtivando,
-                    title: 'aplicar',
-                    className: 'bg-emerald-600 hover:bg-emerald-500 text-white rounded h-7 w-7 flex items-center justify-center text-xs font-bold flex-shrink-0'
-                  }, promoAtivando ? '…' : '✓'),
-                  e('button', {
-                    onClick: function() { setPromoLinhaEdit(null); },
-                    title: 'cancelar',
-                    className: 'text-slate-500 hover:text-slate-300 h-7 w-5 flex items-center justify-center text-xs flex-shrink-0'
-                  }, '✕')
+                    title: 'aplicar (Enter) · Esc cancela',
+                    className: 'bg-emerald-600 hover:bg-emerald-500 text-white rounded h-6 w-6 flex items-center justify-center text-[11px] font-bold flex-shrink-0'
+                  }, promoAtivando ? '…' : '✓')
                 );
               }
               return e('div', {className: 'text-right'},
@@ -1362,14 +1361,14 @@
           className: 'bg-slate-800 border rounded-lg overflow-hidden ' +
             (marcado ? 'border-blue-600' : 'border-slate-700')
         },
-          e('div', {className: 'flex items-start gap-3 px-4 py-3 border-b border-slate-700'},
+          e('div', {className: 'flex items-start gap-2.5 px-3 py-2 border-b border-slate-700'},
             e('input', {
               type: 'checkbox', checked: marcado,
               onChange: function() { alternarMarcado(a.id); },
               className: 'w-4 h-4 mt-0.5 flex-shrink-0'
             }),
             e('div', {className: 'flex-1 min-w-0'},
-              e('div', {className: 'font-semibold text-sm truncate', title: base.title || ''}, base.title || a.id),
+              e('div', {className: 'font-semibold text-[13px] truncate', title: base.title || ''}, base.title || a.id),
               // Preço cheio ao lado do SKU, na mesma linha.
               //
               // Estava sozinho na ponta direita, cinza e pequeno: pra comparar com os
@@ -1378,11 +1377,13 @@
               // de referência de todas as contas de baixo.
               e('div', {className: 'flex items-baseline gap-2 mt-0.5 min-w-0'},
                 base.sku && e('span', {className: 'text-amber-400 text-xs font-semibold truncate'}, base.sku),
-                e('span', {className: 'text-slate-100 text-[15px] font-bold whitespace-nowrap'}, moeda(cheio))
+                // Mesmo tamanho do SKU. Com 15px ao lado de 12px a dupla ficava
+                // desalinhada; o preço se destaca pelo branco e pelo negrito.
+                e('span', {className: 'text-slate-100 text-xs font-bold whitespace-nowrap'}, moeda(cheio))
               )
             )
           ),
-          e('div', {className: 'grid gap-2 px-3 py-2 text-[10px] uppercase tracking-wide text-slate-500 border-b border-slate-700 grid-cols-[1fr_90px_100px_150px_132px]'},
+          e('div', {className: 'grid gap-2 px-3 py-1.5 text-[10px] uppercase tracking-wide text-slate-500 border-b border-slate-700 grid-cols-[1fr_66px_74px_104px_92px]'},
             e('div', null, 'Promoção'),
             e('div', {className: 'text-right'}, 'Desconto'),
             e('div', {className: 'text-right'}, 'Preço final'),
@@ -3339,7 +3340,13 @@
                   ? e('div', {className: 'text-sm text-slate-400 py-6 text-center'}, 'carregando anúncios...')
                   : anuncios.length === 0
                   ? e('div', {className: 'text-sm text-slate-500 py-6 text-center'}, 'Nenhum anúncio nessa promoção.')
-                  : e('div', {className: 'space-y-3'},
+                  // Dois anúncios por linha.
+                  //
+                  // As colunas de números ocupavam metade da largura e sobrava um vazio
+                  // enorme no meio de cada bloco. Encolhidas, cabem dois lado a lado —
+                  // o dobro de anúncios por tela, sem diminuir nenhuma fonte.
+                  // Numa tela estreita volta a uma coluna sozinho.
+                  : e('div', {className: 'grid gap-3 xl:grid-cols-2'},
                       anuncios.map(function(a) { return blocoDoAnuncio(a, pct); }))
               )
             );
