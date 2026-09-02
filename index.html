@@ -1302,8 +1302,14 @@
                 // "média" fica menor e apagado: é ressalva, não informação principal.
                 l.frete_origem !== 'real' && e('span', {className: 'text-slate-500 text-[11px]'}, ' (média)')
               ),
-              bancaReais && e('div', {className: 'text-emerald-400 font-semibold text-[11.5px] leading-snug mt-1'},
-                'Reduzimos ' + moeda(bancaReais) + ' das suas tarifas por cada venda')
+              // Frase curta desde que a coluna encolheu para caber dois anúncios por
+              // linha: a do Mercado Livre ("Reduzimos R$ X das suas tarifas por cada
+              // venda") quebrava em três linhas e esticava o bloco inteiro. O sentido
+              // é o mesmo; o título completo fica no hover.
+              bancaReais && e('div', {
+                className: 'text-emerald-400 font-semibold text-[11.5px] leading-snug mt-1',
+                title: 'Reduzimos ' + moeda(bancaReais) + ' das suas tarifas por cada venda',
+              }, 'Reduzimos ' + moeda(bancaReais) + ' por venda')
             ),
             // Ação individual: clica, digita o percentual ali mesmo e confirma.
             // Sem marcar caixinha e sem subir até a barra — é o ajuste pontual.
