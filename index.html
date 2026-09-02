@@ -3220,6 +3220,7 @@
               onClick: function() {
                 setActiveTab('promocoes');
                 carregarPromocoes();
+                carregarUltimasExecucoes();   // alimenta o selo "atualizado / precisa atualizar"
               },
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'promocoes' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
             }, '🏷 Promoções'),
@@ -3335,17 +3336,14 @@
                 return e('div', {className: 'bg-slate-800 border border-slate-700 p-5 rounded-lg'},
                   e('div', {className: 'flex items-center justify-between flex-wrap gap-2'},
                     e('h2', {className: 'text-lg font-bold'}, '🏷 Promoções'),
-                    e('button', {
-                      onClick: function() { pedirVarreduraPromocoes(promoConta); },
-                      disabled: !!varrendo || naFila || promoPedindo || !roboEstaOnline(roboStatus),
-                      title: !roboEstaOnline(roboStatus)
-                        ? 'O robô precisa estar ligado — é ele que faz a varredura'
-                        : 'Relê as promoções desta loja no Mercado Livre',
-                      className: 'flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors ' +
-                        ((varrendo || naFila || promoPedindo || !roboEstaOnline(roboStatus)) ? 'opacity-60 cursor-not-allowed' : '')
-                    }, varrendo ? '⏳ atualizando...'
-                       : (naFila || promoPedindo) ? '⏳ o robô vai começar...'
-                       : '🔄 atualizar lista')
+                    // O botão "atualizar lista" virou selo, como nas outras abas de
+                    // trabalho: a varredura mora na aba Robô, junto das demais rotinas.
+                    // Aqui fica só a informação de se a lista está em dia.
+                    varrendo
+                      ? e('span', {className: 'text-sm text-sky-300 font-bold'}, '⏳ atualizando...')
+                      : (naFila || promoPedindo)
+                        ? e('span', {className: 'text-sm text-sky-300 font-bold'}, '⏳ o robô vai começar...')
+                        : seloAtualizacao('promocoes', 26)
                   ),
 
                   !varrendo && (naFila || promoPedindo) && e('div', {className: 'mt-3 text-xs text-sky-300 bg-sky-900 bg-opacity-25 border border-sky-800 rounded px-3 py-2'},
@@ -3382,7 +3380,7 @@
 
               daConta.length === 0
                 ? e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg p-5 text-sm text-slate-400'},
-                    'Nenhuma promoção catalogada para essa loja ainda. Clique em "atualizar lista".')
+                    'Nenhuma promoção catalogada para essa loja ainda. Peça a leitura na aba 🤖 Robô.')
                 : e('div', {className: 'flex gap-2 flex-wrap'},
                     daConta.map(function(p) {
                       var aberta = promoSel && promoSel.promocao_id === p.promocao_id && promoSel.conta === p.conta;
