@@ -545,6 +545,14 @@
       var roboMestreState = useState(null);   // null | 'rodando' | texto do resultado
       var roboMestre = roboMestreState[0];
       var setRoboMestre = roboMestreState[1];
+      // Quanto custa o frete em cada faixa de preço, tirado das vendas reais.
+      var freteFaixasState = useState([]);
+      var freteFaixas = freteFaixasState[0];
+      var setFreteFaixas = freteFaixasState[1];
+      // A tabela de tarifas do ML: categoria -> faixas de preço, já ordenadas.
+      var tarifasState = useState({});
+      var tarifasPorCategoria = tarifasState[0];
+      var setTarifasPorCategoria = tarifasState[1];
 
       // histórico do que foi feito nos anúncios (pelo sistema e pelo robô)
       var logAcoesState = useState([]);
@@ -1149,6 +1157,22 @@
       function carregarPromocoes() {
         supabase.from('ml_promocoes_resumo').select('*')
           .then(function(r) { if (!r.error && r.data) setPromoLista(r.data); });
+        // As faixas de frete: são 7 linhas, carregadas junto para a coluna "Você
+        // recebe" conseguir descontar o frete do preço final de cada promoção.
+        supabase.from('ml_frete_faixas').select('*').order('ate_preco')
+          .then(function(r) { if (!r.error && r.data) setFreteFaixas(r.data); });
+
+        // E a tabela de tarifas do ML (~380 linhas: cada categoria em 4 faixas de
+        // preço), agrupada por categoria para a busca sair direta.
+        supabase.from('ml_tarifas').select('*').order('categoria').order('ate_preco')
+          .then(function(r) {
+            if (r.error || !r.data) return;
+            var porCat = {};
+            r.data.forEach(function(t) {
+              (porCat[t.categoria] = porCat[t.categoria] || []).push(t);
+            });
+            setTarifasPorCategoria(porCat);
+          });
       }
 
       // Manda o robô recatalogar as promoções. É ele que faz porque são ~1.100
@@ -1272,34 +1296,49 @@
       // O custo vem calculado do banco (real do anúncio, média da categoria ou da
       // faixa de preço, nessa ordem); `frete_origem` diz qual foi, pra tela poder
       // separar o que é fato do que é estimativa.
-      // O Mercado Livre cobra percentuais diferentes acima e abaixo de R$ 79 — a mesma
-      // linha que muda o frete. Como o desconto pode cruzar essa fronteira (um item de
-      // R$ 85 com 20% cai para R$ 68), a tarifa é escolhida pelo preço FINAL daquela
-      // promoção, não pelo preço cheio do anúncio.
-      var CORTE_TARIFA = 79;
-
+      // TARIFA: a tabela oficial do Mercado Livre, por CATEGORIA e FAIXA DE PREÇO.
+      //
+      // Não é uma tarifa por categoria: na MLB63829 são 17% até R$ 149,99, 14% de
+      // R$ 150 a R$ 699,99, e 17% de novo acima de R$ 700 — enquanto a MLB47115 cobra
+      // 17% em todas. Como o desconto muda o preço final, ele pode cair noutra faixa;
+      // por isso a busca usa o preço FINAL da promoção, não o cheio do anúncio.
       function tarifaDaLinha(l, preco) {
         if (preco == null) return null;
-        var pct = preco < CORTE_TARIFA ? l.tarifa_pct_baixo : l.tarifa_pct_alto;
-        if (pct == null) pct = l.tarifa_percentual;   // anúncio ainda sem tarifa medida
-        return pct == null ? null : Number(pct);
+        var faixas = tarifasPorCategoria[l.categoria];
+        if (faixas) {
+          for (var i = 0; i < faixas.length; i++) {
+            if (preco < Number(faixas[i].ate_preco)) {
+              return preco * Number(faixas[i].percentual) / 100 + Number(faixas[i].taxa_fixa || 0);
+            }
+          }
+        }
+        // Categoria ainda não consultada: usa o que estiver gravado na linha.
+        if (l.tarifa_percentual == null) return null;
+        return preco * Number(l.tarifa_percentual) / 100 + Number(l.tarifa_fixa || 0);
+      }
+
+      // FRETE: depende da FAIXA DE PREÇO, não da categoria.
+      //
+      // Era calculado por categoria e errava muito — num anúncio a R$ 154,22 usávamos
+      // R$ 16,82 enquanto o ML cobrava R$ 20,45. As faixas saem das vendas reais e
+      // batem com o que o painel do ML mostra (na faixa 150-200, mediana R$ 20,75).
+      //
+      // Usa o preço FINAL de cada promoção: um item de R$ 85 com 20% cai para R$ 68 e
+      // muda de faixa — o frete dele muda junto.
+      function freteDaLinha(preco) {
+        if (preco == null || !freteFaixas.length) return null;
+        for (var i = 0; i < freteFaixas.length; i++) {
+          if (preco < Number(freteFaixas[i].ate_preco)) return Number(freteFaixas[i].custo);
+        }
+        return Number(freteFaixas[freteFaixas.length - 1].custo);
       }
 
       function quantoSobra(l, preco) {
-        var pct = tarifaDaLinha(l, preco);
-        if (preco == null || pct == null) return null;
-        return preco
-          - (preco * pct / 100)
-          - Number(l.tarifa_fixa || 0)
-          - Number(l.frete_custo || 0);
+        var tarifa = tarifaDaLinha(l, preco);
+        var frete = freteDaLinha(preco);
+        if (preco == null || tarifa == null) return null;
+        return preco - tarifa - (frete || 0);
       }
-
-      // De onde saiu o número do frete, em uma frase.
-      var FRETE_FONTE = {
-        real: function(n) { return 'do que você pagou neste anúncio' + (n ? ' em ' + n + ' venda' + (n > 1 ? 's' : '') : ''); },
-        categoria: function() { return 'média da categoria — este anúncio ainda não vendeu'; },
-        faixa: function() { return 'estimativa pela faixa de preço'; },
-      };
 
       // A conta inteira, para o hover do "Você recebe".
       //
@@ -1308,20 +1347,13 @@
       // fica o detalhe, para conferir sem abrir o banco.
       function explicarQuantoSobra(l, preco) {
         var partes = ['preço ' + moeda(preco)];
-        var pct = tarifaDaLinha(l, preco);
-        if (pct != null) {
-          var fonte = l.tarifa_origem === 'real'
-            ? 'do que você pagou' + (l.tarifa_vendas ? ' em ' + l.tarifa_vendas + ' venda' + (l.tarifa_vendas > 1 ? 's' : '') : '')
-            : l.tarifa_origem === 'categoria' ? 'média da categoria'
-            : 'tabela do Mercado Livre';
-          partes.push('− tarifa ' + pct.toFixed(1).replace('.', ',') + '%  '
-            + moeda(preco * pct / 100) + '  (' + fonte + ')');
+        var tarifa = tarifaDaLinha(l, preco);
+        if (tarifa != null) {
+          partes.push('− tarifa  ' + moeda(tarifa)
+            + '  (' + Math.round(tarifa / preco * 1000) / 10 + '%, tabela do Mercado Livre)');
         }
-        if (Number(l.tarifa_fixa) > 0) partes.push('− taxa fixa  ' + moeda(l.tarifa_fixa));
-        if (Number(l.frete_custo) > 0) {
-          var origem = (FRETE_FONTE[l.frete_origem] || function() { return ''; })(l.frete_vendas);
-          partes.push('− frete  ' + moeda(l.frete_custo) + (origem ? '  (' + origem + ')' : ''));
-        }
+        var frete = freteDaLinha(preco);
+        if (frete) partes.push('− frete  ' + moeda(frete) + '  (média das suas vendas nesta faixa de preço)');
         return partes.join('\n');
       }
 
