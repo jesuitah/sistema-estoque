@@ -1476,7 +1476,12 @@
             ),
             e('div', {className: 'text-right ' + (simulado ? 'opacity-60 italic' : '')},
               descontoReais != null ? moeda(descontoReais) : '—',
-              descontoPct != null && e('div', {className: 'text-slate-500 text-[12px]'}, '(' + descontoPct + '%)')
+              // A % fica verde onde o Mercado Livre banca parte — mesma cor da frase
+              // "Reduzimos R$ X por venda". Assim o verde conta uma história só na
+              // linha: aqui o ML está ajudando.
+              descontoPct != null && e('div', {
+                className: 'text-[12px] ' + (bancaReais ? 'text-emerald-400 font-semibold' : 'text-slate-500')
+              }, '(' + descontoPct + '%)')
             ),
             e('div', {className: 'text-right ' + (simulado ? 'opacity-60 italic' : '')},
               preco != null ? moeda(preco) : '—'),
