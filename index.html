@@ -1317,15 +1317,16 @@
         return preco * Number(l.tarifa_percentual) / 100 + Number(l.tarifa_fixa || 0);
       }
 
-      // FRETE: depende da FAIXA DE PREÇO, não da categoria.
+      // FRETE: o valor OFICIAL do anúncio, vindo do Mercado Livre.
       //
-      // Era calculado por categoria e errava muito — num anúncio a R$ 154,22 usávamos
-      // R$ 16,82 enquanto o ML cobrava R$ 20,45. As faixas saem das vendas reais e
-      // batem com o que o painel do ML mostra (na faixa 150-200, mediana R$ 20,75).
+      // Estimei isso duas vezes e errei nas duas (média da categoria, depois mediana da
+      // faixa de preço) até descobrir que o ML entrega o número pronto, por anúncio, em
+      // /items/{id}/shipping_options → list_cost. Ele considera peso e dimensões, coisa
+      // que nenhuma média por preço consegue.
       //
-      // Usa o preço FINAL de cada promoção: um item de R$ 85 com 20% cai para R$ 68 e
-      // muda de faixa — o frete dele muda junto.
-      function freteDaLinha(preco) {
+      // A faixa de preço ficou só de reserva, para anúncio que ainda não foi consultado.
+      function freteDaLinha(l, preco) {
+        if (l && l.frete_oficial != null) return Number(l.frete_oficial);
         if (preco == null || !freteFaixas.length) return null;
         for (var i = 0; i < freteFaixas.length; i++) {
           if (preco < Number(freteFaixas[i].ate_preco)) return Number(freteFaixas[i].custo);
@@ -1333,11 +1334,25 @@
         return Number(freteFaixas[freteFaixas.length - 1].custo);
       }
 
+      // Quanto o Mercado Livre abate da SUA tarifa nesta promoção.
+      //
+      // Eu mostrava essa frase na tela ("Reduzimos R$ 5,08 por venda") e não subtraía o
+      // valor da conta — então nas promoções com coparticipação a margem aparecia menor
+      // do que a real. Era o grosso da diferença que o Matheus encontrou: R$ 5,28 num
+      // anúncio, contra R$ 0,20 na promoção sem redução, no mesmo dia.
+      function reducaoDeTarifa(l) {
+        var pct = Number(l.meli_percentual);
+        if (!pct || !l.preco_cheio) return 0;
+        return Number(l.preco_cheio) * pct / 100;
+      }
+
       function quantoSobra(l, preco) {
         var tarifa = tarifaDaLinha(l, preco);
-        var frete = freteDaLinha(preco);
         if (preco == null || tarifa == null) return null;
-        return preco - tarifa - (frete || 0);
+        var frete = freteDaLinha(l, preco) || 0;
+        // A redução nunca pode deixar a tarifa negativa.
+        var tarifaFinal = Math.max(0, tarifa - reducaoDeTarifa(l));
+        return preco - tarifaFinal - frete;
       }
 
       // A conta inteira, para o hover do "Você recebe".
@@ -1352,8 +1367,13 @@
           partes.push('− tarifa  ' + moeda(tarifa)
             + '  (' + Math.round(tarifa / preco * 1000) / 10 + '%, tabela do Mercado Livre)');
         }
-        var frete = freteDaLinha(preco);
-        if (frete) partes.push('− frete  ' + moeda(frete) + '  (média das suas vendas nesta faixa de preço)');
+        var reducao = reducaoDeTarifa(l);
+        if (reducao > 0) partes.push('+ o ML devolve  ' + moeda(reducao) + '  desta tarifa');
+        var frete = freteDaLinha(l, preco);
+        if (frete) {
+          partes.push('− frete  ' + moeda(frete)
+            + (l.frete_oficial != null ? '  (valor oficial deste anúncio)' : '  (estimado pela faixa de preço)'));
+        }
         return partes.join('\n');
       }
 
