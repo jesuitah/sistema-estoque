@@ -125,13 +125,26 @@ async function levantarProblemas(sb) {
   // coluna continua mostrando um valor bonito, calculado com frete velho ou nenhum, e
   // não há nada na tela que denuncie. Este alerta é o preço de ter escondido o número.
   try {
-    const { count: semFrete } = await sb.from('ml_promocoes_itens')
-      .select('item_id', { count: 'exact', head: true })
-      .eq('status', 'started').is('frete_custo', null);
-    if (semFrete > 0) {
+    // O frete deixou de ser guardado por anúncio: agora vem da faixa de preço, e a
+    // tarifa da tabela oficial por categoria. Então o que precisa existir são essas
+    // duas tabelas — conferir `frete_custo` linha a linha virou alarme falso (o campo
+    // está vazio de propósito desde a correção).
+    const { count: faixasFrete } = await sb.from('ml_frete_faixas')
+      .select('ate_preco', { count: 'exact', head: true });
+    if (!faixasFrete) {
       achados.push({
         chave: 'frete_faltando', gravidade: 'aviso',
-        mensagem: `${semFrete} anúncio(s) em promoção sem custo de frete — o "Você recebe" deles está otimista`,
+        mensagem: 'sem tabela de frete por faixa de preço — o "Você recebe" está sem descontar frete',
+      });
+    }
+
+    const { count: semCategoria } = await sb.from('ml_promocoes_itens')
+      .select('item_id', { count: 'exact', head: true })
+      .eq('status', 'started').is('categoria', null);
+    if (semCategoria > 0) {
+      achados.push({
+        chave: 'tarifa_faltando', gravidade: 'aviso',
+        mensagem: `${semCategoria} anúncio(s) em promoção sem categoria — sem ela não dá pra saber a tarifa`,
       });
     }
 

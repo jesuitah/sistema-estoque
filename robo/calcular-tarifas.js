@@ -58,9 +58,13 @@ async function calcular({ log = console.log } = {}) {
   const algumToken = (tok || [])[0] && tok[0].access_token;
   if (!algumToken) throw new Error('nenhuma conta com token');
 
+  // A chave precisa ser montada do MESMO jeito nos dois lados. Numa primeira versão eu
+  // gerava "150" aqui e "150.00" na comparação, então nada batia e as 380 faixas eram
+  // reconsultadas ao ML todo dia à toa.
+  const chaveDaFaixa = (categoria, tipo, ate) => `${categoria}|${tipo}|${Number(ate)}`;
   const jaTemos = new Set(
     (await tudo(sb, 'ml_tarifas', 'categoria, tipo_anuncio, ate_preco'))
-      .map((t) => `${t.categoria}|${t.tipo_anuncio}|${t.ate_preco}`));
+      .map((t) => chaveDaFaixa(t.categoria, t.tipo_anuncio, t.ate_preco)));
 
   const dadosDoItem = new Map();
   (await tudo(sb, 'ml_anuncios', 'conta, item_id, category_id'))
@@ -79,8 +83,7 @@ async function calcular({ log = console.log } = {}) {
   for (const categoria of categorias) {
     let anterior = 0;
     for (const ate of FAIXAS) {
-      const chave = `${categoria}|${TIPO}|${Number(ate).toFixed(2)}`;
-      if (jaTemos.has(chave)) { anterior = ate; continue; }
+      if (jaTemos.has(chaveDaFaixa(categoria, TIPO, ate))) { anterior = ate; continue; }
       try {
         const r = await fetch(
           `https://api.mercadolibre.com/sites/MLB/listing_prices?price=${precoDaFaixa(ate, anterior)}`

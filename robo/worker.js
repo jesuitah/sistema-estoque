@@ -24,8 +24,10 @@ const { abrirNavegador, identificarConta, USER_IDS_ESPERADOS } = require('./nave
 const { patrulhar } = require('./patrulha-full');
 const { varrer: varrerPromocoes } = require('./promocoes');
 const { coletar: coletarFretes } = require('./coletar-fretes');
-const { calcular: calcularFretes } = require('./calcular-fretes');
-const { calcular: calcularTarifas } = require('./calcular-tarifas');
+// calcular-fretes.js (média por anúncio/categoria) saiu do fluxo: o frete passou a ser
+// por FAIXA DE PREÇO, que é como o Mercado Livre cobra. O arquivo ficou no repositório
+// porque a coleta em ml_fretes continua sendo a base do cálculo novo.
+const { calcular: calcularTarifas, atualizarFaixasDeFrete } = require('./calcular-tarifas');
 const { vigiar } = require('./vigia');
 
 const SUPABASE_URL = 'https://pylkufhziohxvwbbaued.supabase.co';
@@ -172,15 +174,17 @@ async function rodarPatrulha(opcoes) {
 // — são um complemento e não podem custar o principal.
 async function atualizarCustos(contas, log) {
   try {
+    // 1. busca na API o frete das vendas novas
     await coletarFretes({ contas, log: (m) => log(m) });
-    const f = await calcularFretes({ log: (m) => log(m) });
-    log(`   frete: ${f.real} do próprio anúncio · ${f.categoria} pela categoria · ${f.faixa} pela faixa`);
+    // 2. recalcula a mediana por faixa de preço com essas vendas
+    await atualizarFaixasDeFrete({ log: (m) => log(m) });
   } catch (erro) {
     log(`   atualização do frete falhou (as promoções seguem ok): ${mensagemAmigavel(erro)}`);
   }
   try {
+    // 3. a tarifa oficial do ML por categoria e faixa, e a categoria de cada anúncio
     const t = await calcularTarifas({ log: (m) => log(m) });
-    log(`   tarifa: ${t.real} do próprio anúncio · ${t.categoria} pela categoria · ${t.tabela} pela tabela do ML`);
+    log(`   tarifa: ${t.categorias} categorias${t.sem_categoria ? ` · ${t.sem_categoria} anúncio(s) sem categoria` : ''}`);
   } catch (erro) {
     log(`   atualização da tarifa falhou (as promoções seguem ok): ${mensagemAmigavel(erro)}`);
   }
