@@ -28,6 +28,7 @@ const { coletar: coletarFretes } = require('./coletar-fretes');
 // por FAIXA DE PREÇO, que é como o Mercado Livre cobra. O arquivo ficou no repositório
 // porque a coleta em ml_fretes continua sendo a base do cálculo novo.
 const { calcular: calcularTarifas, atualizarFaixasDeFrete } = require('./calcular-tarifas');
+const { coletar: coletarFreteOficial } = require('./coletar-frete-oficial');
 const { vigiar } = require('./vigia');
 
 const SUPABASE_URL = 'https://pylkufhziohxvwbbaued.supabase.co';
@@ -173,20 +174,29 @@ async function rodarPatrulha(opcoes) {
 // NÃO DERRUBA A VARREDURA. Se estes cálculos falharem, as promoções seguem catalogadas
 // — são um complemento e não podem custar o principal.
 async function atualizarCustos(contas, log) {
+  // A ORDEM IMPORTA, e a varredura de promoções ANTES daqui apagou e recriou o cache
+  // inteiro — então as colunas de custo voltaram vazias e precisam ser repostas. Sem
+  // isto a coluna "Você recebe" mostraria a margem sem descontar nada.
   try {
-    // 1. busca na API o frete das vendas novas
-    await coletarFretes({ contas, log: (m) => log(m) });
-    // 2. recalcula a mediana por faixa de preço com essas vendas
-    await atualizarFaixasDeFrete({ log: (m) => log(m) });
+    // 1. o frete OFICIAL de cada anúncio, direto do ML (só busca o que falta)
+    await coletarFreteOficial({ log: (m) => log(m) });
   } catch (erro) {
-    log(`   atualização do frete falhou (as promoções seguem ok): ${mensagemAmigavel(erro)}`);
+    log(`   frete oficial falhou (as promoções seguem ok): ${mensagemAmigavel(erro)}`);
   }
   try {
-    // 3. a tarifa oficial do ML por categoria e faixa, e a categoria de cada anúncio
+    // 2. a tarifa oficial por categoria e faixa, e a categoria de cada anúncio
     const t = await calcularTarifas({ log: (m) => log(m) });
     log(`   tarifa: ${t.categorias} categorias${t.sem_categoria ? ` · ${t.sem_categoria} anúncio(s) sem categoria` : ''}`);
   } catch (erro) {
     log(`   atualização da tarifa falhou (as promoções seguem ok): ${mensagemAmigavel(erro)}`);
+  }
+  try {
+    // 3. o histórico de frete pago: alimenta a faixa de preço, que é a reserva para
+    //    anúncio que o ML não souber responder.
+    await coletarFretes({ contas, log: (m) => log(m) });
+    await atualizarFaixasDeFrete({ log: (m) => log(m) });
+  } catch (erro) {
+    log(`   faixas de frete falharam (as promoções seguem ok): ${mensagemAmigavel(erro)}`);
   }
 }
 

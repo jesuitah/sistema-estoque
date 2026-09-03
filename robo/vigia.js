@@ -129,12 +129,16 @@ async function levantarProblemas(sb) {
     // tarifa da tabela oficial por categoria. Então o que precisa existir são essas
     // duas tabelas — conferir `frete_custo` linha a linha virou alarme falso (o campo
     // está vazio de propósito desde a correção).
-    const { count: faixasFrete } = await sb.from('ml_frete_faixas')
-      .select('ate_preco', { count: 'exact', head: true });
-    if (!faixasFrete) {
+    // O frete de cada anúncio vem do próprio ML. Se a varredura de promoções recriar o
+    // cache e a reposição falhar, a coluna "Você recebe" fica sem descontar frete — e
+    // como o número não aparece na tela, ninguém percebe. Daí o alerta.
+    const { count: semFrete } = await sb.from('ml_promocoes_itens')
+      .select('item_id', { count: 'exact', head: true })
+      .eq('status', 'started').is('frete_oficial', null);
+    if (semFrete > 20) {
       achados.push({
         chave: 'frete_faltando', gravidade: 'aviso',
-        mensagem: 'sem tabela de frete por faixa de preço — o "Você recebe" está sem descontar frete',
+        mensagem: `${semFrete} anúncio(s) em promoção sem o frete oficial — o "Você recebe" deles está otimista`,
       });
     }
 
