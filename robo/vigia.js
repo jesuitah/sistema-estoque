@@ -193,14 +193,24 @@ async function vigiar({ log = () => {} } = {}) {
   const agora = new Date().toISOString();
 
   const { data: abertos } = await sb.from('robo_alertas')
-    .select('id, chave').is('resolvido_em', null);
-  const jaAbertos = new Map((abertos || []).map((a) => [a.chave, a.id]));
+    .select('id, chave, mensagem, dispensado_em').is('resolvido_em', null);
+  const jaAbertos = new Map((abertos || []).map((a) => [a.chave, a]));
 
   for (const p of problemas) {
     if (jaAbertos.has(p.chave)) {
+      const antigo = jaAbertos.get(p.chave);
+      // Um aviso dispensado só volta se a MENSAGEM mudar.
+      //
+      // O Matheus pode fechar um aviso que já leu — "2 anúncios não cederam, o robô
+      // continua tentando" não precisa ficar na cara dele a cada tela. Mas se virarem
+      // 5 anúncios, isso é informação nova e o aviso reaparece.
+      const mudou = antigo.mensagem !== p.mensagem;
       await sb.from('robo_alertas')
-        .update({ mensagem: p.mensagem, gravidade: p.gravidade, visto_em: agora })
-        .eq('id', jaAbertos.get(p.chave));
+        .update({
+          mensagem: p.mensagem, gravidade: p.gravidade, visto_em: agora,
+          dispensado_em: mudou ? null : antigo.dispensado_em,
+        })
+        .eq('id', antigo.id);
       jaAbertos.delete(p.chave);
     } else {
       await sb.from('robo_alertas').insert({ ...p, visto_em: agora });
@@ -209,8 +219,8 @@ async function vigiar({ log = () => {} } = {}) {
   }
 
   // O que sobrou em jaAbertos não apareceu mais: o problema acabou.
-  for (const [chave, id] of jaAbertos) {
-    await sb.from('robo_alertas').update({ resolvido_em: agora }).eq('id', id);
+  for (const [chave, a] of jaAbertos) {
+    await sb.from('robo_alertas').update({ resolvido_em: agora }).eq('id', a.id);
     log(`  ✅ resolvido: ${chave}`);
   }
 

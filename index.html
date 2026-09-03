@@ -1057,6 +1057,17 @@
           .then(function(r) { if (r.data && r.data[0]) guardar('frete', r.data[0].criado_em); });
       }
 
+      // Fecha um aviso na tarja. Não resolve nem apaga: ele continua aberto na aba Robô.
+      //
+      // Sem isso, clicar no X seria inútil — o vigia reescreve o alerta a cada 15 min
+      // enquanto o problema existir, e ele voltaria sozinho.
+      function dispensarAlerta(a) {
+        supabase.from('robo_alertas')
+          .update({ dispensado_em: new Date().toISOString() })
+          .eq('id', a.id)
+          .then(function() { carregarStatusRobo(); });
+      }
+
       // "há 12 min" — para a coluna de última execução.
       function desdeQuando(quando) {
         if (!quando) return 'nunca';
@@ -1599,6 +1610,9 @@
         if (i) return '📅 desde ' + i;
         return '';
       }
+
+      // O que ainda vai para a tarja do topo: o que você não dispensou.
+      var alertasNaTarja = alertas.filter(function(a) { return !a.dispensado_em; });
 
       // Quantos dias faltam pra promoção acabar. Serve pra pintar de amarelo o que
       // está terminando — ativar numa campanha que acaba amanhã é trabalho perdido.
@@ -3290,8 +3304,10 @@
         e('main', {className: 'max-w-7xl mx-auto px-4 py-6'},
           // O que o robô encontrou de errado. Fica no topo, em qualquer aba: problema
           // escondido numa aba que ninguém abre é problema que ninguém resolve.
-          alertas.length > 0 && e('div', {className: 'mb-5 space-y-2'},
-            alertas.map(function(a) {
+          // A tarja aparece em TODAS as abas, então mostra só o que ainda não foi lido.
+          // O que você dispensa sai daqui mas continua na aba Robô.
+          alertasNaTarja.length > 0 && e('div', {className: 'mb-5 space-y-2'},
+            alertasNaTarja.map(function(a) {
               var grave = a.gravidade === 'grave';
               return e('div', {
                 key: a.id,
@@ -3302,7 +3318,12 @@
                 e('span', {className: 'font-bold'}, grave ? '⚠' : '•'),
                 e('span', {className: 'flex-1'}, a.mensagem),
                 e('span', {className: 'text-xs opacity-60 whitespace-nowrap'},
-                  'desde ' + new Date(a.criado_em).toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'}))
+                  'desde ' + new Date(a.criado_em).toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})),
+                e('button', {
+                  onClick: function() { dispensarAlerta(a); },
+                  title: 'Já vi — tira da tela. Continua na aba Robô, e volta se o problema mudar.',
+                  className: 'font-bold text-base leading-none px-1 opacity-60 hover:opacity-100'
+                }, '×')
               );
             })
           ),
@@ -3743,15 +3764,23 @@
                 e('h3', {className: 'font-bold mb-2'}, 'Vigilância'),
                 alertas.length === 0
                   ? e('p', {className: 'text-sm text-emerald-400'}, '✅ Nada pendente. Ele confere a si mesmo a cada 15 minutos.')
+                  // Aqui aparecem TODOS, inclusive os que você tirou da tarja: esta aba
+                  // é o lugar de conferir, não de ser avisado.
                   : e('div', {className: 'space-y-2'},
                       alertas.map(function(a) {
                         return e('div', {
                           key: a.id,
-                          className: 'text-sm rounded px-3 py-2 border ' +
+                          className: 'flex items-start gap-2 text-sm rounded px-3 py-2 border ' +
                             (a.gravidade === 'grave'
                               ? 'bg-red-900 bg-opacity-30 border-red-700 text-red-200'
                               : 'bg-amber-900 bg-opacity-25 border-amber-700 text-amber-200')
-                        }, a.mensagem);
+                        },
+                          e('span', {className: 'flex-1'}, a.mensagem),
+                          a.dispensado_em && e('span', {
+                            className: 'text-xs opacity-60 whitespace-nowrap',
+                            title: 'Você tirou este aviso da tarja. Ele volta se o problema mudar.',
+                          }, 'dispensado')
+                        );
                       })
                     )
               )
