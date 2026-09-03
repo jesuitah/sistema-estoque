@@ -1716,7 +1716,11 @@
             conta: promoSel.conta,
             promocao_id: promoSel.promocao_id,
             promocao_tipo: promoSel.promocao_tipo,
-            percentual: isNaN(pct) ? null : pct,
+            // Só manda percentual onde ele significa alguma coisa. Nas promoções do ML
+            // o campo nem aparece na tela, mas o valor antigo continuava sendo enviado —
+            // e a confirmação dizia "7 anúncios aplicados com 10% de desconto" quando o
+            // desconto tinha sido definido pelo Mercado Livre, não por ele.
+            percentual: (precisaPct && !isNaN(pct)) ? pct : null,
             itens: ids,
           }),
         })
@@ -3547,7 +3551,7 @@
                     '✅ ' + promoResultado.ativados.length + ' anúncio(s) aplicados'
                     + (promoResultado.percentual_recebido != null
                         ? ' com ' + promoResultado.percentual_recebido + '% de desconto'
-                        : '')),
+                        : ' — com o desconto definido pelo Mercado Livre')),
                   (promoResultado.recusados || []).length > 0 && e('div', {className: 'text-xs bg-amber-900 bg-opacity-25 border border-amber-800 rounded px-3 py-2'},
                     e('div', {className: 'text-amber-300 font-bold mb-1'},
                       '⚠ ' + promoResultado.recusados.length + ' não entraram — o Mercado Livre recusou:'),
