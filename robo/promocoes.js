@@ -200,6 +200,10 @@ async function varrerConta(sb, conta, log) {
           // Damos um id fixo pra ele virar uma aba como as outras.
           promocao_id: p.id || `PD-${p.type}`,
           promocao_tipo: p.type,
+          // Sem isto, entrar nas promoções do próprio ML é recusado com "Offer id is
+          // required". Ele devolve este `ref_id` aqui e espera recebê-lo de volta na
+          // hora de ativar. Só existe nas promoções em que o ML define o desconto.
+          offer_id: p.ref_id || null,
           promocao_sub: p.sub_type || null,
           promocao_nome: p.name || NOMES_PADRAO[p.type] || p.type,
           status: p.status,
