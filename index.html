@@ -492,6 +492,10 @@
       var promoBuscaState = useState('');
       var promoBusca = promoBuscaState[0];
       var setPromoBusca = promoBuscaState[1];
+      // 'todos' | 'fora' (ainda não estão na promoção) | 'dentro' (já estão)
+      var promoFiltroState = useState('todos');
+      var promoFiltro = promoFiltroState[0];
+      var setPromoFiltro = promoFiltroState[1];
       var promoCarregandoState = useState(false);
       var promoCarregando = promoCarregandoState[0];
       var setPromoCarregando = promoCarregandoState[1];
@@ -3402,7 +3406,21 @@
                 return (a.base.title || '').localeCompare(b.base.title || '');
               });
 
-            var todosMarcados = anuncios.length > 0 && anuncios.every(function(a) { return promoMarcados[a.id]; });
+            // Dentro ou fora da promoção aberta. As contagens vêm de `anuncios`, que já
+            // passou pela busca — assim os números do filtro conversam com o que está
+            // na tela, e não com a loja inteira.
+            var quantosDentro = anuncios.filter(function(a) { return a.nesta.status === 'started'; }).length;
+            var quantosFora = anuncios.length - quantosDentro;
+
+            // O filtro é aplicado DEPOIS de contar, senão cada botão mostraria o total
+            // dele mesmo e nunca o dos outros.
+            var visiveis = anuncios.filter(function(a) {
+              if (promoFiltro === 'dentro') return a.nesta.status === 'started';
+              if (promoFiltro === 'fora') return a.nesta.status !== 'started';
+              return true;
+            });
+
+            var todosMarcados = visiveis.length > 0 && visiveis.every(function(a) { return promoMarcados[a.id]; });
             // Nesta promoção o preço é escolhido por você, ou pelo Mercado Livre?
             var euEscolhoOPrecoNesta = !!promoSel
               && PRECO_ESCOLHIDO_POR_VOCE.indexOf(promoSel.promocao_tipo) !== -1;
@@ -3495,7 +3513,9 @@
                       type: 'checkbox', checked: todosMarcados,
                       onChange: function(ev) {
                         var novo = Object.assign({}, promoMarcados);
-                        anuncios.forEach(function(a) {
+                        // Marca só o que está VISÍVEL. Com o filtro em "fora da
+                        // promoção", marcar todos não pode pegar os que já estão dentro.
+                        visiveis.forEach(function(a) {
                           if (ev.target.checked) novo[a.id] = true; else delete novo[a.id];
                         });
                         setPromoMarcados(novo);
@@ -3503,6 +3523,27 @@
                       className: 'w-4 h-4'
                     }),
                     'selecionar todos'
+                  ),
+
+                  // Dentro ou fora desta promoção. O "fora" é onde está o trabalho —
+                  // são os anúncios que ainda podem entrar.
+                  e('div', {className: 'flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-lg p-1'},
+                    [
+                      {chave: 'todos',  rotulo: 'todos',  n: anuncios.length},
+                      {chave: 'fora',   rotulo: 'fora',   n: quantosFora},
+                      {chave: 'dentro', rotulo: 'na promoção', n: quantosDentro},
+                    ].map(function(f) {
+                      var ativo = promoFiltro === f.chave;
+                      return e('button', {
+                        key: f.chave,
+                        onClick: function() { setPromoFiltro(f.chave); },
+                        className: 'px-2.5 py-1 rounded text-xs font-bold whitespace-nowrap transition-colors ' +
+                          (ativo ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white')
+                      },
+                        f.rotulo,
+                        e('span', {className: 'ml-1.5 font-normal ' + (ativo ? 'opacity-80' : 'opacity-60')}, f.n)
+                      );
+                    })
                   ),
                   e('div', {className: 'flex-1 flex items-center gap-2 bg-slate-950 border border-slate-800 rounded-lg px-3 h-[38px] min-w-[180px]'},
                     e('span', {className: 'text-slate-600 text-sm'}, '🔎'),
@@ -3565,8 +3606,11 @@
 
                 promoCarregando
                   ? e('div', {className: 'text-sm text-slate-400 py-6 text-center'}, 'carregando anúncios...')
-                  : anuncios.length === 0
-                  ? e('div', {className: 'text-sm text-slate-500 py-6 text-center'}, 'Nenhum anúncio nessa promoção.')
+                  : visiveis.length === 0
+                  ? e('div', {className: 'text-sm text-slate-500 py-6 text-center'},
+                      promoFiltro === 'fora' ? '✅ Todos os anúncios desta promoção já estão dentro.'
+                      : promoFiltro === 'dentro' ? 'Nenhum anúncio ativo nesta promoção ainda.'
+                      : 'Nenhum anúncio nessa promoção.')
                   // Dois anúncios por linha.
                   //
                   // As colunas de números ocupavam metade da largura e sobrava um vazio
@@ -3574,7 +3618,7 @@
                   // o dobro de anúncios por tela, sem diminuir nenhuma fonte.
                   // Numa tela estreita volta a uma coluna sozinho.
                   : e('div', {className: 'grid gap-3 xl:grid-cols-2'},
-                      anuncios.map(function(a) { return blocoDoAnuncio(a, pct); }))
+                      visiveis.map(function(a) { return blocoDoAnuncio(a, pct); }))
               )
             );
           })(),
