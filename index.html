@@ -505,6 +505,12 @@
       var markupFiltroState = useState('');
       var markupFiltro = markupFiltroState[0];
       var setMarkupFiltro = markupFiltroState[1];
+
+      // 'padrao' = agrupado por quantas promoções o anúncio aceita (a ordem estável,
+      // boa pra trabalhar) · 'markup_maior' / 'markup_menor' = pelo que rende.
+      var promoOrdemState = useState('padrao');
+      var promoOrdem = promoOrdemState[0];
+      var setPromoOrdem = promoOrdemState[1];
       var promoCarregandoState = useState(false);
       var promoCarregando = promoCarregandoState[0];
       var setPromoCarregando = promoCarregandoState[1];
@@ -1488,6 +1494,44 @@
                + '   ' + (c == null ? 'sem custo' : moeda(c * it.qtd));
         });
         return 'Kit de ' + itens.length + ' item(ns):\n' + linhas.join('\n');
+      }
+
+      // O markup que representa o card inteiro, pra ordenar a lista.
+      //
+      // Cada promoção do anúncio tem o seu (o preço muda, o que sobra muda). Para
+      // ordenar precisamos de UM número por card, e o escolhido é o da promoção que
+      // está aberta — é nela que você está trabalhando e é a linha que seu olho procura.
+      //
+      // Se o anúncio ainda não está nessa promoção, não há preço ali; então cai na
+      // melhor linha com preço que ele tenha. Assim ordenar por markup continua fazendo
+      // sentido com o filtro em "fora da promoção", que é justo onde se decide o que
+      // vale a pena colocar.
+      function markupDoCard(a) {
+        // Guardado no próprio card: a ordenação chama isto milhares de vezes (n·log n
+        // comparações), e cada chamada lê o SKU letra a letra e refaz tarifa e frete.
+        // Os cards são reconstruídos a cada render, então o valor guardado nunca
+        // envelhece — morre junto com o objeto.
+        if (a._markup !== undefined) return a._markup;
+        a._markup = (function() {
+          var custo = custoDoAnuncio(a.base.sku);
+          if (custo == null) return null;
+
+          var candidatas = [];
+          if (a.nesta && a.nesta.preco_promo != null) {
+            candidatas.push(a.nesta);
+          } else {
+            a.linhas.forEach(function(l) { if (l.preco_promo != null) candidatas.push(l); });
+            if (!candidatas.length && a.base.preco_cheio != null) candidatas.push(a.base);
+          }
+
+          var melhor = null;
+          candidatas.forEach(function(l) {
+            var s = quantoSobra(l, Number(l.preco_promo != null ? l.preco_promo : l.preco_cheio));
+            if (s != null && (melhor == null || s > melhor)) melhor = s;
+          });
+          return markupDaLinha(melhor, custo);
+        })();
+        return a._markup;
       }
 
       // Markup: quanto o dinheiro rendeu em cima do custo.
@@ -3382,6 +3426,16 @@
               // promoções que um anúncio aceita não muda quando você ativa uma delas,
               // então a lista não se mexe embaixo de você no meio do trabalho.
               .sort(function(a, b) {
+                // Pedido: ver primeiro o que rende mais. Quem não tem custo cadastrado
+                // vai pro fim em vez de sumir — a lista continua inteira, só reordenada.
+                if (promoOrdem === 'markup_maior' || promoOrdem === 'markup_menor') {
+                  var ma = markupDoCard(a), mb = markupDoCard(b);
+                  if (ma == null && mb == null) return (a.base.title || '').localeCompare(b.base.title || '');
+                  if (ma == null) return 1;
+                  if (mb == null) return -1;
+                  if (ma !== mb) return promoOrdem === 'markup_maior' ? mb - ma : ma - mb;
+                  return (a.base.title || '').localeCompare(b.base.title || '');
+                }
                 var qa = a.linhas.filter(promocaoRelevante).length;
                 var qb = b.linhas.filter(promocaoRelevante).length;
                 if (qa !== qb) return qa - qb;
@@ -3554,6 +3608,21 @@
                     e('option', {value: ''},    'Markup: todos'),
                     e('option', {value: 'com'}, 'Com markup (' + quantosComMarkup + ')'),
                     e('option', {value: 'sem'}, 'Sem markup (' + quantosSemMarkup + ')')
+                  ),
+                  // Ordem. Fica ao lado do filtro de markup porque é do mesmo assunto:
+                  // um diz QUAIS, o outro diz EM QUE ORDEM. Sem custo cadastrado vai
+                  // pro fim da lista, não some.
+                  e('select', {
+                    value: promoOrdem,
+                    onChange: function(ev) { setPromoOrdem(ev.target.value); },
+                    className: 'bg-slate-950 border rounded-lg px-3 h-[38px] text-sm outline-none cursor-pointer ' +
+                      (promoOrdem !== 'padrao'
+                        ? 'border-amber-600 text-amber-300'
+                        : 'border-slate-800 text-slate-200 hover:border-slate-700')
+                  },
+                    e('option', {value: 'padrao'},       'Ordem: padrão'),
+                    e('option', {value: 'markup_maior'}, '↓ Maior markup'),
+                    e('option', {value: 'markup_menor'}, '↑ Menor markup')
                   ),
                   e('div', {className: 'flex-1 flex items-center gap-2 bg-slate-950 border border-slate-800 rounded-lg px-3 h-[38px] min-w-[180px]'},
                     e('span', {className: 'text-slate-600 text-sm'}, '🔎'),
