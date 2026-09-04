@@ -293,6 +293,11 @@
       var sortOrder = sortState[0];
       var setSortOrder = sortState[1];
 
+      // Marca escolhida na aba Busca. Vazio = todas.
+      var marcaFiltroState = useState('');
+      var marcaFiltro = marcaFiltroState[0];
+      var setMarcaFiltro = marcaFiltroState[1];
+
 
       var mlFiltroZeradosState = useState(true);
       var mlFiltroZerados = mlFiltroZeradosState[0];
@@ -3137,10 +3142,30 @@
         });
       }
 
+      // Todas as marcas do estoque, em ordem, com quantos produtos cada uma tem.
+      //
+      // A busca por texto já achava a marca se você digitasse o nome certo — o problema
+      // é justamente lembrar o nome certo entre dezenas delas. A lista resolve isso: dá
+      // pra abrir e ver o que existe.
+      var marcasDoEstoque = useMemo(function() {
+        var contagem = {};
+        (estoque || []).forEach(function(item) {
+          var m = (item.marca || '').trim().toUpperCase();
+          if (!m) return;
+          contagem[m] = (contagem[m] || 0) + 1;
+        });
+        return Object.keys(contagem).sort().map(function(m) {
+          return { marca: m, n: contagem[m] };
+        });
+      }, [estoque]);
+
       var estoquesFiltrados = estoque.filter(function(item) {
         var termo = searchTerm.trim().toUpperCase();
         var marca = (item.marca || '').trim().toUpperCase();
         var sku = (item.sku || '').trim().toUpperCase();
+        // A marca escolhida na lista manda: dentro dela, a busca por texto continua
+        // funcionando normalmente. As duas se somam em vez de brigar.
+        if (marcaFiltro && marca !== marcaFiltro) return false;
         return marca.includes(termo) || sku.includes(termo);
       }).slice().sort(function(a, b) {
         if (sortOrder === 'maior') return (b.unidades || 0) - (a.unidades || 0);
@@ -3619,6 +3644,23 @@
                   onChange: function(ev) { setSearchTerm(ev.target.value); },
                   className: 'flex-1 bg-slate-800 text-white px-4 py-3 rounded-lg border border-slate-600 focus:border-blue-400 focus:outline-none text-sm'
                 }),
+                // Filtro por marca. Fica ANTES da ordenação porque é o que se escolhe
+                // primeiro: primeiro "quais produtos", depois "em que ordem".
+                //
+                // Quando há uma marca escolhida a borda fica azul — senão não dá pra
+                // perceber, olhando os cards, que a lista está filtrada, e a pessoa
+                // acha que sumiu produto do estoque.
+                e('select', {
+                  value: marcaFiltro,
+                  onChange: function(ev) { setMarcaFiltro(ev.target.value); },
+                  className: 'bg-slate-800 text-white px-3 py-3 rounded-lg border focus:outline-none text-sm cursor-pointer max-w-[220px] ' +
+                    (marcaFiltro ? 'border-blue-500 text-blue-200' : 'border-slate-600 focus:border-blue-400')
+                },
+                  e('option', {value: ''}, 'Todas as marcas (' + marcasDoEstoque.length + ')'),
+                  marcasDoEstoque.map(function(m) {
+                    return e('option', {key: m.marca, value: m.marca}, m.marca + ' (' + m.n + ')');
+                  })
+                ),
                 e('select', {
                   value: sortOrder,
                   onChange: function(ev) { setSortOrder(ev.target.value); },
@@ -3629,8 +3671,13 @@
                   e('option', {value: 'menor'}, '↑ Menor estoque')
                 )
               ),
-              e('div', {className: 'text-sm text-slate-400'},
-                'Exibindo ' + estoquesFiltrados.length + ' de ' + stats.total + ' produtos'
+              e('div', {className: 'text-sm text-slate-400 flex items-center gap-2 flex-wrap'},
+                e('span', null, 'Exibindo ' + estoquesFiltrados.length + ' de ' + stats.total + ' produtos'),
+                // Atalho pra sair do filtro sem ter que achar a opção "Todas" na lista.
+                marcaFiltro && e('button', {
+                  onClick: function() { setMarcaFiltro(''); },
+                  className: 'text-blue-400 hover:text-blue-300 underline text-xs'
+                }, 'limpar filtro de ' + marcaFiltro)
               )
             ),
             estoquesFiltrados.length === 0
