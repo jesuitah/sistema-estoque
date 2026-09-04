@@ -92,11 +92,21 @@ async function levantarProblemas(sb) {
 
   // 2) patrulha que achou e não resolveu
   const desde = new Date(Date.now() - 90 * 60 * 1000).toISOString();
+  // Só reclama se a patrulha AINDA está falhando — não se falhou uma vez e já se
+  // recuperou. O ML fecha o navegador do nada de vez em quando; em 62 passadas da KMP
+  // isso aconteceu uma. Levantar alarme vermelho por uma falha que a passada seguinte
+  // já consertou é o mesmo erro do `insistindo`: ler uma foto do passado como se fosse
+  // o agora. O que importa é o estado da ÚLTIMA passada de cada conta.
   const { data: exec } = await sb.from('ml_patrulha_execucoes')
-    .select('conta, insistindo, erro').gte('quando', desde);
+    .select('conta, erro, quando').gte('quando', desde)
+    .order('quando', { ascending: false });
+  const ultimaDaConta = new Map();
   for (const x of exec || []) {
+    if (!ultimaDaConta.has(x.conta)) ultimaDaConta.set(x.conta, x);
+  }
+  for (const [conta, x] of ultimaDaConta) {
     if (x.erro) {
-      achados.push({ chave: `patrulha_erro:${x.conta}`, gravidade: 'grave', mensagem: `Patrulha da ${x.conta}: ${x.erro}` });
+      achados.push({ chave: `patrulha_erro:${conta}`, gravidade: 'grave', mensagem: `Patrulha da ${conta}: ${x.erro}` });
     }
   }
 

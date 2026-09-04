@@ -24,9 +24,9 @@ const { abrirNavegador, identificarConta, USER_IDS_ESPERADOS } = require('./nave
 const { patrulhar } = require('./patrulha-full');
 const { varrer: varrerPromocoes } = require('./promocoes');
 const { coletar: coletarFretes } = require('./coletar-fretes');
-// calcular-fretes.js (média por anúncio/categoria) saiu do fluxo: o frete passou a ser
-// por FAIXA DE PREÇO, que é como o Mercado Livre cobra. O arquivo ficou no repositório
-// porque a coleta em ml_fretes continua sendo a base do cálculo novo.
+// A média por anúncio/categoria saiu do fluxo (e o arquivo, do repositório): o frete
+// agora vem do próprio ML, anúncio por anúncio. A coleta em ml_fretes continua, porque
+// é dela que sai a faixa de preço usada como reserva quando o ML não responde.
 const { calcular: calcularTarifas, atualizarFaixasDeFrete } = require('./calcular-tarifas');
 const { coletar: coletarFreteOficial } = require('./coletar-frete-oficial');
 const { vigiar } = require('./vigia');
@@ -314,18 +314,37 @@ async function tirarDoFull(navegador, pagina, tarefa, accessToken) {
     return { status: r.status, corpo };
   }, { endpoint: ENDPOINT, csrf, actionId, id: antes.user_product_id });
 
+  // Erro 500 do Mercado Livre é passageiro — a mesma chamada, repetida, costuma dar 200.
+  //
+  // Duas tarefas "tirar do full" da LTS morreram com "ação recusada (HTTP 500)" e nunca
+  // mais foram tentadas: a peça ficou pagando armazenagem no Full à toa. É o mesmo
+  // aprendizado das promoções (lá o remédio foi `chamarComInsistencia`). Recusa 4xx
+  // continua interrompendo na hora — essa é decisão do ML, insistir não muda.
+  const dispararComInsistencia = async (csrf, actionId, tentativas = 3) => {
+    let ultima = null;
+    for (let i = 1; i <= tentativas; i++) {
+      ultima = await disparar(csrf, actionId);
+      if (ultima.status < 500) return ultima;
+      if (i < tentativas) {
+        log(`  ${tarefa.conta}: ${actionId} respondeu ${ultima.status} — tentando de novo (${i}/${tentativas})`);
+        await new Promise((espera) => setTimeout(espera, i * 2000));
+      }
+    }
+    return ultima;
+  };
+
   let csrf = await obterCsrf(pagina, tarefa.conta, false);
-  let v = await disparar(csrf, 'MAKE_NO_OFFER_FULL_VALIDATE');
+  let v = await dispararComInsistencia(csrf, 'MAKE_NO_OFFER_FULL_VALIDATE');
 
   // 401/403 costuma ser código de segurança vencido: pega um novo e tenta de novo,
   // uma única vez. Qualquer outra recusa interrompe.
   if (v.status === 401 || v.status === 403) {
     csrf = await obterCsrf(pagina, tarefa.conta, true);
-    v = await disparar(csrf, 'MAKE_NO_OFFER_FULL_VALIDATE');
+    v = await dispararComInsistencia(csrf, 'MAKE_NO_OFFER_FULL_VALIDATE');
   }
   if (v.status !== 200) throw new Error(`validação recusada (HTTP ${v.status})`);
 
-  const a = await disparar(csrf, 'MAKE_NO_OFFER_FULL_ACTION');
+  const a = await dispararComInsistencia(csrf, 'MAKE_NO_OFFER_FULL_ACTION');
   if (a.status !== 200) throw new Error(`ação recusada (HTTP ${a.status})`);
 
   const depois = await esperarSairDoFull(itemId, accessToken);

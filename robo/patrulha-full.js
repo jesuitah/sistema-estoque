@@ -364,7 +364,9 @@ async function patrulharConta(sb, conta, executar, log) {
       if (existente?.desistiu_em) continue;                    // já desistimos deste
       if (existente && (existente.passadas || 0) >= PASSADAS_ATE_DESISTIR) {
         if (executar) {
-          await sb.from('ml_patrulha_full').update({ desistiu_em: new Date().toISOString() }).eq('id', existente.id);
+          await sb.from('ml_patrulha_full')
+            .update({ desistiu_em: new Date().toISOString(), motivo_desistencia: 'nao_cedeu' })
+            .eq('id', existente.id);
           await sb.from('ml_log_acoes').insert({
             conta, item_id: alvo.codigo_ml, title: alvo.titulo, acao: 'falhou', origem: 'robo',
             detalhe: `o Mercado Livre não reativou em ${existente.passadas} passadas (${existente.tentativas} tentativas) — precisa de você`,
@@ -496,7 +498,28 @@ async function patrulharConta(sb, conta, executar, log) {
       // Quem foi pulado por estar sem estoque não entra nesta conta: não foi
       // resolvido nem falhou — foi deliberadamente deixado pro fluxo de Inativos.
       // Sem isto, ele seria marcado como "voltou pro Full", que é mentira.
-      if (item.semEstoque) continue;
+      //
+      // Mas também não pode ficar em silêncio na fila. Era o que acontecia: a linha
+      // ficava pendente pra sempre (passadas congeladas, então a desistência das 8
+      // passadas nunca chegava), e o vigia contava esse anúncio no aviso "N não
+      // cederam — o robô continua tentando". O robô NÃO estava tentando; tinha
+      // decidido não mexer. O aviso mentia. Dois anúncios da ERP ficaram assim
+      // por mais de um dia. Agora a linha sai da fila com o motivo verdadeiro.
+      if (item.semEstoque) {
+        if (item.registro && !item.registro.desistiu_em) {
+          await sb.from('ml_patrulha_full')
+            .update({
+              desistiu_em: new Date().toISOString(), vista_em: new Date().toISOString(),
+              motivo_desistencia: 'sem_estoque',
+            })
+            .eq('id', item.registro.id);
+          await sb.from('ml_log_acoes').insert({
+            conta, item_id: item.codigo_ml, title: item.titulo, acao: 'ignorado', origem: 'robo',
+            detalhe: 'sem estoque — não volta pro Full; quem cuida é o fluxo de Inativos',
+          });
+        }
+        continue;
+      }
 
       const tentativas = tentativasPorItem[item.codigo_ml] || 1;
       const saiu = !aindaTravados.has(item.codigo_ml);

@@ -4638,16 +4638,51 @@
                       pend.length > 0 && e('div', null,
                         e('div', {className: 'text-xs font-bold text-amber-400 uppercase mb-1'},
                           '⏳ O robô está insistindo (' + pend.length + ')'),
+                        // Uma lista de itens, mesmo em amarelo, parece uma fila de trabalho.
+                        // Sem esta frase o Matheus olhava e não sabia se era com ele.
+                        e('div', {className: 'text-xs text-slate-500 mb-1'},
+                          'Não faça nada. O robô repete a cada hora até o anúncio voltar a vender.'),
                         e('div', {className: 'space-y-1'},
                           pend.map(function(p) { return linha(p, 'bg-amber-900 bg-opacity-25 border-amber-800 text-amber-200'); }))
                       ),
 
-                      trav.length > 0 && e('div', null,
-                        e('div', {className: 'text-xs font-bold text-red-400 uppercase mb-1'},
-                          '⚠ Desistiu — precisa de você (' + trav.length + ')'),
-                        e('div', {className: 'space-y-1'},
-                          trav.map(function(p) { return linha(p, 'bg-red-900 bg-opacity-25 border-red-800 text-red-200'); }))
-                      ),
+                      // "Desistiu" tem dois motivos MUITO diferentes, e antes vinham
+                      // misturados no mesmo bloco vermelho "precisa de você":
+                      //   • nao_cedeu   → o robô tentou até o limite e o ML não obedeceu.
+                      //                   Aí sim é com você, à mão, no painel.
+                      //   • sem_estoque → o robô decidiu não mexer porque não temos a peça.
+                      //                   Não é pra reativar nada; quem cuida é outra aba.
+                      // Chamar os dois de "precisa de você" mandava o Matheus tentar
+                      // reativar peça que ele não tem.
+                      (function() {
+                        var manuais = trav.filter(function(p) { return p.motivo_desistencia !== 'sem_estoque'; });
+                        var semEstoque = trav.filter(function(p) { return p.motivo_desistencia === 'sem_estoque'; });
+                        return e(React.Fragment, null,
+                          manuais.length > 0 && e('div', null,
+                            e('div', {className: 'text-xs font-bold text-red-400 uppercase mb-1'},
+                              '⚠ Precisa de você (' + manuais.length + ')'),
+                            e('div', {className: 'text-xs text-slate-400 mb-1'},
+                              'O robô tentou 8 passadas e o Mercado Livre não obedeceu. ',
+                              e('a', {
+                                href: 'https://vendedores.mercadolivre.com.br/anuncios/lista/space_management',
+                                target: '_blank', rel: 'noreferrer',
+                                className: 'text-sky-400 underline hover:text-sky-300'
+                              }, 'Abra o painel do Full'),
+                              ' e faça a ação abaixo à mão, no anúncio.'),
+                            e('div', {className: 'space-y-1'},
+                              manuais.map(function(p) { return linha(p, 'bg-red-900 bg-opacity-25 border-red-800 text-red-200'); }))
+                          ),
+                          semEstoque.length > 0 && e('div', null,
+                            e('div', {className: 'text-xs font-bold text-slate-400 uppercase mb-1'},
+                              'ℹ Sem estoque — de propósito (' + semEstoque.length + ')'),
+                            e('div', {className: 'text-xs text-slate-500 mb-1'},
+                              'Não é pra reativar: não temos a peça. O robô deixou de lado por isso. ' +
+                              'Se a peça chegar, ela volta sozinha na próxima passada.'),
+                            e('div', {className: 'space-y-1'},
+                              semEstoque.map(function(p) { return linha(p, 'bg-slate-900 bg-opacity-50 border-slate-700 text-slate-400'); }))
+                          )
+                        );
+                      })(),
 
                       pend.length === 0 && trav.length === 0 &&
                         e('div', {className: 'text-xs ' + (recemVerificada ? 'text-emerald-300' : 'text-slate-500')},
