@@ -23,12 +23,19 @@ const { createClient } = require('@supabase/supabase-js');
 const RAIZ = path.join(__dirname, '..');
 
 // Dados de negócio. ml_tokens fica de fora por segurança (ver acima).
+//
+// Esta lista precisa crescer junto com o sistema. Em 04/09/2026 ela ainda era a de
+// agosto: faltavam promoções, fretes e tarifas — justamente o trabalho mais recente,
+// e o mais caro de refazer, porque veio de milhares de consultas à API do ML.
 const TABELAS = [
   'estoque', 'precos', 'markup_marcas',
   'ml_anuncios', 'ml_pedidos', 'ml_templates_fotos',
   'kanban_listas', 'kanban_cartoes', 'kanban_itens',
   'kanban_etiquetas', 'kanban_cartao_etiquetas',
   'app_perfis', 'ml_log_acoes', 'ml_patrulha_full',
+  'ml_patrulha_execucoes', 'ml_tarefas_robo', 'robo_alertas',
+  'ml_promocoes_itens', 'ml_fretes', 'ml_frete_anuncio',
+  'ml_frete_faixas', 'ml_tarifas',
 ];
 
 // Pastas e arquivos que não vão junto
@@ -132,14 +139,14 @@ O QUE TEM AQUI
 
 COMO USAR ISTO
 
-  Leia:  programa\\RECUPERACAO.md
+  Leia:  programa\\BACKUP SISTEMA DE ESTOQUE 04.09.md
   Ele tem o passo a passo pra reconstruir tudo num computador novo.
 
 O QUE **NÃO** ESTÁ AQUI, DE PROPÓSITO
 
   As sessões de login das lojas e as chaves de acesso ficaram de fora por segurança:
   se este pen drive se perder, quem achar não entra nas suas contas.
-  Refazer o login leva 2 minutos por loja — está explicado no RECUPERACAO.md.
+  Refazer o login leva 2 minutos por loja — está explicado no arquivo acima.
 
 O QUE VOCÊ PRECISA GUARDAR SEPARADO (não está aqui e não pode estar)
 
