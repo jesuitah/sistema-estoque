@@ -4667,45 +4667,34 @@
                           pend.map(function(p) { return linha(p, 'bg-amber-900 bg-opacity-25 border-amber-800 text-amber-200'); }))
                       ),
 
-                      // "Desistiu" tem dois motivos MUITO diferentes, e antes vinham
-                      // misturados no mesmo bloco vermelho "precisa de você":
-                      //   • nao_cedeu   → o robô tentou até o limite e o ML não obedeceu.
-                      //                   Aí sim é com você, à mão, no painel.
-                      //   • sem_estoque → o robô decidiu não mexer porque não temos a peça.
-                      //                   Não é pra reativar nada; quem cuida é outra aba.
-                      // Chamar os dois de "precisa de você" mandava o Matheus tentar
-                      // reativar peça que ele não tem.
-                      (function() {
-                        var manuais = trav.filter(function(p) { return p.motivo_desistencia !== 'sem_estoque'; });
-                        var semEstoque = trav.filter(function(p) { return p.motivo_desistencia === 'sem_estoque'; });
-                        return e(React.Fragment, null,
-                          manuais.length > 0 && e('div', null,
-                            e('div', {className: 'text-xs font-bold text-red-400 uppercase mb-1'},
-                              '⚠ Precisa de você (' + manuais.length + ')'),
-                            e('div', {className: 'text-xs text-slate-400 mb-1'},
-                              'O robô tentou 8 passadas e o Mercado Livre não obedeceu. ',
-                              e('a', {
-                                href: 'https://vendedores.mercadolivre.com.br/anuncios/lista/space_management',
-                                target: '_blank', rel: 'noreferrer',
-                                className: 'text-sky-400 underline hover:text-sky-300'
-                              }, 'Abra o painel do Full'),
-                              ' e faça a ação abaixo à mão, no anúncio.'),
-                            e('div', {className: 'space-y-1'},
-                              manuais.map(function(p) { return linha(p, 'bg-red-900 bg-opacity-25 border-red-800 text-red-200'); }))
-                          ),
-                          semEstoque.length > 0 && e('div', null,
-                            e('div', {className: 'text-xs font-bold text-slate-400 uppercase mb-1'},
-                              'ℹ Sem estoque — de propósito (' + semEstoque.length + ')'),
-                            e('div', {className: 'text-xs text-slate-500 mb-1'},
-                              'Não é pra reativar: não temos a peça. O robô deixou de lado por isso. ' +
-                              'Se a peça chegar, ela volta sozinha na próxima passada.'),
-                            e('div', {className: 'space-y-1'},
-                              semEstoque.map(function(p) { return linha(p, 'bg-slate-900 bg-opacity-50 border-slate-700 text-slate-400'); }))
-                          )
-                        );
-                      })(),
+                      // SÓ APARECE O QUE PRECISA DE VOCÊ.
+                      //
+                      // O robô desiste por dois motivos. Um é problema seu: ele tentou 8
+                      // passadas e o ML não obedeceu — precisa de mão. O outro não é: o
+                      // anúncio está sem estoque e ele deixou de lado de propósito, porque
+                      // quem cuida disso é o fluxo de Inativos.
+                      //
+                      // Eu cheguei a mostrar esse segundo caso num bloco cinza "não faça
+                      // nada". Errado: se não é pra fazer nada, não é pra estar na tela.
+                      // Ficava lá parado pra sempre — desistido não sai sozinho — e virava
+                      // exatamente o tipo de aviso velho que a gente passou o dia inteiro
+                      // tirando daqui. Quem quiser ver tem o histórico, que guarda tudo.
+                      manuaisTravados.length > 0 && e('div', null,
+                        e('div', {className: 'text-xs font-bold text-red-400 uppercase mb-1'},
+                          '⚠ Precisa de você (' + manuaisTravados.length + ')'),
+                        e('div', {className: 'text-xs text-slate-400 mb-1'},
+                          'O robô tentou 8 passadas e o Mercado Livre não obedeceu. ',
+                          e('a', {
+                            href: 'https://vendedores.mercadolivre.com.br/anuncios/lista/space_management',
+                            target: '_blank', rel: 'noreferrer',
+                            className: 'text-sky-400 underline hover:text-sky-300'
+                          }, 'Abra o painel do Full'),
+                          ' e faça a ação abaixo à mão, no anúncio.'),
+                        e('div', {className: 'space-y-1'},
+                          manuaisTravados.map(function(p) { return linha(p, 'bg-red-900 bg-opacity-25 border-red-800 text-red-200'); }))
+                      ),
 
-                      pend.length === 0 && trav.length === 0 &&
+                      pend.length === 0 && manuaisTravados.length === 0 &&
                         e('div', {className: 'text-xs ' + (recemVerificada ? 'text-emerald-300' : 'text-slate-500')},
                           u && u.erro
                             ? '⚠ ' + u.erro

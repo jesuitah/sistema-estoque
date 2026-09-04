@@ -329,20 +329,58 @@ async function patrulharConta(sb, conta, executar, log) {
       .filter((l) => l.acao);
 
     // Quem estava pendente e NÃO apareceu mais: sumiu da lista = resolvido.
+    //
+    // Isso sozinho deixava um buraco. O anúncio que CONTINUA na tela mas cuja
+    // recomendação o robô não reconhece não entra em `alvos` (não há o que fazer com
+    // ele) e também não sai por aqui (ainda está na tela). Resultado: a linha ficava
+    // pendente pra sempre, com as passadas congeladas — a desistência das 8 passadas
+    // nunca chegava — e ainda contava no aviso "N não cederam, o robô continua
+    // tentando", que era mentira: ele não estava tentando nada.
+    //
+    // Aconteceu com dois anúncios da ERP, presos por mais de um dia. Os dois estavam
+    // PERFEITOS no Mercado Livre: no Full, ativos, com unidade. Só a nossa fila não
+    // sabia disso.
+    //
+    // Agora, quem está na tela mas fora dos alvos é conferido na API. Se está no Full
+    // e ativo, fecha aqui mesmo.
     const codigosNaTela = new Set(lista.map((l) => l.codigo_ml));
+    const codigosAlvo = new Set(alvos.map((l) => l.codigo_ml));
     const { data: pendentes } = await sb.from('ml_patrulha_full')
-      .select('id, codigo_ml, titulo, tentativas').eq('conta', conta).is('resolvido_em', null);
-    const resolvidos = (pendentes || []).filter((p) => !codigosNaTela.has(p.codigo_ml));
+      .select('id, codigo_ml, titulo, tentativas, user_product_id').eq('conta', conta).is('resolvido_em', null);
+
+    const sumiramDaTela = (pendentes || []).filter((p) => !codigosNaTela.has(p.codigo_ml));
+    const emLimbo = (pendentes || []).filter(
+      (p) => codigosNaTela.has(p.codigo_ml) && !codigosAlvo.has(p.codigo_ml) && p.user_product_id
+    );
+
+    const jaEstavamCertos = [];
+    if (emLimbo.length) {
+      const autorizacao = await autenticacao(sb, conta);
+      for (const p of emLimbo) {
+        const estado = await estadoReal(autorizacao, p.user_product_id);
+        if (estado && estado.noFull && estado.status === 'active') {
+          jaEstavamCertos.push(p);
+          log(`  ${conta}: ${p.codigo_ml} já está no Full e vendendo — fechando a linha`);
+        } else {
+          log(`  ${conta}: ${p.codigo_ml} continua na tela com recomendação não reconhecida`);
+        }
+      }
+    }
+
+    const resolvidos = sumiramDaTela.concat(jaEstavamCertos);
     if (resolvidos.length && executar) {
       await sb.from('ml_patrulha_full')
         .update({ resolvido_em: new Date().toISOString() })
         .in('id', resolvidos.map((r) => r.id));
       for (const r of resolvidos) {
+        const eraLimbo = jaEstavamCertos.indexOf(r) !== -1;
         await sb.from('ml_log_acoes').insert({
           // Sem o título, o histórico mostrava só o código (ZRJK92424) e ninguém
           // reconhecia a peça. Ele já está guardado desde que o anúncio entrou na fila.
           conta, item_id: r.codigo_ml, title: r.titulo || null, acao: 'reativado', origem: 'robo',
-          detalhe: `voltou a vender no Full (após ${r.tentativas} tentativa(s))`,
+          detalhe: eraLimbo
+            ? 'conferido na API: já estava no Full e vendendo — a fila é que estava desatualizada'
+            : `voltou a vender no Full (após ${r.tentativas} tentativa(s))`,
         });
       }
       log(`  ${conta}: ${resolvidos.length} voltaram a vender ✅`);
