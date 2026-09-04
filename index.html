@@ -118,17 +118,15 @@
 
     // Quem vê o quê. `null` = vê tudo.
     //
-    // Em 02/09/2026 o Matheus liberou todas as abas para todos — MENOS "Importar
-    // SKUs", que ficou só para ele. Não é questão de confiança: aquela aba sobrescreve
-    // a quantidade e o custo de TODOS os SKUs de uma vez, a partir de uma planilha.
-    // Feita errada, é chata de desfazer, e é o dado que decide se o robô reativa um
-    // anúncio ou manda pra Inativos.
-    var TODAS_MENOS_IMPORTAR = ['robo', 'pedidosML', 'sku', 'precos', 'anuncios', 'promocoes', 'tarefas'];
+    // Em 02/09/2026 o Matheus liberou todas as abas para todos menos "Importar SKUs",
+    // que era a única perigosa — sobrescrevia quantidade e custo de todos os SKUs de
+    // uma vez, a partir de uma planilha. Em 04/09/2026 essa aba foi removida, então
+    // não sobrou nada para esconder: hoje todos os perfis veem tudo.
     var ABAS_POR_PERFIL = {
       mestre: null,                        // null = vê tudo
-      leonardo: TODAS_MENOS_IMPORTAR,
-      leticia: TODAS_MENOS_IMPORTAR,
-      expedicao: TODAS_MENOS_IMPORTAR,
+      leonardo: null,
+      leticia: null,
+      expedicao: null,
     };
     var NOMES_PERFIL = { mestre: 'Mestre', leonardo: 'Leonardo', leticia: 'Letícia', expedicao: 'Expedição' };
 
@@ -2195,176 +2193,6 @@
         });
       }
 
-      function importarSKUsExcel(file) {
-        setImporting(true);
-        var reader = new FileReader();
-        reader.onload = function(e) {
-          try {
-            var data = new Uint8Array(e.target.result);
-            var workbook = XLSX.read(data, {type: 'array'});
-            var skusDaPlanilha = [];
-
-            workbook.SheetNames.forEach(function(sheetName) {
-              var marca = sheetName.trim().toUpperCase();
-              var sheet = workbook.Sheets[sheetName];
-              var rows = XLSX.utils.sheet_to_json(sheet, {header: 1});
-
-              // Encontra a linha de cabeçalho: primeira linha onde col A é "SKU"
-              var dataStart = 1; // padrão: pula só a linha 0
-              for (var i = 0; i < Math.min(rows.length, 10); i++) {
-                if (rows[i][0] && String(rows[i][0]).trim().toUpperCase() === 'SKU') {
-                  dataStart = i + 1;
-                  break;
-                }
-              }
-
-              rows.slice(dataStart).forEach(function(row) {
-                if (!row[0]) return;
-                var sku = String(row[0]).trim().toUpperCase();
-                if (!sku) return;
-
-                var temQtd = row[1] !== null && row[1] !== undefined && row[1] !== '';
-                var temCusto = row[2] !== null && row[2] !== undefined && row[2] !== '';
-
-                skusDaPlanilha.push({
-                  marca: marca, sku: sku,
-                  unidades: temQtd ? (parseInt(row[1]) || 0) : null,
-                  custo: temCusto ? (parseFloat(String(row[2]).replace(',', '.')) || 0) : null,
-                  temQtd: temQtd, temCusto: temCusto
-                });
-              });
-            });
-
-            if (skusDaPlanilha.length === 0) {
-              alert('Nenhum SKU encontrado no arquivo.');
-              setImporting(false);
-              return;
-            }
-
-            // Remove duplicatas
-            var deduped = {};
-            skusDaPlanilha.forEach(function(item) { deduped[item.marca + '|' + item.sku] = item; });
-            var skusUnicos = Object.keys(deduped).map(function(k) { return deduped[k]; });
-
-            var existentesEstoque = estoque.map(function(x) {
-              return { id: x.id, marca: (x.marca||'').toUpperCase(), sku: (x.sku||'').toUpperCase() };
-            });
-
-            var opsEstoque = [];
-            var paraUpsertPrecos = [];
-            var inseridosEstoque = 0, atualizadosEstoque = 0;
-
-            skusUnicos.forEach(function(item) {
-              if (item.temQtd) {
-                var found = existentesEstoque.find(function(x) { return x.marca === item.marca && x.sku === item.sku; });
-                if (found) {
-                  opsEstoque.push(supabase.from('estoque').update({ unidades: item.unidades }).eq('id', found.id));
-                  atualizadosEstoque++;
-                } else {
-                  opsEstoque.push(supabase.from('estoque').insert([{ marca: item.marca, sku: item.sku, unidades: item.unidades }]));
-                  inseridosEstoque++;
-                }
-              }
-              if (item.temCusto) {
-                paraUpsertPrecos.push({ marca: item.marca, sku: item.sku, custo: item.custo });
-              }
-            });
-
-            // Upsert preços em lotes de 500
-            var opsPrecos = [];
-            var chunkSize = 500;
-            for (var ci = 0; ci < paraUpsertPrecos.length; ci += chunkSize) {
-              opsPrecos.push(
-                supabase.from('precos').upsert(paraUpsertPrecos.slice(ci, ci + chunkSize), { onConflict: 'marca,sku', ignoreDuplicates: false })
-              );
-            }
-
-            var todasOps = opsEstoque.concat(opsPrecos);
-            if (todasOps.length === 0) {
-              alert('Nenhuma alteração para aplicar.');
-              setImporting(false);
-              return;
-            }
-
-            Promise.all(todasOps).then(function(results) {
-              var err = results.find(function(r) { return r && r.error; });
-              if (err) {
-                alert('Erro na importação: ' + err.error.message);
-                setImporting(false);
-                return;
-              }
-              var msg = '✓ Importação concluída! ' + skusUnicos.length + ' SKUs processados.\n';
-              if (inseridosEstoque > 0 || atualizadosEstoque > 0)
-                msg += 'Estoque: ' + inseridosEstoque + ' inseridos, ' + atualizadosEstoque + ' atualizados\n';
-              if (paraUpsertPrecos.length > 0)
-                msg += 'Preços: ' + paraUpsertPrecos.length + ' custos salvos';
-              alert(msg);
-              carregarEstoque();
-              if (paraUpsertPrecos.length > 0) carregarPrecos();
-              setImporting(false);
-            });
-          } catch (err) {
-            alert('Erro ao processar arquivo: ' + err.message);
-            setImporting(false);
-          }
-        };
-        reader.readAsArrayBuffer(file);
-      }
-
-      function importarVendas(file) {
-        var nomeLoja = file.name.replace(/\.[^.]+$/, '').toUpperCase();
-        var reader = new FileReader();
-        reader.onload = function(e) {
-          try {
-            var data = new Uint8Array(e.target.result);
-            var wb = XLSX.read(data, {type: 'array'});
-            var sheetName = wb.SheetNames.find(function(n) { return n.toLowerCase().indexOf('venda') !== -1; }) || wb.SheetNames[0];
-            var rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], {header: 1, defval: ''});
-
-            // Encontra linha de cabeçalho (tem "SKU" em alguma coluna)
-            var headerIdx = -1;
-            var colSku = -1, colTotal = -1, colUnidades = -1;
-            for (var i = 0; i < Math.min(rows.length, 10); i++) {
-              var row = rows[i];
-              for (var j = 0; j < row.length; j++) {
-                var val = String(row[j]).trim().toUpperCase();
-                if (val === 'SKU') { colSku = j; headerIdx = i; }
-                if (val === 'TOTAL (BRL)') colTotal = j;
-                if (val === 'UNIDADES') colUnidades = j;
-              }
-              if (headerIdx !== -1) break;
-            }
-            if (colSku === -1) { alert('Coluna SKU não encontrada na planilha ' + nomeLoja); return; }
-            if (colTotal === -1) colTotal = 17;
-            if (colUnidades === -1) colUnidades = 6;
-
-            // Agrupa por SKU
-            var grupos = {};
-            rows.slice(headerIdx + 1).forEach(function(row) {
-              var skuRaw = String(row[colSku] || '').trim();
-              if (!skuRaw) return;
-              var total = parseFloat(row[colTotal]) || 0;
-              if (total <= 0) return;
-              var chave = nomeLoja + '||' + skuRaw;
-              if (!grupos[chave]) grupos[chave] = { loja: nomeLoja, skuRaw: skuRaw, count: 0, receitaTotal: 0 };
-              grupos[chave].count++;
-              grupos[chave].receitaTotal += total;
-            });
-
-            var novosCards = Object.keys(grupos).map(function(k) { return grupos[k]; });
-
-            setVendasData(function(prev) {
-              // Remove registros anteriores dessa loja e adiciona novos
-              var semLoja = prev.filter(function(x) { return x.loja !== nomeLoja; });
-              return semLoja.concat(novosCards);
-            });
-          } catch(err) {
-            alert('Erro ao ler planilha de vendas ' + nomeLoja + ': ' + err.message);
-          }
-        };
-        reader.readAsArrayBuffer(file);
-      }
-
       function normStr(s) {
         return String(s).toUpperCase().replace(/\s+/g, '').replace(/[^A-Z0-9]/g, '');
       }
@@ -3306,11 +3134,7 @@
             podeVerAba(perfilAtivo, 'tarefas') && e('button', {
               onClick: function() { setActiveTab('tarefas'); },
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'tarefas' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
-            }, '✅ Tarefas'),
-            podeVerAba(perfilAtivo, 'importar') && e('button', {
-              onClick: function() { setActiveTab('importar'); },
-              className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'importar' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
-            }, '📊 Importar SKUs')
+            }, '✅ Tarefas')
           )
         ),
 
@@ -3927,27 +3751,15 @@
             );
           })(),
 
-          activeTab === 'importar' && e('div', {className: 'space-y-5'},
-            e('div', {className: 'bg-slate-800 border border-slate-700 p-6 rounded-lg'},
-              e('h2', {className: 'text-lg font-bold mb-2'}, 'Importar Planilha de SKUs'),
-              e('p', {className: 'text-slate-400 text-sm mb-1'}, 'Cada aba da planilha = uma marca.'),
-              e('p', {className: 'text-slate-500 text-xs mb-1'}, '• Coluna A: SKU (obrigatório)'),
-              e('p', {className: 'text-slate-500 text-xs mb-1'}, '• Coluna B: Quantidade (opcional — deixe vazio para não alterar o estoque)'),
-              e('p', {className: 'text-slate-500 text-xs mb-4'}, '• Coluna C: Custo (opcional — deixe vazio para não alterar o preço)'),
-              e('input', {
-                type: 'file',
-                accept: '.xlsx,.xls',
-                onChange: function(ev) {
-                  if (ev.target.files && ev.target.files[0]) {
-                    importarSKUsExcel(ev.target.files[0]);
-                  }
-                },
-                disabled: importing,
-                className: 'block w-full px-4 py-2 rounded border border-slate-600 text-sm'
-              }),
-              e('p', {className: 'text-slate-500 text-xs mt-2'}, importing ? '⏳ Processando...' : '✓ Pronto para importar')
-            )
-          ),
+          // A aba "Importar SKUs" foi removida em 04/09/2026.
+          //
+          // Ela subia uma planilha .xlsx (uma aba por marca) para alimentar `estoque` e
+          // o custo em `precos`. O Matheus parou de cadastrar por planilha — quando
+          // precisa de uma, exporta pela aba Busca. A aba de Preços não perdeu nada:
+          // ela lê `precos` direto do banco e a edição continua sendo feita por lá.
+          //
+          // Junto saiu a função `importarVendas`, que já não era chamada por ninguém
+          // desde que a aba "Vendas" foi removida.
 
           // A aba "Vendas" foi removida em 02/09/2026.
           //
