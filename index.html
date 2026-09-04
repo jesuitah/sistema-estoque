@@ -1608,18 +1608,6 @@
                 className: 'font-bold ' + (bancaReais ? 'text-emerald-400' : 'text-slate-100'),
                 title: sobra == null ? '' : explicarQuantoSobra(l, preco),
               }, sobra != null ? moeda(sobra) : '—'),
-              // O MARKUP, EM AMARELO, LOGO ABAIXO DO VALOR.
-              //
-              // Mesmo desenho da % de desconto: valor em cima, percentual entre
-              // parênteses embaixo. O amarelo é uma terceira cor de propósito — o verde
-              // já quer dizer "o Mercado Livre está ajudando" e não pode querer dizer
-              // duas coisas. Sem custo cadastrado não aparece nada: markup sem custo
-              // seria chute.
-              markupPct != null && e('div', {
-                className: 'text-amber-400 font-semibold text-[12px]',
-                title: 'custo ' + moeda(custoAnuncio) + ' → sobram ' + moeda(sobra)
-                     + '\nseu dinheiro rendeu ' + markupPct + '% em cima do custo',
-              }, '(' + markupPct + '%)'),
               // Frase curta desde que a coluna encolheu para caber dois anúncios por
               // linha: a do Mercado Livre ("Reduzimos R$ X das suas tarifas por cada
               // venda") quebrava em três linhas e esticava o bloco inteiro. O sentido
@@ -1627,7 +1615,22 @@
               bancaReais && e('div', {
                 className: 'text-emerald-400 font-semibold text-[11.5px] leading-snug mt-1',
                 title: 'Reduzimos ' + moeda(bancaReais) + ' das suas tarifas por cada venda',
-              }, 'Reduzimos ' + moeda(bancaReais) + ' por venda')
+              }, 'Reduzimos ' + moeda(bancaReais) + ' por venda'),
+              // O MARKUP, EM AMARELO, POR ÚLTIMO.
+              //
+              // Ele nasceu logo abaixo do valor, mas nas linhas com coparticipação ficava
+              // ENTRE o valor verde e a frase verde — cortava a frase ao meio e o bloco
+              // perdia a leitura. No fim, cada cor fica inteira: o verde conta a história
+              // do Mercado Livre, o amarelo conta a sua.
+              //
+              // Amarelo é terceira cor de propósito: o verde já quer dizer "o ML está
+              // ajudando" e não pode querer dizer duas coisas. Sem custo cadastrado não
+              // aparece nada — markup sem custo seria chute.
+              markupPct != null && e('div', {
+                className: 'text-amber-400 font-semibold text-[12px]' + (bancaReais ? ' mt-1' : ''),
+                title: 'custo ' + moeda(custoAnuncio) + ' → sobram ' + moeda(sobra)
+                     + '\nseu dinheiro rendeu ' + markupPct + '% em cima do custo',
+              }, '(' + markupPct + '%)')
             ),
             // CUSTO REAL DA PEÇA (ou a soma das peças, se for kit).
             //
