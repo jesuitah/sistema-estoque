@@ -500,6 +500,11 @@
       var promoFiltroState = useState('todos');
       var promoFiltro = promoFiltroState[0];
       var setPromoFiltro = promoFiltroState[1];
+
+      // '' = tanto faz · 'com' = tem custo cadastrado · 'sem' = falta cadastrar
+      var markupFiltroState = useState('');
+      var markupFiltro = markupFiltroState[0];
+      var setMarkupFiltro = markupFiltroState[1];
       var promoCarregandoState = useState(false);
       var promoCarregando = promoCarregandoState[0];
       var setPromoCarregando = promoCarregandoState[1];
@@ -3389,11 +3394,28 @@
             var quantosDentro = anuncios.filter(function(a) { return a.nesta.status === 'started'; }).length;
             var quantosFora = anuncios.length - quantosDentro;
 
-            // O filtro é aplicado DEPOIS de contar, senão cada botão mostraria o total
-            // dele mesmo e nunca o dos outros.
+            // Com ou sem custo cadastrado — que é o mesmo que dizer com ou sem markup.
+            //
+            // Duas listas de trabalho diferentes: "sem markup" é o que falta cadastrar,
+            // "com markup" é onde dá pra decidir olhando o número. Ficam numa caixa
+            // separada da de dentro/fora justamente pra poderem se somar: "na promoção
+            // E sem markup" é a pergunta mais incômoda — anúncio ativo cujo lucro você
+            // não sabe.
+            var quantosComMarkup = anuncios.filter(function(a) {
+              return custoDoAnuncio(a.base.sku) != null;
+            }).length;
+            var quantosSemMarkup = anuncios.length - quantosComMarkup;
+
+            // O filtro é aplicado DEPOIS de contar, senão cada opção mostraria o total
+            // dela mesma e nunca o das outras.
             var visiveis = anuncios.filter(function(a) {
-              if (promoFiltro === 'dentro') return a.nesta.status === 'started';
-              if (promoFiltro === 'fora') return a.nesta.status !== 'started';
+              if (promoFiltro === 'dentro' && a.nesta.status !== 'started') return false;
+              if (promoFiltro === 'fora' && a.nesta.status === 'started') return false;
+              if (markupFiltro) {
+                var tem = custoDoAnuncio(a.base.sku) != null;
+                if (markupFiltro === 'com' && !tem) return false;
+                if (markupFiltro === 'sem' && tem) return false;
+              }
               return true;
             });
 
@@ -3518,6 +3540,21 @@
                     e('option', {value: 'fora'},   'Fora da promoção (' + quantosFora + ')'),
                     e('option', {value: 'dentro'}, 'Na promoção (' + quantosDentro + ')')
                   ),
+                  // Caixa própria pra poder combinar com a de cima. A borda âmbar quando
+                  // há escolha é a mesma cor do markup no card — a tela inteira usa o
+                  // amarelo pra falar de custo.
+                  e('select', {
+                    value: markupFiltro,
+                    onChange: function(ev) { setMarkupFiltro(ev.target.value); },
+                    className: 'bg-slate-950 border rounded-lg px-3 h-[38px] text-sm outline-none cursor-pointer ' +
+                      (markupFiltro
+                        ? 'border-amber-600 text-amber-300'
+                        : 'border-slate-800 text-slate-200 hover:border-slate-700')
+                  },
+                    e('option', {value: ''},    'Markup: todos'),
+                    e('option', {value: 'com'}, 'Com markup (' + quantosComMarkup + ')'),
+                    e('option', {value: 'sem'}, 'Sem markup (' + quantosSemMarkup + ')')
+                  ),
                   e('div', {className: 'flex-1 flex items-center gap-2 bg-slate-950 border border-slate-800 rounded-lg px-3 h-[38px] min-w-[180px]'},
                     e('span', {className: 'text-slate-600 text-sm'}, '🔎'),
                     e('input', {
@@ -3581,7 +3618,9 @@
                   ? e('div', {className: 'text-sm text-slate-400 py-6 text-center'}, 'carregando anúncios...')
                   : visiveis.length === 0
                   ? e('div', {className: 'text-sm text-slate-500 py-6 text-center'},
-                      promoFiltro === 'fora' ? '✅ Todos os anúncios desta promoção já estão dentro.'
+                      markupFiltro === 'sem' ? '✅ Todos os anúncios desta seleção têm custo cadastrado.'
+                      : markupFiltro === 'com' ? 'Nenhum anúncio desta seleção tem custo cadastrado.'
+                      : promoFiltro === 'fora' ? '✅ Todos os anúncios desta promoção já estão dentro.'
                       : promoFiltro === 'dentro' ? 'Nenhum anúncio ativo nesta promoção ainda.'
                       : 'Nenhum anúncio nessa promoção.')
                   // Dois anúncios por linha.
