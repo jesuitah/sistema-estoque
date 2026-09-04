@@ -20,6 +20,7 @@
     var e = React.createElement;
     var useState = React.useState;
     var useEffect = React.useEffect;
+    var useMemo = React.useMemo;
 
     var supabaseUrl = 'https://pylkufhziohxvwbbaued.supabase.co';
     var supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB5bGt1Zmh6aW9oeHZ3YmJhdWVkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1OTIyNzMsImV4cCI6MjA5MTE2ODI3M30.S61OxgJa03KmfJZ_MdFL0ZKAzWdsrrYwnmzuqN6L0vQ';
@@ -1394,11 +1395,115 @@
         return 'R$ ' + Number(v).toFixed(2).replace('.', ',');
       };
 
+      // ── CUSTO REAL DO ANÚNCIO ────────────────────────────────────────────────
+      //
+      // O SKU do Mercado Livre carrega a receita do produto dentro do próprio texto:
+      //
+      //   DAYTRON: DTB001                          um produto
+      //   KIT: DAYTRON: DTB001 - 2UN               duas unidades do mesmo
+      //   KIT: DAYTRON: DTB050 + DTB051            dois produtos da mesma marca
+      //   KIT: AUTOSTAR: ACX05018 + ACX15002       (a marca vale até aparecer outra)
+      //   KIT: HITECH: HT-11000 - 3UN + DNK: AG - 6UN   marcas e quantidades misturadas
+      //
+      // Já existia um leitor disso (`parseSKUsML`), mas ele JOGAVA A QUANTIDADE FORA:
+      // um kit de 10 lâmpadas custava o mesmo que uma. Para uma coluna de custo isso
+      // não serve — o "- 10UN" é justamente o que decide o número.
+      function componentesDoSku(texto) {
+        if (!texto) return [];
+        var t = String(texto).trim().toUpperCase().replace(/^KIT:\s*/, '');
+        var itens = [];
+        var marcaAtual = '';
+        t.split('+').forEach(function(parte) {
+          parte = parte.trim();
+          if (!parte) return;
+          var qtd = 1;
+          var m = parte.match(/\s*-\s*(\d+)\s*UN\s*$/);
+          if (m) {
+            qtd = parseInt(m[1], 10) || 1;
+            parte = parte.slice(0, m.index).trim();
+          }
+          var i = parte.indexOf(':');
+          if (i !== -1) {
+            marcaAtual = parte.slice(0, i).trim();
+            itens.push({ marca: normStr(marcaAtual), sku: normStr(parte.slice(i + 1)), qtd: qtd });
+          } else if (marcaAtual) {
+            // Sem marca própria: herda a última vista. É como o ML escreve os kits
+            // de uma marca só ("DAYTRON: DTB050 + DTB051").
+            itens.push({ marca: normStr(marcaAtual), sku: normStr(parte), qtd: qtd });
+          }
+          // Sem marca nenhuma (ex.: "ÁGUA DESMINERALIZADA GITANES - 3UN") não dá pra
+          // procurar no cadastro. Fica de fora, e o custo do anúncio sai em branco.
+        });
+        return itens;
+      }
+
+      // Índice de custo por marca+SKU, normalizado (sem espaço, hífen ou acento na
+      // chave — o mesmo SKU aparece escrito de jeitos diferentes nos dois cadastros).
+      // Fica em useMemo porque são ~5 mil linhas e a lista de promoções re-renderiza
+      // a cada letra digitada na busca.
+      var custoPorSku = useMemo(function() {
+        var mapa = {};
+        (precos || []).forEach(function(p) {
+          if (p.custo == null || Number(p.custo) <= 0) return;
+          mapa[normStr(p.marca) + '|' + normStr(p.sku)] = Number(p.custo);
+        });
+        return mapa;
+      }, [precos]);
+
+      // Custo do anúncio inteiro. `null` = não dá pra saber, e a tela mostra vazio.
+      //
+      // Basta UM componente sem custo cadastrado para o kit inteiro ficar sem custo:
+      // somar só os que existem daria um número menor que o real e um markup inflado
+      // — pior do que não mostrar nada.
+      function custoDoAnuncio(sku) {
+        var itens = componentesDoSku(sku);
+        if (!itens.length) return null;
+        var total = 0;
+        for (var i = 0; i < itens.length; i++) {
+          var c = custoPorSku[itens[i].marca + '|' + itens[i].sku];
+          if (c == null) return null;
+          total += c * itens[i].qtd;
+        }
+        return total;
+      }
+
+      // Abre a soma do kit no hover. Num kit de 4 peças, ver só "R$ 63,20" não deixa
+      // conferir nada — e conferir é justamente o que se quer fazer com um custo.
+      function explicarCusto(sku) {
+        var itens = componentesDoSku(sku);
+        if (itens.length <= 1) return '';
+        var linhas = itens.map(function(it) {
+          var c = custoPorSku[it.marca + '|' + it.sku];
+          return '  ' + it.sku + (it.qtd > 1 ? ' × ' + it.qtd : '')
+               + '   ' + (c == null ? 'sem custo' : moeda(c * it.qtd));
+        });
+        return 'Kit de ' + itens.length + ' item(ns):\n' + linhas.join('\n');
+      }
+
+      // Markup: quanto o dinheiro rendeu em cima do custo.
+      //
+      // Mesma conta que a aba de Preços já usa (preço = custo × (1 + markup/100)).
+      // Custa R$ 10 e sobram R$ 17,16 → 72%.
+      function markupDaLinha(sobra, custo) {
+        if (sobra == null || custo == null || custo <= 0) return null;
+        return Math.round((sobra - custo) / custo * 100);
+      }
+
+      // As colunas do bloco de promoções, num lugar só.
+      //
+      // Cabeçalho e linhas precisam usar exatamente a mesma grade — quando estavam
+      // escritas duas vezes, mexer numa e esquecer a outra desalinhava o bloco inteiro.
+      // A última coluna é larga porque abriga o campo de digitar o percentual (número
+      // + % + confirmar); com menos que isso ele vazava por cima do "Você recebe".
+      var COLUNAS_DA_PROMOCAO = 'grid-cols-[1fr_62px_70px_100px_78px_84px]';
+
       // Um anúncio e todas as promoções dele, empilhadas.
       function blocoDoAnuncio(a, pct) {
         var base = a.base;
         var cheio = Number(base.preco_cheio || 0);
         var marcado = !!promoMarcados[a.id];
+        // O custo é do PRODUTO, não da promoção: uma vez por card, repetido nas linhas.
+        var custoAnuncio = custoDoAnuncio(base.sku);
 
         // A promoção que você abriu vem sempre primeiro. É nela que você está
         // trabalhando — procurá-la no meio da lista a cada anúncio é trabalho à toa.
@@ -1442,6 +1547,7 @@
           var descontoReais = preco != null ? cheio - preco : null;
           var descontoPct = preco != null ? Math.round((1 - preco / cheio) * 1000) / 10 : null;
           var sobra = quantoSobra(l, preco);
+          var markupPct = markupDaLinha(sobra, custoAnuncio);
           var bancaReais = Number(l.meli_percentual) > 0 ? cheio * Number(l.meli_percentual) / 100 : null;
           var venceu = vencedora && vencedora.promocao_id === l.promocao_id;
 
@@ -1451,10 +1557,7 @@
             // Nas campanhas dele o realce não dizia nada (é ele quem paga o desconto
             // inteiro), e ainda competia com as etiquetas, que já contam o status.
             className: 'grid items-center gap-2 px-3 py-1.5 text-xs border-b border-slate-800 ' +
-              // A última coluna tem 132px porque é ela que abriga o campo de digitar o
-              // percentual (número + % + confirmar + cancelar). Com 80px o campo não
-              // cabia e vazava por cima da coluna "Você recebe".
-              'grid-cols-[1fr_66px_74px_104px_92px] ' +
+              COLUNAS_DA_PROMOCAO + ' ' +
               (bancaReais
                 ? 'bg-emerald-900 bg-opacity-20 border-l-[3px] border-l-emerald-500'
                 : 'border-l-[3px] border-l-transparent')
@@ -1505,6 +1608,18 @@
                 className: 'font-bold ' + (bancaReais ? 'text-emerald-400' : 'text-slate-100'),
                 title: sobra == null ? '' : explicarQuantoSobra(l, preco),
               }, sobra != null ? moeda(sobra) : '—'),
+              // O MARKUP, EM AMARELO, LOGO ABAIXO DO VALOR.
+              //
+              // Mesmo desenho da % de desconto: valor em cima, percentual entre
+              // parênteses embaixo. O amarelo é uma terceira cor de propósito — o verde
+              // já quer dizer "o Mercado Livre está ajudando" e não pode querer dizer
+              // duas coisas. Sem custo cadastrado não aparece nada: markup sem custo
+              // seria chute.
+              markupPct != null && e('div', {
+                className: 'text-amber-400 font-semibold text-[12px]',
+                title: 'custo ' + moeda(custoAnuncio) + ' → sobram ' + moeda(sobra)
+                     + '\nseu dinheiro rendeu ' + markupPct + '% em cima do custo',
+              }, '(' + markupPct + '%)'),
               // Frase curta desde que a coluna encolheu para caber dois anúncios por
               // linha: a do Mercado Livre ("Reduzimos R$ X das suas tarifas por cada
               // venda") quebrava em três linhas e esticava o bloco inteiro. O sentido
@@ -1514,6 +1629,15 @@
                 title: 'Reduzimos ' + moeda(bancaReais) + ' das suas tarifas por cada venda',
               }, 'Reduzimos ' + moeda(bancaReais) + ' por venda')
             ),
+            // CUSTO REAL DA PEÇA (ou a soma das peças, se for kit).
+            //
+            // Vazio quando não está cadastrado — de propósito. Um traço ou um zero
+            // aqui pareceria informação; o vazio deixa claro que falta cadastro, e não
+            // atrapalha a leitura das colunas de cima.
+            e('div', {
+              className: 'text-right text-slate-300',
+              title: custoAnuncio == null ? '' : explicarCusto(base.sku),
+            }, custoAnuncio != null ? moeda(custoAnuncio) : ''),
             // Ação individual: clica, digita o percentual ali mesmo e confirma.
             // Sem marcar caixinha e sem subir até a barra — é o ajuste pontual.
             (function() {
@@ -1592,11 +1716,12 @@
               )
             )
           ),
-          e('div', {className: 'grid gap-2 px-3 py-1.5 text-[10px] uppercase tracking-wide text-slate-500 border-b border-slate-700 grid-cols-[1fr_66px_74px_104px_92px]'},
+          e('div', {className: 'grid gap-2 px-3 py-1.5 text-[10px] uppercase tracking-wide text-slate-500 border-b border-slate-700 ' + COLUNAS_DA_PROMOCAO},
             e('div', null, 'Promoção'),
             e('div', {className: 'text-right'}, 'Desconto'),
             e('div', {className: 'text-right'}, 'Preço final'),
             e('div', {className: 'text-right'}, 'Você recebe'),
+            e('div', {className: 'text-right'}, 'Custo'),
             e('div', null)
           ),
           principais.map(linhaDaPromocao)
@@ -3351,23 +3476,19 @@
 
                   // Dentro ou fora desta promoção. O "fora" é onde está o trabalho —
                   // são os anúncios que ainda podem entrar.
-                  e('div', {className: 'flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-lg p-1'},
-                    [
-                      {chave: 'todos',  rotulo: 'todos',  n: anuncios.length},
-                      {chave: 'fora',   rotulo: 'fora',   n: quantosFora},
-                      {chave: 'dentro', rotulo: 'na promoção', n: quantosDentro},
-                    ].map(function(f) {
-                      var ativo = promoFiltro === f.chave;
-                      return e('button', {
-                        key: f.chave,
-                        onClick: function() { setPromoFiltro(f.chave); },
-                        className: 'px-2.5 py-1 rounded text-xs font-bold whitespace-nowrap transition-colors ' +
-                          (ativo ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white')
-                      },
-                        f.rotulo,
-                        e('span', {className: 'ml-1.5 font-normal ' + (ativo ? 'opacity-80' : 'opacity-60')}, f.n)
-                      );
-                    })
+                  //
+                  // Era uma barra de três botõezinhos. Virou caixa de seleção pra ficar
+                  // igual à de ordenação, ao lado. Os números continuam dentro de cada
+                  // opção: eles são a informação, não enfeite — "fora 66" é o tamanho da
+                  // fila de trabalho.
+                  e('select', {
+                    value: promoFiltro,
+                    onChange: function(ev) { setPromoFiltro(ev.target.value); },
+                    className: 'bg-slate-950 border border-slate-800 rounded-lg px-3 h-[38px] text-sm text-slate-200 outline-none cursor-pointer hover:border-slate-700'
+                  },
+                    e('option', {value: 'todos'},  'Todos (' + anuncios.length + ')'),
+                    e('option', {value: 'fora'},   'Fora da promoção (' + quantosFora + ')'),
+                    e('option', {value: 'dentro'}, 'Na promoção (' + quantosDentro + ')')
                   ),
                   e('div', {className: 'flex-1 flex items-center gap-2 bg-slate-950 border border-slate-800 rounded-lg px-3 h-[38px] min-w-[180px]'},
                     e('span', {className: 'text-slate-600 text-sm'}, '🔎'),
