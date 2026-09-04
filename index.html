@@ -3686,14 +3686,13 @@
                 // Filtro por marca. Fica ANTES da ordenação porque é o que se escolhe
                 // primeiro: primeiro "quais produtos", depois "em que ordem".
                 //
-                // Quando há uma marca escolhida a borda fica azul — senão não dá pra
-                // perceber, olhando os cards, que a lista está filtrada, e a pessoa
-                // acha que sumiu produto do estoque.
+                // Sem realce quando há marca escolhida: as duas caixas são irmãs e
+                // precisam parecer irmãs. Quem avisa que a lista está filtrada é o
+                // "limpar filtro" ao lado da contagem, que é texto e não muda o desenho.
                 e('select', {
                   value: marcaFiltro,
                   onChange: function(ev) { setMarcaFiltro(ev.target.value); },
-                  className: 'bg-slate-800 text-white px-3 py-3 rounded-lg border focus:outline-none text-sm cursor-pointer max-w-[220px] ' +
-                    (marcaFiltro ? 'border-blue-500 text-blue-200' : 'border-slate-600 focus:border-blue-400')
+                  className: 'bg-slate-800 text-white px-3 py-3 rounded-lg border border-slate-600 focus:border-blue-400 focus:outline-none text-sm cursor-pointer max-w-[220px]'
                 },
                   e('option', {value: ''}, 'Todas as marcas (' + marcasDoEstoque.length + ')'),
                   marcasDoEstoque.map(function(m) {
