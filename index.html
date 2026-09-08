@@ -511,6 +511,13 @@
       var promoOrdemState = useState('padrao');
       var promoOrdem = promoOrdemState[0];
       var setPromoOrdem = promoOrdemState[1];
+
+      // Qual linha está perguntando "sair mesmo?". A confirmação vive DENTRO da linha:
+      // o confirm() do navegador abre no topo da janela, longe do clique, e obrigava a
+      // atravessar a tela com o mouse pra responder uma pergunta de um clique.
+      var promoSaidaConfirmaState = useState(null);
+      var promoSaidaConfirma = promoSaidaConfirmaState[0];
+      var setPromoSaidaConfirma = promoSaidaConfirmaState[1];
       var promoCarregandoState = useState(false);
       var promoCarregando = promoCarregandoState[0];
       var setPromoCarregando = promoCarregandoState[1];
@@ -1719,7 +1726,7 @@
                       onChange: function(ev) { setPromoPctLinha(ev.target.value); },
                       onKeyDown: function(ev) {
                         if (ev.key === 'Enter') aplicarNaLinha(a.id, l);
-                        if (ev.key === 'Escape') setPromoLinhaEdit(null);
+                        if (ev.key === 'Escape') { setPromoLinhaEdit(null); setPromoSaidaConfirma(null); }
                       },
                       className: 'bg-transparent border-0 outline-none w-8 text-center text-slate-100 font-bold text-xs'
                     }),
@@ -1737,20 +1744,44 @@
                   // Só aparece pra quem ESTÁ na promoção — não faz sentido oferecer saída
                   // de onde o anúncio nem entrou. Fica numa segunda linha porque a coluna
                   // é estreita: espremer um terceiro botão ao lado do campo empurrava o
-                  // "%" pra fora. E em vermelho discreto, não em vermelho de alarme: é
-                  // uma ação legítima, só não é a que se faz sem pensar.
-                  ativa && e('button', {
-                    onClick: function() { sairDaLinha(a.id, l); },
-                    disabled: promoAtivando,
-                    title: 'tira este anúncio desta promoção',
-                    className: 'text-[10.5px] text-red-400 hover:text-red-300 whitespace-nowrap'
-                  }, '🗑 Deixar de participar')
+                  // "%" pra fora.
+                  //
+                  // A CONFIRMAÇÃO ACONTECE AQUI MESMO. Antes era o confirm() do navegador,
+                  // que abre no alto da janela: pra responder "sim" a um clique dado no
+                  // meio da lista era preciso atravessar a tela inteira com o mouse. Agora
+                  // o próprio botão vira a pergunta, e o "sim" nasce debaixo do cursor.
+                  ativa && (promoSaidaConfirma === chave
+                    ? e('div', {className: 'flex items-center gap-1'},
+                        e('button', {
+                          onClick: function() { sairDaLinha(a.id, l); },
+                          disabled: promoAtivando,
+                          title: 'confirma a saída desta promoção',
+                          className: 'bg-red-600 hover:bg-red-500 text-white rounded px-2 h-6 text-[10.5px] font-bold whitespace-nowrap'
+                        }, promoAtivando ? '…' : 'Sair mesmo'),
+                        e('button', {
+                          onClick: function() { setPromoSaidaConfirma(null); },
+                          title: 'cancelar',
+                          className: 'border border-slate-600 text-slate-400 hover:text-slate-200 rounded h-6 w-6 text-[11px] flex items-center justify-center flex-shrink-0'
+                        }, '✕')
+                      )
+                    : e('button', {
+                        onClick: function() { setPromoSaidaConfirma(chave); },
+                        disabled: promoAtivando,
+                        title: 'tira este anúncio desta promoção',
+                        className: 'border border-red-800 hover:border-red-600 bg-red-900 bg-opacity-25 '
+                          + 'text-red-300 hover:text-red-200 rounded px-2 h-6 flex items-center '
+                          + 'text-[10.5px] whitespace-nowrap'
+                      }, '🗑 Deixar de participar')
+                  )
                 );
               }
               return e('div', {className: 'text-right'},
                 e('button', {
                   onClick: function() {
                     setPromoLinhaEdit(chave);
+                    // Abrir outra linha limpa a pergunta que ficou pendente na anterior:
+                    // um "Sair mesmo" esquecido aceso é um clique acidental esperando.
+                    setPromoSaidaConfirma(null);
                     // Começa com o percentual que já está valendo, ou o da barra.
                     setPromoPctLinha(descontoPct != null ? String(descontoPct) : String(promoPercentual));
                   },
@@ -1886,15 +1917,12 @@
 
       // "Deixar de participar" — tira o anúncio DAQUELA promoção, como no painel do ML.
       //
-      // Pergunta antes. É a única ação da aba que só tira: aplicar um percentual errado
-      // se conserta aplicando outro, mas sair da promoção só se desfaz entrando de novo,
-      // e nas campanhas do próprio ML nem sempre há vaga na volta.
+      // A confirmação não está aqui: ela é um segundo clique na própria linha (ver
+      // `promoSaidaConfirma`). Continua sendo duas etapas — sair é a única ação da aba
+      // que só tira, e aplicar um percentual errado se conserta aplicando outro — mas as
+      // duas etapas acontecem no mesmo lugar, sem atravessar a tela.
       function sairDaLinha(itemId, linha) {
-        var nome = linha.promocao_nome || 'esta promoção';
-        if (!confirm('Deixar de participar de "' + nome + '"?\n\n'
-          + 'O anúncio perde o desconto na hora. Para voltar, é preciso participar de novo — '
-          + 'e nas promoções do próprio Mercado Livre a vaga pode não estar mais disponível.')) return;
-
+        setPromoSaidaConfirma(null);
         setPromoAtivando(true);
         setPromoResultado(null);
 
