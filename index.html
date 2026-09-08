@@ -2215,9 +2215,20 @@
           });
       }
 
-      function mostrarParadosOcultos() {
+      // Recarrega a aba do zero E devolve as linhas escondidas.
+      //
+      // Mesmo combinado da aba de clonagem: o ✕ é "já vi, não agora", e o refresh
+      // recomeça a análise. Sem uma rotina de volta, esconder virava definitivo — e
+      // numa lista de 1.376 peças, definitivo por engano é dinheiro que some de vista.
+      function atualizarEstoqueParado() {
+        setSkusAnunciados(null);           // volta pro "Carregando catálogo..."
         supabase.from('ml_parado_dispensados').delete().neq('marca', ' ')
-          .then(function() { setParadoDispensados({}); });
+          .then(function() {
+            setParadoDispensados({});
+            carregarEstoque();
+            carregarPrecos();
+            carregarSkusAnunciados();
+          });
       }
 
       function carregarSkusAnunciados() {
@@ -5282,10 +5293,18 @@
 
                 return e('div', {className: 'space-y-4'},
                   e('div', {className: 'bg-slate-800 border border-slate-700 p-5 rounded-lg'},
-                    e('h2', {className: 'text-lg font-bold mb-2'}, '📥 Estoque parado — peças que você tem e não vende'),
+                    e('div', {className: 'flex items-center justify-between mb-2 flex-wrap gap-2'},
+                      e('h2', {className: 'text-lg font-bold'}, '📥 Estoque parado — peças que você tem e não vende'),
+                      e('button', {
+                        onClick: atualizarEstoqueParado,
+                        className: 'flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors'
+                      }, '🔄 Atualizar lista')
+                    ),
                     e('p', {className: 'text-slate-400 text-sm'},
                       'Tem unidade em estoque e não está anunciada em nenhuma das três lojas. ' +
-                      'Quem é vendido só dentro de kit NÃO entra aqui — já está sendo vendido.')
+                      'Quem é vendido só dentro de kit NÃO entra aqui — já está sendo vendido.'),
+                    e('p', {className: 'text-slate-500 text-xs mt-1'},
+                      'O ✕ de cada linha esconde a peça até você clicar em "Atualizar lista" — aí tudo volta.')
                   ),
 
                   // O resumo primeiro: é o número que decide se vale abrir a lista.
@@ -5321,16 +5340,16 @@
                         return e('option', {key: m, value: m}, m + ' (' + marcas[m] + ')');
                       })
                     ),
-                    // Quantas você escondeu. Fica sempre visível quando há alguma: aqui
-                    // não existe rotina que devolva as linhas sozinha, então sem este
-                    // contador uma peça escondida por engano some pra sempre.
+                    // Quantas você escondeu, com a volta ao lado. O botão do topo faz o
+                    // mesmo, mas quem acabou de esconder por engano está olhando pra cá,
+                    // não pro cabeçalho.
                     (function() {
                       var n = Object.keys(paradoDispensados).length;
                       if (!n) return null;
                       return e('span', {className: 'text-xs text-slate-500 whitespace-nowrap'},
                         n + ' oculta(s) · ',
                         e('button', {
-                          onClick: mostrarParadosOcultos,
+                          onClick: atualizarEstoqueParado,
                           className: 'text-blue-400 hover:text-blue-300 underline'
                         }, 'mostrar todas')
                       );
