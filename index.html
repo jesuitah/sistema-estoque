@@ -445,9 +445,6 @@
       var paradoMarca = paradoMarcaState[0];
       var setParadoMarca = paradoMarcaState[1];
 
-      var paradoSoSemCustoState = useState(false);
-      var paradoSoSemCusto = paradoSoSemCustoState[0];
-      var setParadoSoSemCusto = paradoSoSemCustoState[1];
 
       var anunciosCarregandoState = useState(false);
       var anunciosCarregando = anunciosCarregandoState[0];
@@ -5228,7 +5225,6 @@
                 var termo = paradoBusca.trim().toUpperCase();
                 var visiveis = parados.filter(function(p) {
                   if (paradoMarca && p.marca !== paradoMarca) return false;
-                  if (paradoSoSemCusto && p.custo != null) return false;
                   if (!termo) return true;
                   return p.marca.indexOf(termo) !== -1 || (p.sku || '').toUpperCase().indexOf(termo) !== -1;
                 }).sort(function(a, b) {
@@ -5238,8 +5234,6 @@
                 });
 
                 var totUnidades = visiveis.reduce(function(s, p) { return s + p.unidades; }, 0);
-                var totValor = visiveis.reduce(function(s, p) { return s + (p.total || 0); }, 0);
-                var semCusto = visiveis.filter(function(p) { return p.custo == null; }).length;
 
                 return e('div', {className: 'space-y-4'},
                   e('div', {className: 'bg-slate-800 border border-slate-700 p-5 rounded-lg'},
@@ -5250,19 +5244,19 @@
                   ),
 
                   // O resumo primeiro: é o número que decide se vale abrir a lista.
-                  e('div', {className: 'grid grid-cols-2 md:grid-cols-4 gap-3'},
+                  //
+                  // Eram quatro cartões. Os dois de custo ("em custo" e "sem custo
+                  // cadastrado") saíram a pedido do Matheus: atrapalhavam mais do que
+                  // ajudavam, porque a maioria dos SKUs não tem custo e o total falava
+                  // de uma minoria. O custo continua na tabela, linha a linha, que é
+                  // onde ele serve pra decidir.
+                  e('div', {className: 'grid grid-cols-2 gap-3 max-w-md'},
                     e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg p-4'},
                       e('div', {className: 'text-2xl font-bold text-blue-400'}, visiveis.length),
                       e('div', {className: 'text-xs text-slate-400'}, 'SKUs sem anúncio')),
                     e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg p-4'},
                       e('div', {className: 'text-2xl font-bold text-amber-400'}, totUnidades.toLocaleString('pt-BR')),
-                      e('div', {className: 'text-xs text-slate-400'}, 'unidades paradas')),
-                    e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg p-4'},
-                      e('div', {className: 'text-2xl font-bold text-emerald-400'}, moeda(totValor)),
-                      e('div', {className: 'text-xs text-slate-400'}, 'em custo (só o que tem custo)')),
-                    e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg p-4'},
-                      e('div', {className: 'text-2xl font-bold text-slate-400'}, semCusto),
-                      e('div', {className: 'text-xs text-slate-400'}, 'sem custo cadastrado'))
+                      e('div', {className: 'text-xs text-slate-400'}, 'unidades paradas'))
                   ),
 
                   e('div', {className: 'flex gap-3 items-center flex-wrap'},
@@ -5281,22 +5275,21 @@
                       Object.keys(marcas).sort().map(function(m) {
                         return e('option', {key: m, value: m}, m + ' (' + marcas[m] + ')');
                       })
-                    ),
-                    e('label', {className: 'flex items-center gap-2 text-sm text-slate-300 cursor-pointer whitespace-nowrap'},
-                      e('input', {
-                        type: 'checkbox', checked: paradoSoSemCusto,
-                        onChange: function() { setParadoSoSemCusto(function(v) { return !v; }); },
-                        className: 'w-4 h-4 accent-blue-500 cursor-pointer'
-                      }),
-                      'só os sem custo cadastrado'
                     )
                   ),
 
                   visiveis.length === 0
                     ? e('div', {className: 'text-center text-slate-500 py-10 bg-slate-800 border border-slate-700 rounded-lg'},
                         parados.length === 0 ? '✅ Tudo que tem estoque já está anunciado.' : 'Nenhum resultado com esse filtro.')
+                    // COLUNAS: nº · marca · SKU · unidades · custo · total.
+                    //
+                    // A numeração serve pra conversar sobre a lista ("olha a linha 47")
+                    // e pra dar noção de onde você está numa rolagem de 300 linhas. Ela
+                    // acompanha a ORDEM DA TELA, então muda quando você filtra — é
+                    // posição na lista, não identidade do produto.
                     : e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg overflow-hidden'},
-                        e('div', {className: 'grid gap-2 px-4 py-2 text-[10px] uppercase tracking-wide text-slate-500 border-b border-slate-700 grid-cols-[110px_1fr_70px_90px_100px]'},
+                        e('div', {className: 'grid gap-2 px-4 py-2 text-[10px] uppercase tracking-wide text-slate-500 border-b-2 border-slate-600 grid-cols-[40px_110px_1fr_70px_90px_100px]'},
+                          e('div', {className: 'text-right'}, '#'),
                           e('div', null, 'Marca'),
                           e('div', null, 'SKU'),
                           e('div', {className: 'text-right'}, 'Unidades'),
@@ -5305,11 +5298,18 @@
                         ),
                         // Teto de 300 linhas: a lista tem 1.376 e desenhar tudo trava a
                         // rolagem. Quem precisa ver mais usa a busca ou a marca.
-                        visiveis.slice(0, 300).map(function(p) {
+                        visiveis.slice(0, 300).map(function(p, i) {
                           return e('div', {
                             key: p.id,
-                            className: 'grid gap-2 px-4 py-2 text-xs border-b border-slate-800 last:border-0 items-center grid-cols-[110px_1fr_70px_90px_100px] hover:bg-slate-700'
+                            // Linha divisória de verdade (slate-700, não 800) e faixa
+                            // alternada: o Matheus disse que "tudo blocado" cansava a
+                            // vista. Com 300 linhas na tela, o olho precisa de trilho
+                            // pra não pular de uma linha pra outra sem perceber.
+                            className: 'grid gap-2 px-4 py-2 text-xs border-b border-slate-700 last:border-0 items-center '
+                              + 'grid-cols-[40px_110px_1fr_70px_90px_100px] hover:bg-slate-700 '
+                              + (i % 2 === 1 ? 'bg-slate-800/40' : '')
                           },
+                            e('div', {className: 'text-right text-slate-600 tabular-nums'}, i + 1),
                             e('div', {className: 'text-slate-500 font-semibold truncate'}, p.marca),
                             e('div', {className: 'text-white font-bold truncate'}, p.sku),
                             e('div', {className: 'text-right text-amber-400 font-bold'}, p.unidades),
