@@ -2677,8 +2677,31 @@
         });
       }
 
+      // Deixa marca e SKU comparáveis entre o estoque e o Mercado Livre.
+      //
+      // DOIS ERROS QUE ISTO CORRIGE — os dois achados pelo Matheus olhando a tela:
+      //
+      // 1. ACENTO. A regra antiga apagava a letra acentuada em vez de trocá-la pela
+      //    simples: "FLÓRIO" virava "FLRIO" e "FLORIO" continuava "FLORIO". As duas
+      //    grafias existem nos anúncios, então metade da marca nunca casava com o
+      //    estoque. Mesma coisa com IGUAÇU. Agora tira só o acento e mantém a letra.
+      //
+      // 2. O "- 2UN" DENTRO DO SKU DO ESTOQUE. Alguns SKUs foram cadastrados como
+      //    "DTB050 - 2UN", que é notação de kit e não faz parte do código da peça.
+      //    Comparado com o "DTB050" do anúncio, nunca batia.
+      //
+      // Eram 34 peças aparecendo como "sem anúncio" estando anunciadas — 21 DAYTRON,
+      // 11 FLÓRIO e 2 IGUAÇU.
+      //
+      // Esta função também alimenta a coluna de custo das promoções. Ali a correção NÃO
+      // mudou nada (65% de cobertura antes e depois) — medido, não suposto: naquele
+      // caminho as duas pontas já usavam a mesma grafia.
       function normStr(s) {
-        return String(s).toUpperCase().replace(/\s+/g, '').replace(/[^A-Z0-9]/g, '');
+        return String(s)
+          .normalize('NFD').replace(/[̀-ͯ]/g, '')   // Ó -> O, Ç -> C
+          .toUpperCase()
+          .replace(/\s*-\s*\d+\s*UN\s*$/i, '')                 // "DTB050 - 2UN" -> "DTB050"
+          .replace(/[^A-Z0-9]/g, '');
       }
 
       function parseSKUsML(celula) {
