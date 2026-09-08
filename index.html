@@ -2714,14 +2714,16 @@
       // número genérico (DS e INTERMEC com "2330", WISA e INTERMEC com "9001"). Tratar
       // essas como iguais esconderia peça que precisa ser anunciada — o erro caro aqui
       // é dar como anunciado o que não está.
-      var APELIDOS_DE_MARCA = {
-        KINTOP: 'KK',
-        MULTIQUALITA: 'KQ',
-      };
-
+      //
+      // Os pares ficam DENTRO da função, não num `var` acima dela. Já derrubei a página
+      // inteira fazendo isso: um `useMemo` lá em cima (o índice de custo, linha ~1500)
+      // roda durante o corpo do componente, muito antes desta linha — e lia o mapa
+      // ainda `undefined`. Função é içada com o corpo junto; `var` só reserva o nome.
       function normMarca(s) {
         var m = normStr(s);
-        return APELIDOS_DE_MARCA[m] || m;
+        if (m === 'KINTOP') return 'KK';
+        if (m === 'MULTIQUALITA') return 'KQ';
+        return m;
       }
 
       function parseSKUsML(celula) {
