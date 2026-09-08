@@ -1747,8 +1747,12 @@
                     e('button', {
                       onClick: function() { setPromoLinhaEdit(null); setPromoSaidaConfirma(null); },
                       title: 'fechar sem salvar (Esc)',
-                      className: 'border border-red-800 hover:border-red-600 text-red-400 hover:text-red-300 '
-                        + 'rounded h-6 w-6 flex items-center justify-center text-[11px] font-bold flex-shrink-0'
+                      // Mesmo vermelho cheio do "Sair" e mesmo desenho do "✓" ao lado:
+                      // três botões com três estilos diferentes no mesmo canto viravam
+                      // uma salada. Aqui a forma diz o que o botão é (quadradinho = ação
+                      // da caixinha) e a cor diz o tom (verde segue, vermelho interrompe).
+                      className: 'bg-red-600 hover:bg-red-500 text-white rounded h-6 w-6 '
+                        + 'flex items-center justify-center text-[11px] font-bold flex-shrink-0'
                     }, '✕')
                   ),
                   // "Deixar de participar", como no painel do Mercado Livre.
