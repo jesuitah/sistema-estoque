@@ -425,6 +425,11 @@
       var anunciosGaps = anunciosGapsState[0];
       var setAnunciosGaps = anunciosGapsState[1];
 
+      // Cards de clonagem que o Matheus tirou da tela. Chave: "MARCA|SKU".
+      var gapsDispensadosState = useState({});
+      var gapsDispensados = gapsDispensadosState[0];
+      var setGapsDispensados = gapsDispensadosState[1];
+
       var anunciosCarregandoState = useState(false);
       var anunciosCarregando = anunciosCarregandoState[0];
       var setAnunciosCarregando = anunciosCarregandoState[1];
@@ -2158,11 +2163,46 @@
       function carregarAnunciosGaps() {
         setAnunciosCarregando(true);
         setAnunciosErro('');
-        supabase.rpc('anuncios_gaps').then(function(result) {
+        Promise.all([
+          supabase.rpc('anuncios_gaps'),
+          supabase.from('ml_gaps_dispensados').select('marca, sku'),
+        ]).then(function(res) {
           setAnunciosCarregando(false);
-          if (result.error) { setAnunciosErro('Não foi possível carregar os anúncios. Verifique sua conexão.'); return; }
-          setAnunciosGaps(result.data || []);
+          if (res[0].error) { setAnunciosErro('Não foi possível carregar os anúncios. Verifique sua conexão.'); return; }
+          var fora = {};
+          (res[1].data || []).forEach(function(d) { fora[d.marca + '|' + d.sku] = true; });
+          setGapsDispensados(fora);
+          setAnunciosGaps(res[0].data || []);
         });
+      }
+
+      // Tira um card da tela. Não é "nunca mais": some até você clicar em
+      // "Recatalogar anúncios", que limpa a lista inteira e traz tudo de volta.
+      //
+      // Fica no banco, não no navegador: se fosse local, abrir o sistema em outro
+      // computador traria de volta tudo o que já foi analisado, e o trabalho de
+      // separar o que interessa se perderia a cada troca de máquina.
+      function dispensarGap(g) {
+        var chave = g.marca + '|' + g.sku;
+        setGapsDispensados(function(antes) {
+          var novo = Object.assign({}, antes);
+          novo[chave] = true;
+          return novo;
+        });
+        supabase.from('ml_gaps_dispensados')
+          .upsert({ marca: g.marca, sku: g.sku }, { onConflict: 'marca,sku' })
+          .then(function(r) {
+            // Não deu pra gravar: devolve o card. Sumir da tela e voltar no próximo
+            // refresh, sem explicação, é pior do que não sumir.
+            if (r && r.error) {
+              setGapsDispensados(function(antes) {
+                var novo = Object.assign({}, antes);
+                delete novo[chave];
+                return novo;
+              });
+              setAnunciosErro('Não consegui guardar a dispensa deste card. Tente de novo.');
+            }
+          });
       }
 
       // Recataloga os anúncios das 3 contas puxando direto da API do Mercado Livre
@@ -2174,6 +2214,14 @@
           return fetch('https://pylkufhziohxvwbbaued.supabase.co/functions/v1/ml-sincronizar-anuncios?conta=' + conta)
             .then(function(resp) { return resp.json(); });
         })).then(function() {
+          // Recatalogar traz TODOS de volta — inclusive os que você dispensou.
+          //
+          // É o combinado: dispensar é "já vi, não agora". Quando o catálogo é refeito,
+          // a análise recomeça do zero. Sem isso, um card dispensado ficaria escondido
+          // para sempre, mesmo depois de o produto mudar de situação.
+          return supabase.from('ml_gaps_dispensados').delete().neq('marca', ' ');
+        }).then(function() {
+          setGapsDispensados({});
           setAnunciosSincronizando(false);
           carregarAnunciosGaps();
         }).catch(function(err) {
@@ -4350,6 +4398,7 @@
           activeTab === 'anuncios' && (function() {
             var termo = anunciosBusca.trim().toUpperCase();
             var filtrados = anunciosGaps.filter(function(g) {
+              if (gapsDispensados[g.marca + '|' + g.sku]) return false;
               if (anunciosSoComEstoque && !(g.unidades > 0)) return false;
               if (!termo) return true;
               return (g.marca || '').toUpperCase().indexOf(termo) !== -1 ||
@@ -5127,7 +5176,21 @@
                   }),
                   'só com estoque disponível'
                 ),
-                e('span', {className: 'text-xs text-slate-500'}, filtrados.length + ' de ' + anunciosGaps.length)
+                e('span', {className: 'text-xs text-slate-500'}, filtrados.length + ' de ' + anunciosGaps.length),
+                // Quantos você tirou da tela. Sem este aviso, os cards somem e não há
+                // nada dizendo por que a lista encolheu nem como trazer de volta.
+                (function() {
+                  var n = Object.keys(gapsDispensados).length;
+                  if (!n) return null;
+                  return e('span', {className: 'text-xs text-slate-500'},
+                    '· ' + n + ' dispensado(s), voltam no próximo ',
+                    e('button', {
+                      onClick: sincronizarAnuncios,
+                      disabled: anunciosSincronizando,
+                      className: 'text-blue-400 hover:text-blue-300 underline'
+                    }, 'Recatalogar')
+                  );
+                })()
               ),
 
               anunciosCarregando && e('div', {className: 'text-center text-slate-400 py-10'}, 'Carregando...'),
@@ -5140,8 +5203,18 @@
                 filtrados.map(function(g) {
                   var chave = g.marca + '|' + g.sku;
                   var origensDisponiveis = contas.filter(function(c) { return temConta(g, c); });
-                  return e('div', {key: chave, className: 'bg-slate-800 border border-slate-700 rounded-lg p-3'},
-                    e('div', {className: 'text-xs text-slate-500 font-semibold uppercase'}, g.marca),
+                  return e('div', {key: chave, className: 'bg-slate-800 border border-slate-700 rounded-lg p-3 relative group'},
+                    // Tirar da tela. Discreto até o mouse passar por cima: é uma lista
+                    // pra analisar, e um ✕ vermelho em cada card faria a tela inteira
+                    // parecer um monte de coisa pra apagar.
+                    e('button', {
+                      onClick: function() { dispensarGap(g); },
+                      title: 'tirar da lista até o próximo "Recatalogar anúncios"',
+                      className: 'absolute top-2 right-2 h-6 w-6 rounded flex items-center justify-center '
+                        + 'text-[13px] text-slate-600 hover:text-white hover:bg-red-600 '
+                        + 'opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity'
+                    }, '✕'),
+                    e('div', {className: 'text-xs text-slate-500 font-semibold uppercase pr-7'}, g.marca),
                     e('div', {className: 'text-sm font-bold text-white mb-1'}, g.sku),
                     e('div', {className: 'text-xs text-slate-400 mb-2 line-clamp-2'}, g.title_referencia || '—'),
                     e('div', {className: 'text-xs text-slate-500 mb-2'}, (g.unidades > 0 ? g.unidades + ' un em estoque' : 'sem estoque no momento')),
