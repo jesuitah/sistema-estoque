@@ -186,7 +186,7 @@ Deno.serve(async (req: Request) => {
 
   // 6) Atributos filtrados
   const daCategoria = await atributosDaCategoria(origem.category_id);
-  const descartados: string[] = [];
+  const adiados: any[] = [];
   const atributos = (origem.attributes || [])
     .filter((a: any) => {
       if (ATRIBUTOS_NAO_COPIAVEIS.indexOf(a.id) !== -1) return false;
@@ -194,7 +194,8 @@ Deno.serve(async (req: Request) => {
       if (a.id === "SELLER_SKU") return true;
       const vazio = (a.value_id === "-1" || a.value_id === null) && !a.value_name;
       if (vazio) return false;
-      if (daCategoria && !daCategoria.has(a.id)) { descartados.push(a.id); return false; }
+      // Fora da categoria: não vai na CRIAÇÃO, mas é tentado depois (passo 8b).
+      if (daCategoria && !daCategoria.has(a.id)) { adiados.push(a); return false; }
       return true;
     })
     .map((a: any) => {
@@ -239,6 +240,48 @@ Deno.serve(async (req: Request) => {
     headers: { Authorization: `Bearer ${tokenDestino}`, "Content-Type": "application/json" },
     body: JSON.stringify({ status: "paused" }),
   });
+
+  // 8b) DEVOLVE O QUE FICOU DE FORA DA CRIAÇÃO.
+  //
+  // O ML é mais rígido ao CRIAR do que ao EDITAR: um atributo que derruba a criação
+  // inteira costuma ser aceito numa edição depois. Medido nas mangueiras da HJ — dos
+  // 5 atributos que impediam a clonagem, 4 entraram sem reclamar por PUT:
+  //   INCLUDES_HOSES_CLAMPS · SALE_FORMAT · SELLER_PACKAGE_TYPE · UNITS_PER_PACK ✅
+  //   HOSE_POSITION ❌ (o dado do próprio ML é inválido: tipo "integer", valor "Superior")
+  //
+  // Isso importa porque ficha técnica cheia pontua melhor no Mercado Livre. Descartar
+  // era o preço de conseguir criar; não precisa ser o preço final.
+  //
+  // Tenta todos de uma vez (1 chamada, o caso comum) e, se o lote cair por causa de um
+  // ruim, tenta um a um pra não perder os bons junto com ele.
+  const recuperados: string[] = [];
+  const perdidos: string[] = [];
+  if (adiados.length) {
+    const put = (attrs: any[]) => fetch(`https://api.mercadolibre.com/items/${novo.id}`, {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${tokenDestino}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ attributes: attrs }),
+    });
+
+    const paraEnviar = adiados.map((a: any) => {
+      const obj: any = { id: a.id, value_name: a.value_name };
+      if (a.value_id && a.value_id !== "-1") obj.value_id = a.value_id;
+      return obj;
+    });
+
+    const emLote = await put(paraEnviar);
+    if (emLote.ok) {
+      recuperados.push(...paraEnviar.map((a: any) => a.id));
+    } else {
+      for (const attr of paraEnviar) {
+        const r = await put([attr]);
+        if (r.ok) { recuperados.push(attr.id); continue; }
+        // Alguns só entram sem o value_id (o id não resolve nesta categoria).
+        const semId = await put([{ id: attr.id, value_name: attr.value_name }]);
+        if (semId.ok) recuperados.push(attr.id); else perdidos.push(attr.id);
+      }
+    }
+  }
 
   // 9) Descrição
   if (descOrigem.plain_text) {
@@ -300,10 +343,11 @@ Deno.serve(async (req: Request) => {
     status: novo.status,
     fotos: fotosFinal.length,
     compatibilidades: compatibilidadesSalvas,
-    // O que ficou pra trás por não pertencer à categoria. Sai na resposta pra que uma
-    // clonagem que "deu certo mas veio diferente" tenha explicação, em vez de virar
-    // mistério meses depois.
-    atributos_descartados: descartados,
+    // Atributos que não couberam na criação: quais voltaram por edição e quais o ML
+    // recusou de vez. Sai na resposta pra que uma clonagem que "deu certo mas veio
+    // diferente" tenha explicação, em vez de virar mistério meses depois.
+    atributos_recuperados: recuperados,
+    atributos_perdidos: perdidos,
   }), {
     headers: { "Content-Type": "application/json", ...CORS },
   });
