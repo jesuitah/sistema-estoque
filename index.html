@@ -4679,6 +4679,12 @@
                     var u = ultimaPorConta[c];
                     var pend = pendentes.filter(function(p) { return p.conta === c; });
                     var trav = travados.filter(function(p) { return p.conta === c; });
+                    // Dos que o robô desistiu, só os que dependem de você. Os que ele
+                    // largou por falta de estoque não vão pra tela — quem cuida disso é
+                    // o fluxo de Inativos, e lista de "não faça nada" é ruído.
+                    var manuaisTravados = trav.filter(function(p) {
+                      return p.motivo_desistencia !== 'sem_estoque';
+                    });
                     var verificandoAgora = andando && andando.conta === c;
 
                     // Acabou de passar aqui: o card fica verde por uns minutos, pra dar o
