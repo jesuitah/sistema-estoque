@@ -445,6 +445,11 @@
       var paradoMarca = paradoMarcaState[0];
       var setParadoMarca = paradoMarcaState[1];
 
+      // Linhas que o Matheus tirou da aba "Estoque parado". Chave: "MARCA|SKU".
+      var paradoDispensadosState = useState({});
+      var paradoDispensados = paradoDispensadosState[0];
+      var setParadoDispensados = paradoDispensadosState[1];
+
 
       var anunciosCarregandoState = useState(false);
       var anunciosCarregando = anunciosCarregandoState[0];
@@ -2183,7 +2188,46 @@
       // parados — 138 peças que só se vendem acompanhadas e não precisam de anúncio
       // separado. Por isso o `componentesDoSku` entra aqui: é o mesmo leitor de kits
       // que a coluna de custo das promoções usa.
+      // Tira uma peça da lista de estoque parado.
+      //
+      // Diferente do X da clonagem, aqui NÃO existe rotina que limpe a lista depois:
+      // "Recatalogar" não tem nada a ver com estoque. Este X quer dizer "essa eu não
+      // pretendo anunciar", e a única volta é o botão "mostrar os ocultos". Por isso o
+      // contador fica sempre visível — esconder sem deixar rastro seria perder peça.
+      function dispensarParado(p) {
+        var chave = p.marca + '|' + p.sku;
+        setParadoDispensados(function(antes) {
+          var novo = Object.assign({}, antes);
+          novo[chave] = true;
+          return novo;
+        });
+        supabase.from('ml_parado_dispensados')
+          .upsert({ marca: p.marca, sku: p.sku }, { onConflict: 'marca,sku' })
+          .then(function(r) {
+            if (r && r.error) {
+              setParadoDispensados(function(antes) {
+                var novo = Object.assign({}, antes);
+                delete novo[chave];
+                return novo;
+              });
+              alert('Não consegui guardar. A linha volta pra lista.');
+            }
+          });
+      }
+
+      function mostrarParadosOcultos() {
+        supabase.from('ml_parado_dispensados').delete().neq('marca', ' ')
+          .then(function() { setParadoDispensados({}); });
+      }
+
       function carregarSkusAnunciados() {
+        // Traz junto o que foi dispensado: uma coisa não serve sem a outra.
+        supabase.from('ml_parado_dispensados').select('marca, sku').then(function(r) {
+          var fora = {};
+          (r.data || []).forEach(function(d) { fora[d.marca + '|' + d.sku] = true; });
+          setParadoDispensados(fora);
+        });
+
         var achados = {};
         function pagina(de) {
           supabase.from('ml_anuncios').select('marca, sku, seller_sku_bruto')
@@ -5224,6 +5268,7 @@
 
                 var termo = paradoBusca.trim().toUpperCase();
                 var visiveis = parados.filter(function(p) {
+                  if (paradoDispensados[p.marca + '|' + p.sku]) return false;
                   if (paradoMarca && p.marca !== paradoMarca) return false;
                   if (!termo) return true;
                   return p.marca.indexOf(termo) !== -1 || (p.sku || '').toUpperCase().indexOf(termo) !== -1;
@@ -5275,7 +5320,21 @@
                       Object.keys(marcas).sort().map(function(m) {
                         return e('option', {key: m, value: m}, m + ' (' + marcas[m] + ')');
                       })
-                    )
+                    ),
+                    // Quantas você escondeu. Fica sempre visível quando há alguma: aqui
+                    // não existe rotina que devolva as linhas sozinha, então sem este
+                    // contador uma peça escondida por engano some pra sempre.
+                    (function() {
+                      var n = Object.keys(paradoDispensados).length;
+                      if (!n) return null;
+                      return e('span', {className: 'text-xs text-slate-500 whitespace-nowrap'},
+                        n + ' oculta(s) · ',
+                        e('button', {
+                          onClick: mostrarParadosOcultos,
+                          className: 'text-blue-400 hover:text-blue-300 underline'
+                        }, 'mostrar todas')
+                      );
+                    })()
                   ),
 
                   visiveis.length === 0
@@ -5288,13 +5347,14 @@
                     // acompanha a ORDEM DA TELA, então muda quando você filtra — é
                     // posição na lista, não identidade do produto.
                     : e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg overflow-hidden'},
-                        e('div', {className: 'grid gap-2 px-4 py-2 text-[10px] uppercase tracking-wide text-slate-500 border-b-2 border-slate-600 grid-cols-[40px_110px_1fr_70px_90px_100px]'},
-                          e('div', {className: 'text-right'}, '#'),
+                        e('div', {className: 'grid gap-2 pl-2 pr-3 py-2 text-[10px] uppercase tracking-wide text-slate-500 border-b-2 border-slate-600 grid-cols-[34px_110px_1fr_70px_90px_100px_28px]'},
+                          e('div', {className: 'text-left'}, '#'),
                           e('div', null, 'Marca'),
                           e('div', null, 'SKU'),
                           e('div', {className: 'text-right'}, 'Unidades'),
                           e('div', {className: 'text-right'}, 'Custo un.'),
-                          e('div', {className: 'text-right'}, 'Total parado')
+                          e('div', {className: 'text-right'}, 'Total parado'),
+                          e('div', null)
                         ),
                         // Teto de 300 linhas: a lista tem 1.376 e desenhar tudo trava a
                         // rolagem. Quem precisa ver mais usa a busca ou a marca.
@@ -5305,11 +5365,14 @@
                             // alternada: o Matheus disse que "tudo blocado" cansava a
                             // vista. Com 300 linhas na tela, o olho precisa de trilho
                             // pra não pular de uma linha pra outra sem perceber.
-                            className: 'grid gap-2 px-4 py-2 text-xs border-b border-slate-700 last:border-0 items-center '
-                              + 'grid-cols-[40px_110px_1fr_70px_90px_100px] hover:bg-slate-700 '
+                            className: 'group grid gap-2 pl-2 pr-3 py-2 text-xs border-b border-slate-700 last:border-0 items-center '
+                              + 'grid-cols-[34px_110px_1fr_70px_90px_100px_28px] hover:bg-slate-700 '
                               + (i % 2 === 1 ? 'bg-slate-800/40' : '')
                           },
-                            e('div', {className: 'text-right text-slate-600 tabular-nums'}, i + 1),
+                            // Encostado na borda esquerda: a numeração é referência, não
+                            // dado. Alinhada à direita e com respiro ela brigava com a
+                            // marca ao lado e parecia uma coluna de valor.
+                            e('div', {className: 'text-left text-slate-600 tabular-nums'}, i + 1),
                             e('div', {className: 'text-slate-500 font-semibold truncate'}, p.marca),
                             e('div', {className: 'text-white font-bold truncate'}, p.sku),
                             e('div', {className: 'text-right text-amber-400 font-bold'}, p.unidades),
@@ -5318,7 +5381,17 @@
                             e('div', {className: 'text-right ' + (p.custo == null ? 'text-slate-600 italic' : 'text-slate-300')},
                               p.custo == null ? 'sem custo' : moeda(p.custo)),
                             e('div', {className: 'text-right ' + (p.total == null ? 'text-slate-600' : 'text-emerald-400 font-semibold')},
-                              p.total == null ? '—' : moeda(p.total))
+                              p.total == null ? '—' : moeda(p.total)),
+                            // Tirar a linha da lista. Discreto até o mouse passar pela
+                            // linha: 300 ✕ vermelhos empilhados fariam a tela inteira
+                            // parecer uma fila de exclusão, e ela é uma fila de trabalho.
+                            e('button', {
+                              onClick: function() { dispensarParado(p); },
+                              title: 'tirar da lista',
+                              className: 'h-5 w-5 rounded flex items-center justify-center text-[11px] '
+                                + 'text-slate-600 hover:text-white hover:bg-red-600 '
+                                + 'opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity'
+                            }, '✕')
                           );
                         }),
                         visiveis.length > 300 && e('div', {className: 'px-4 py-2 text-xs text-slate-500 text-center'},
