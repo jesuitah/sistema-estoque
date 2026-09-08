@@ -1756,13 +1756,12 @@
                           onClick: function() { sairDaLinha(a.id, l); },
                           disabled: promoAtivando,
                           title: 'confirma a saída desta promoção',
-                          className: 'bg-red-600 hover:bg-red-500 text-white rounded px-2 h-6 text-[10.5px] font-bold whitespace-nowrap'
-                        }, promoAtivando ? '…' : 'Sair mesmo'),
+                          className: 'bg-red-600 hover:bg-red-500 text-white rounded px-3 h-6 text-[10.5px] font-bold whitespace-nowrap'
+                        }, promoAtivando ? '…' : 'Sair'),
                         e('button', {
                           onClick: function() { setPromoSaidaConfirma(null); },
-                          title: 'cancelar',
-                          className: 'border border-slate-600 text-slate-400 hover:text-slate-200 rounded h-6 w-6 text-[11px] flex items-center justify-center flex-shrink-0'
-                        }, '✕')
+                          className: 'border border-slate-600 text-slate-400 hover:text-slate-200 rounded px-2 h-6 text-[10.5px] whitespace-nowrap'
+                        }, 'Cancelar')
                       )
                     : e('button', {
                         onClick: function() { setPromoSaidaConfirma(chave); },
