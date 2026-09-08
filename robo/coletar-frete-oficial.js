@@ -72,16 +72,23 @@ async function tudo(sb, tabela, colunas, filtro) {
 // As vendas reais desmentem: em 17 vendas desses anúncios o frete mais caro que o
 // Matheus pagou foi R$ 12,50. Nunca R$ 23,99.
 //
-// A regra abaixo (a mais barata) devolve R$ 10,99 nos dois — que é o que os dois
-// anúncios idênticos têm de fato que custar.
+// Usamos a MEDIANA das opções. Ela não é boa — erra R$ 4,46 em média — mas foi a
+// menos ruim das quatro testadas contra as vendas reais (ver o quadro lá embaixo, na
+// hora de copiar pro cache). A mais barata tinha o menor viés, porém a maior
+// dispersão: acertava na média errando muito em cada anúncio.
+//
+// Isto só vale para anúncio que NUNCA VENDEU. Quem já vendeu usa o valor real.
 function custoDoVendedor(opcoes) {
-  let menor = null;
+  const valores = [];
   for (const o of opcoes || []) {
     if (o.list_cost == null) continue;
     const v = Number(o.list_cost);
-    if (menor == null || v < menor) menor = v;
+    if (!isNaN(v)) valores.push(v);
   }
-  return menor;
+  if (!valores.length) return null;
+  valores.sort((a, b) => a - b);
+  const m = Math.floor(valores.length / 2);
+  return valores.length % 2 ? valores[m] : (valores[m - 1] + valores[m]) / 2;
 }
 
 async function coletar({ tudoDeNovo = false, log = console.log } = {}) {
@@ -135,14 +142,53 @@ async function coletar({ tudoDeNovo = false, log = console.log } = {}) {
     resumo.push({ conta, novos: achados.length, erros });
   }
 
+  // O QUE VOCÊ PAGOU GANHA DO QUE O ML ESTIMA.
+  //
+  // A lista de opções do ML é um cardápio, e escolher uma delas é sempre um palpite.
+  // Medi os palpites contra o que o Matheus paga de verdade, em 60 anúncios com 3+
+  // vendas:
+  //
+  //     regra       erro médio    erro absoluto
+  //     mais barata   -R$ 0,39      R$ 6,82
+  //     mediana       +R$ 3,51      R$ 4,46
+  //     moda          +R$ 2,98      R$ 4,97
+  //     mais cara     +R$ 4,64      R$ 4,95
+  //
+  // Nenhuma é boa: erram de R$ 4 a R$ 7 num frete que gira em torno de R$ 17. Mas
+  // 490 dos 1080 anúncios JÁ VENDERAM — nesses não há o que estimar, o valor pago
+  // está gravado em ml_fretes. Usar o palpite ali seria trocar fato por chute.
+  //
+  // Então: histórico onde existe, mediana das opções onde não existe. A mediana é a
+  // melhor das estimativas pelo erro absoluto, que é o que importa quando o viés não
+  // pode ser corrigido depois.
+  const historico = await tudo(sb, 'ml_fretes', 'item_id, custo', (q) => q.eq('itens_no_envio', 1).gt('custo', 0));
+  const pagosPorItem = new Map();
+  historico.forEach((h) => {
+    if (!pagosPorItem.has(h.item_id)) pagosPorItem.set(h.item_id, []);
+    pagosPorItem.get(h.item_id).push(Number(h.custo));
+  });
+  const medianaDe = (lista) => {
+    const s = [...lista].sort((a, b) => a - b);
+    const m = Math.floor(s.length / 2);
+    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+  };
+
   // Copia para o cache de promoções, que é o que a tela lê.
   const fretes = await tudo(sb, 'ml_frete_anuncio', 'conta, item_id, custo');
+  let doHistorico = 0;
   const porValor = new Map();
   fretes.forEach((f) => {
-    const k = `${f.conta}|${f.custo}`;
-    if (!porValor.has(k)) porValor.set(k, { conta: f.conta, custo: f.custo, itens: [] });
+    let custo = f.custo;
+    const pagos = pagosPorItem.get(f.item_id);
+    if (pagos && pagos.length) {
+      custo = Math.round(medianaDe(pagos) * 100) / 100;
+      doHistorico++;
+    }
+    const k = `${f.conta}|${custo}`;
+    if (!porValor.has(k)) porValor.set(k, { conta: f.conta, custo, itens: [] });
     porValor.get(k).itens.push(f.item_id);
   });
+  log(`  ${doHistorico} anúncios usam o frete REAL das suas vendas · ${fretes.length - doHistorico} usam a estimativa do ML`);
   for (const g of porValor.values()) {
     for (let i = 0; i < g.itens.length; i += 300) {
       await sb.from('ml_promocoes_itens')
