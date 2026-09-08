@@ -430,6 +430,25 @@
       var gapsDispensados = gapsDispensadosState[0];
       var setGapsDispensados = gapsDispensadosState[1];
 
+      // Tudo que já está anunciado, como "MARCA|SKU" normalizado — inclusive o que só
+      // existe DENTRO de um kit. Carregado sob demanda: são ~3.400 linhas e só a aba
+      // "Estoque parado" precisa delas.
+      var skusAnunciadosState = useState(null);
+      var skusAnunciados = skusAnunciadosState[0];
+      var setSkusAnunciados = skusAnunciadosState[1];
+
+      var paradoBuscaState = useState('');
+      var paradoBusca = paradoBuscaState[0];
+      var setParadoBusca = paradoBuscaState[1];
+
+      var paradoMarcaState = useState('');
+      var paradoMarca = paradoMarcaState[0];
+      var setParadoMarca = paradoMarcaState[1];
+
+      var paradoSoSemCustoState = useState(false);
+      var paradoSoSemCusto = paradoSoSemCustoState[0];
+      var setParadoSoSemCusto = paradoSoSemCustoState[1];
+
       var anunciosCarregandoState = useState(false);
       var anunciosCarregando = anunciosCarregandoState[0];
       var setAnunciosCarregando = anunciosCarregandoState[1];
@@ -2158,6 +2177,32 @@
           if (r.error) { alert('Não consegui enfileirar: ' + r.error.message); return; }
           carregarStatusRobo();
         });
+      }
+
+      // Monta o conjunto do que JÁ ESTÁ ANUNCIADO.
+      //
+      // Um SKU conta como anunciado de duas formas: tendo anúncio próprio, ou vivendo
+      // dentro de um kit. É regra do Matheus, e é a diferença entre 1.514 e 1.376 SKUs
+      // parados — 138 peças que só se vendem acompanhadas e não precisam de anúncio
+      // separado. Por isso o `componentesDoSku` entra aqui: é o mesmo leitor de kits
+      // que a coluna de custo das promoções usa.
+      function carregarSkusAnunciados() {
+        var achados = {};
+        function pagina(de) {
+          supabase.from('ml_anuncios').select('marca, sku, seller_sku_bruto')
+            .range(de, de + 999)
+            .then(function(r) {
+              if (r.error || !r.data) { setSkusAnunciados({}); return; }
+              r.data.forEach(function(a) {
+                if (a.marca && a.sku) achados[normStr(a.marca) + '|' + normStr(a.sku)] = true;
+                componentesDoSku(a.seller_sku_bruto).forEach(function(c) {
+                  achados[c.marca + '|' + c.sku] = true;
+                });
+              });
+              if (r.data.length === 1000) pagina(de + 1000); else setSkusAnunciados(achados);
+            });
+        }
+        pagina(0);
       }
 
       function carregarAnunciosGaps() {
@@ -4434,6 +4479,13 @@
                   className: 'px-4 py-2 rounded-lg text-sm font-bold transition-colors ' + (anunciosSubTab === 'gaps' ? 'bg-blue-600 text-white' : 'bg-slate-800 border border-slate-600 text-slate-300 hover:border-slate-400')
                 }, '🔁 Clonar anúncios'),
                 e('button', {
+                  onClick: function() {
+                    setAnunciosSubTab('parado');
+                    if (skusAnunciados === null) carregarSkusAnunciados();
+                  },
+                  className: 'px-4 py-2 rounded-lg text-sm font-bold transition-colors ' + (anunciosSubTab === 'parado' ? 'bg-blue-600 text-white' : 'bg-slate-800 border border-slate-600 text-slate-300 hover:border-slate-400')
+                }, '📥 Estoque parado'),
+                e('button', {
                   onClick: function() { setAnunciosSubTab('criar'); },
                   className: 'px-4 py-2 rounded-lg text-sm font-bold transition-colors ' + (anunciosSubTab === 'criar' ? 'bg-blue-600 text-white' : 'bg-slate-800 border border-slate-600 text-slate-300 hover:border-slate-400')
                 }, '➕ Criar novo anúncio'),
@@ -5133,6 +5185,145 @@
                       );
                     })()
                   )
+                );
+              })(),
+
+              // ── ESTOQUE PARADO ────────────────────────────────────────────────
+              //
+              // Peça que TEM estoque e não está anunciada em lugar nenhum — nem sozinha,
+              // nem dentro de um kit. São 1.376 SKUs e ~3.700 unidades que hoje não
+              // aparecem em tela alguma: dinheiro encostado que ninguém vê.
+              //
+              // Ordenado por UNIDADES, não por dinheiro, a pedido do Matheus: a maioria
+              // dos SKUs não tem custo cadastrado, então ordenar por valor jogaria pro
+              // fim justamente o que não dá pra avaliar. Quantidade todo mundo tem.
+              anunciosSubTab === 'parado' && (function() {
+                if (skusAnunciados === null) {
+                  return e('div', {className: 'text-center text-slate-400 py-10'}, 'Carregando catálogo...');
+                }
+
+                var custoPor = {};
+                (precos || []).forEach(function(p) {
+                  if (p.custo != null && Number(p.custo) > 0) {
+                    custoPor[normStr(p.marca) + '|' + normStr(p.sku)] = Number(p.custo);
+                  }
+                });
+
+                var parados = (estoque || []).filter(function(x) {
+                  return Number(x.unidades) > 0
+                      && !skusAnunciados[normStr(x.marca) + '|' + normStr(x.sku)];
+                }).map(function(x) {
+                  var custo = custoPor[normStr(x.marca) + '|' + normStr(x.sku)];
+                  return {
+                    id: x.id, marca: (x.marca || '').toUpperCase(), sku: x.sku,
+                    unidades: Number(x.unidades),
+                    custo: custo == null ? null : custo,
+                    total: custo == null ? null : custo * Number(x.unidades),
+                  };
+                });
+
+                var marcas = {};
+                parados.forEach(function(p) { marcas[p.marca] = (marcas[p.marca] || 0) + 1; });
+
+                var termo = paradoBusca.trim().toUpperCase();
+                var visiveis = parados.filter(function(p) {
+                  if (paradoMarca && p.marca !== paradoMarca) return false;
+                  if (paradoSoSemCusto && p.custo != null) return false;
+                  if (!termo) return true;
+                  return p.marca.indexOf(termo) !== -1 || (p.sku || '').toUpperCase().indexOf(termo) !== -1;
+                }).sort(function(a, b) {
+                  if (b.unidades !== a.unidades) return b.unidades - a.unidades;
+                  if (a.marca !== b.marca) return a.marca.localeCompare(b.marca);
+                  return (a.sku || '').localeCompare(b.sku || '');
+                });
+
+                var totUnidades = visiveis.reduce(function(s, p) { return s + p.unidades; }, 0);
+                var totValor = visiveis.reduce(function(s, p) { return s + (p.total || 0); }, 0);
+                var semCusto = visiveis.filter(function(p) { return p.custo == null; }).length;
+
+                return e('div', {className: 'space-y-4'},
+                  e('div', {className: 'bg-slate-800 border border-slate-700 p-5 rounded-lg'},
+                    e('h2', {className: 'text-lg font-bold mb-2'}, '📥 Estoque parado — peças que você tem e não vende'),
+                    e('p', {className: 'text-slate-400 text-sm'},
+                      'Tem unidade em estoque e não está anunciada em nenhuma das três lojas. ' +
+                      'Quem é vendido só dentro de kit NÃO entra aqui — já está sendo vendido.')
+                  ),
+
+                  // O resumo primeiro: é o número que decide se vale abrir a lista.
+                  e('div', {className: 'grid grid-cols-2 md:grid-cols-4 gap-3'},
+                    e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg p-4'},
+                      e('div', {className: 'text-2xl font-bold text-blue-400'}, visiveis.length),
+                      e('div', {className: 'text-xs text-slate-400'}, 'SKUs sem anúncio')),
+                    e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg p-4'},
+                      e('div', {className: 'text-2xl font-bold text-amber-400'}, totUnidades.toLocaleString('pt-BR')),
+                      e('div', {className: 'text-xs text-slate-400'}, 'unidades paradas')),
+                    e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg p-4'},
+                      e('div', {className: 'text-2xl font-bold text-emerald-400'}, moeda(totValor)),
+                      e('div', {className: 'text-xs text-slate-400'}, 'em custo (só o que tem custo)')),
+                    e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg p-4'},
+                      e('div', {className: 'text-2xl font-bold text-slate-400'}, semCusto),
+                      e('div', {className: 'text-xs text-slate-400'}, 'sem custo cadastrado'))
+                  ),
+
+                  e('div', {className: 'flex gap-3 items-center flex-wrap'},
+                    e('input', {
+                      type: 'text', placeholder: 'Buscar por marca ou SKU...',
+                      value: paradoBusca,
+                      onChange: function(ev) { setParadoBusca(ev.target.value); },
+                      className: 'flex-1 bg-slate-800 text-white px-4 py-2 rounded-lg border border-slate-600 focus:border-blue-400 focus:outline-none text-sm min-w-[200px]'
+                    }),
+                    e('select', {
+                      value: paradoMarca,
+                      onChange: function(ev) { setParadoMarca(ev.target.value); },
+                      className: 'bg-slate-800 text-white px-3 py-2 rounded-lg border border-slate-600 focus:border-blue-400 focus:outline-none text-sm cursor-pointer max-w-[220px]'
+                    },
+                      e('option', {value: ''}, 'Todas as marcas (' + Object.keys(marcas).length + ')'),
+                      Object.keys(marcas).sort().map(function(m) {
+                        return e('option', {key: m, value: m}, m + ' (' + marcas[m] + ')');
+                      })
+                    ),
+                    e('label', {className: 'flex items-center gap-2 text-sm text-slate-300 cursor-pointer whitespace-nowrap'},
+                      e('input', {
+                        type: 'checkbox', checked: paradoSoSemCusto,
+                        onChange: function() { setParadoSoSemCusto(function(v) { return !v; }); },
+                        className: 'w-4 h-4 accent-blue-500 cursor-pointer'
+                      }),
+                      'só os sem custo cadastrado'
+                    )
+                  ),
+
+                  visiveis.length === 0
+                    ? e('div', {className: 'text-center text-slate-500 py-10 bg-slate-800 border border-slate-700 rounded-lg'},
+                        parados.length === 0 ? '✅ Tudo que tem estoque já está anunciado.' : 'Nenhum resultado com esse filtro.')
+                    : e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg overflow-hidden'},
+                        e('div', {className: 'grid gap-2 px-4 py-2 text-[10px] uppercase tracking-wide text-slate-500 border-b border-slate-700 grid-cols-[110px_1fr_70px_90px_100px]'},
+                          e('div', null, 'Marca'),
+                          e('div', null, 'SKU'),
+                          e('div', {className: 'text-right'}, 'Unidades'),
+                          e('div', {className: 'text-right'}, 'Custo un.'),
+                          e('div', {className: 'text-right'}, 'Total parado')
+                        ),
+                        // Teto de 300 linhas: a lista tem 1.376 e desenhar tudo trava a
+                        // rolagem. Quem precisa ver mais usa a busca ou a marca.
+                        visiveis.slice(0, 300).map(function(p) {
+                          return e('div', {
+                            key: p.id,
+                            className: 'grid gap-2 px-4 py-2 text-xs border-b border-slate-800 last:border-0 items-center grid-cols-[110px_1fr_70px_90px_100px] hover:bg-slate-700'
+                          },
+                            e('div', {className: 'text-slate-500 font-semibold truncate'}, p.marca),
+                            e('div', {className: 'text-white font-bold truncate'}, p.sku),
+                            e('div', {className: 'text-right text-amber-400 font-bold'}, p.unidades),
+                            // Sem custo aparece escrito, não em branco: aqui a ausência é
+                            // a informação — é o que falta cadastrar pra saber o valor.
+                            e('div', {className: 'text-right ' + (p.custo == null ? 'text-slate-600 italic' : 'text-slate-300')},
+                              p.custo == null ? 'sem custo' : moeda(p.custo)),
+                            e('div', {className: 'text-right ' + (p.total == null ? 'text-slate-600' : 'text-emerald-400 font-semibold')},
+                              p.total == null ? '—' : moeda(p.total))
+                          );
+                        }),
+                        visiveis.length > 300 && e('div', {className: 'px-4 py-2 text-xs text-slate-500 text-center'},
+                          'mostrando 300 de ' + visiveis.length + ' — use a busca ou filtre por marca pra ver o resto')
+                      )
                 );
               })(),
 
