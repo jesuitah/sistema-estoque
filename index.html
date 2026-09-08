@@ -1556,7 +1556,7 @@
       // escritas duas vezes, mexer numa e esquecer a outra desalinhava o bloco inteiro.
       // A última coluna é larga porque abriga o campo de digitar o percentual (número
       // + % + confirmar); com menos que isso ele vazava por cima do "Você recebe".
-      var COLUNAS_DA_PROMOCAO = 'grid-cols-[1fr_62px_70px_100px_78px_84px]';
+      var COLUNAS_DA_PROMOCAO = 'grid-cols-[1fr_58px_66px_98px_76px_110px]';
 
       // Um anúncio e todas as promoções dele, empilhadas.
       function blocoDoAnuncio(a, pct) {
@@ -1735,9 +1735,21 @@
                     e('button', {
                       onClick: function() { aplicarNaLinha(a.id, l); },
                       disabled: promoAtivando,
-                      title: 'aplicar (Enter) · Esc cancela',
+                      title: 'aplicar (Enter)',
                       className: 'bg-emerald-600 hover:bg-emerald-500 text-white rounded h-6 w-6 flex items-center justify-center text-[11px] font-bold flex-shrink-0'
-                    }, promoAtivando ? '…' : '✓')
+                    }, promoAtivando ? '…' : '✓'),
+                    // SAÍDA VISÍVEL.
+                    //
+                    // Este ✕ já existiu e eu tirei pra ganhar espaço, deixando só o Esc.
+                    // Foi um erro: quem abre a caixinha sem querer não tem como saber que
+                    // Esc fecha, e fica preso numa parte da tela que não pediu pra abrir.
+                    // Atalho de teclado é atalho — não pode ser a única porta.
+                    e('button', {
+                      onClick: function() { setPromoLinhaEdit(null); setPromoSaidaConfirma(null); },
+                      title: 'fechar sem salvar (Esc)',
+                      className: 'border border-red-800 hover:border-red-600 text-red-400 hover:text-red-300 '
+                        + 'rounded h-6 w-6 flex items-center justify-center text-[11px] font-bold flex-shrink-0'
+                    }, '✕')
                   ),
                   // "Deixar de participar", como no painel do Mercado Livre.
                   //
