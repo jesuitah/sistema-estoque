@@ -56,22 +56,32 @@ async function tudo(sb, tabela, colunas, filtro) {
   return saida;
 }
 
-// O ML devolve várias opções de envio (uma por transportadora/serviço). O custo do
-// vendedor é o mesmo em quase todas; pegamos o valor mais frequente para não depender
-// de uma opção esquisita que apareça na primeira posição.
+// O ML devolve várias opções de envio — é o CARDÁPIO mostrado ao comprador, uma linha
+// por modalidade (normal, expressa, agendada...). O que o vendedor paga é a modalidade
+// padrão, a mais barata; as caras são as entregas rápidas, que o comprador escolhe e
+// paga a diferença.
+//
+// Antes eu pegava o valor MAIS REPETIDO, e isso estava errado de um jeito caro.
+//
+// Prova: dois anúncios do MESMO produto (HITECH HT-11000), mesmo peso, mesmas
+// dimensões, os dois no Full, mesmo preço de R$ 17,53.
+//   • um só oferecia uma opção → R$ 10,99
+//   • o outro oferecia onze, sete delas a R$ 23,99 → o "mais repetido" dava R$ 23,99
+// O sistema mostrava que esse segundo anúncio dava PREJUÍZO de R$ 11,19 por venda.
+//
+// As vendas reais desmentem: em 17 vendas desses anúncios o frete mais caro que o
+// Matheus pagou foi R$ 12,50. Nunca R$ 23,99.
+//
+// A regra abaixo (a mais barata) devolve R$ 10,99 nos dois — que é o que os dois
+// anúncios idênticos têm de fato que custar.
 function custoDoVendedor(opcoes) {
-  const contagem = new Map();
+  let menor = null;
   for (const o of opcoes || []) {
     if (o.list_cost == null) continue;
     const v = Number(o.list_cost);
-    contagem.set(v, (contagem.get(v) || 0) + 1);
+    if (menor == null || v < menor) menor = v;
   }
-  if (!contagem.size) return null;
-  let melhor = null, maior = -1;
-  for (const [valor, vezes] of contagem) {
-    if (vezes > maior) { maior = vezes; melhor = valor; }
-  }
-  return melhor;
+  return menor;
 }
 
 async function coletar({ tudoDeNovo = false, log = console.log } = {}) {
