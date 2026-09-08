@@ -518,6 +518,11 @@
       var promoSaidaConfirmaState = useState(null);
       var promoSaidaConfirma = promoSaidaConfirmaState[0];
       var setPromoSaidaConfirma = promoSaidaConfirmaState[1];
+
+      // A mesma pergunta, para a saída em lote da barra de cima.
+      var promoSaidaLoteState = useState(false);
+      var promoSaidaLote = promoSaidaLoteState[0];
+      var setPromoSaidaLote = promoSaidaLoteState[1];
       var promoCarregandoState = useState(false);
       var promoCarregando = promoCarregandoState[0];
       var setPromoCarregando = promoCarregandoState[1];
@@ -1289,6 +1294,9 @@
         var novo = Object.assign({}, promoMarcados);
         if (novo[itemId]) delete novo[itemId]; else novo[itemId] = true;
         setPromoMarcados(novo);
+        // Mexeu na seleção, a pergunta "Sair de N?" perde o sentido: o N mudou.
+        // Sem isto ela ficaria acesa com o número velho, esperando um clique.
+        setPromoSaidaLote(false);
       }
 
       // O termo da busca casa com título, SKU ou número do anúncio.
@@ -1963,6 +1971,53 @@
               recusados: d.recusados,
             });
             if (promoSel) recarregarItens(promoSel, false);
+            carregarPromocoes();
+          })
+          .catch(function() {
+            setPromoAtivando(false);
+            setPromoResultado({ erro: 'não consegui falar com o servidor' });
+          });
+      }
+
+      // Tira de uma vez todos os anúncios marcados DA PROMOÇÃO ABERTA.
+      //
+      // Só entram os que estão participando de fato. Mandar os outros faria o ML
+      // responder 404 pra cada um — que o servidor conta como sucesso, e a tela diria
+      // "12 anúncios saíram" tendo tirado 3. O número precisa ser verdade.
+      function sairEmLote() {
+        if (!promoSel) return;
+        var ids = Object.keys(promoMarcados).filter(function(id) {
+          var linhas = promoItens.filter(function(x) {
+            return x.item_id === id && x.promocao_id === promoSel.promocao_id;
+          });
+          return linhas.length && linhas[0].status === 'started';
+        });
+        if (!ids.length) {
+          setPromoResultado({ erro: 'Nenhum dos anúncios marcados está participando desta promoção.' });
+          setPromoSaidaLote(false);
+          return;
+        }
+
+        setPromoSaidaLote(false);
+        setPromoAtivando(true);
+        setPromoResultado(null);
+
+        fetch(PROMO_URL + '?acao=sair', {
+          method: 'POST',
+          headers: promoCabecalhos(),
+          body: JSON.stringify({
+            conta: promoSel.conta,
+            promocao_id: promoSel.promocao_id,
+            promocao_tipo: promoSel.promocao_tipo,
+            itens: ids,
+          }),
+        })
+          .then(function(r) { return r.json(); })
+          .then(function(d) {
+            setPromoAtivando(false);
+            setPromoResultado({ erro: d.erro, saidos: d.saidos, recusados: d.recusados });
+            setPromoMarcados({});
+            recarregarItens(promoSel, false);
             carregarPromocoes();
           })
           .catch(function() {
@@ -3674,6 +3729,7 @@
                           if (ev.target.checked) novo[a.id] = true; else delete novo[a.id];
                         });
                         setPromoMarcados(novo);
+                        setPromoSaidaLote(false);
                       },
                       className: 'w-4 h-4'
                     }),
@@ -3756,6 +3812,43 @@
                         ? 'bg-slate-800 text-slate-600 cursor-not-allowed'
                         : 'bg-emerald-600 hover:bg-emerald-500 text-white')
                   }, promoAtivando ? '⏳ aplicando...' : 'aplicar' + (marcados.length ? ' (' + marcados.length + ')' : '')),
+
+                  // SAIR EM LOTE.
+                  //
+                  // Só aparece quando há anúncio marcado E pelo menos um deles está
+                  // participando desta promoção — botão que não tem o que fazer é ruído.
+                  //
+                  // A contagem mostra os QUE VÃO SAIR, não os marcados. Se você marcou 12
+                  // e 3 estão na promoção, o botão diz 3: o número tem que ser o mesmo que
+                  // vai aparecer na confirmação depois.
+                  (function() {
+                    var vaoSair = marcados.filter(function(id) {
+                      var a = anuncios.filter(function(x) { return x.id === id; })[0];
+                      return a && a.nesta && a.nesta.status === 'started';
+                    });
+                    if (!vaoSair.length) return null;
+                    if (promoSaidaLote) {
+                      return e('div', {className: 'flex items-center gap-1'},
+                        e('button', {
+                          onClick: sairEmLote,
+                          disabled: promoAtivando,
+                          className: 'h-[38px] px-4 rounded-lg font-bold text-sm bg-red-600 hover:bg-red-500 text-white whitespace-nowrap'
+                        }, promoAtivando ? '⏳ saindo...' : 'Sair de ' + vaoSair.length),
+                        e('button', {
+                          onClick: function() { setPromoSaidaLote(false); },
+                          className: 'h-[38px] px-3 rounded-lg text-sm border border-slate-600 text-slate-400 hover:text-slate-200 whitespace-nowrap'
+                        }, 'Cancelar')
+                      );
+                    }
+                    return e('button', {
+                      onClick: function() { setPromoSaidaLote(true); },
+                      disabled: promoAtivando,
+                      title: 'tira os anúncios marcados desta promoção',
+                      className: 'h-[38px] px-4 rounded-lg text-sm whitespace-nowrap '
+                        + 'border border-red-800 hover:border-red-600 bg-red-900 bg-opacity-25 '
+                        + 'text-red-300 hover:text-red-200'
+                    }, '🗑 Deixar de participar (' + vaoSair.length + ')');
+                  })(),
 
                   // Nas promoções do ML não há % pra digitar: dizer isso evita procurar
                   // um campo que sumiu e achar que a tela quebrou.
