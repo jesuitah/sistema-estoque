@@ -1482,11 +1482,11 @@
           var i = parte.indexOf(':');
           if (i !== -1) {
             marcaAtual = parte.slice(0, i).trim();
-            itens.push({ marca: normStr(marcaAtual), sku: normStr(parte.slice(i + 1)), qtd: qtd });
+            itens.push({ marca: normMarca(marcaAtual), sku: normStr(parte.slice(i + 1)), qtd: qtd });
           } else if (marcaAtual) {
             // Sem marca própria: herda a última vista. É como o ML escreve os kits
             // de uma marca só ("DAYTRON: DTB050 + DTB051").
-            itens.push({ marca: normStr(marcaAtual), sku: normStr(parte), qtd: qtd });
+            itens.push({ marca: normMarca(marcaAtual), sku: normStr(parte), qtd: qtd });
           }
           // Sem marca nenhuma (ex.: "ÁGUA DESMINERALIZADA GITANES - 3UN") não dá pra
           // procurar no cadastro. Fica de fora, e o custo do anúncio sai em branco.
@@ -1502,7 +1502,7 @@
         var mapa = {};
         (precos || []).forEach(function(p) {
           if (p.custo == null || Number(p.custo) <= 0) return;
-          mapa[normStr(p.marca) + '|' + normStr(p.sku)] = Number(p.custo);
+          mapa[normMarca(p.marca) + '|' + normStr(p.sku)] = Number(p.custo);
         });
         return mapa;
       }, [precos]);
@@ -2246,7 +2246,7 @@
             .then(function(r) {
               if (r.error || !r.data) { setSkusAnunciados({}); return; }
               r.data.forEach(function(a) {
-                if (a.marca && a.sku) achados[normStr(a.marca) + '|' + normStr(a.sku)] = true;
+                if (a.marca && a.sku) achados[normMarca(a.marca) + '|' + normStr(a.sku)] = true;
                 componentesDoSku(a.seller_sku_bruto).forEach(function(c) {
                   achados[c.marca + '|' + c.sku] = true;
                 });
@@ -2702,6 +2702,26 @@
           .toUpperCase()
           .replace(/\s*-\s*\d+\s*UN\s*$/i, '')                 // "DTB050 - 2UN" -> "DTB050"
           .replace(/[^A-Z0-9]/g, '');
+      }
+
+      // A MESMA MARCA COM DOIS NOMES.
+      //
+      // O estoque diz KINTOP, o anúncio diz KK. O SKU é idêntico (KT101008), só o nome
+      // da marca muda — e por isso 8 peças anunciadas apareciam como "estoque parado".
+      //
+      // Só entram pares confirmados pelo Matheus. Achei dez candidatos varrendo o
+      // estoque, mas a maioria era coincidência: marcas diferentes usando o mesmo
+      // número genérico (DS e INTERMEC com "2330", WISA e INTERMEC com "9001"). Tratar
+      // essas como iguais esconderia peça que precisa ser anunciada — o erro caro aqui
+      // é dar como anunciado o que não está.
+      var APELIDOS_DE_MARCA = {
+        KINTOP: 'KK',
+        MULTIQUALITA: 'KQ',
+      };
+
+      function normMarca(s) {
+        var m = normStr(s);
+        return APELIDOS_DE_MARCA[m] || m;
       }
 
       function parseSKUsML(celula) {
@@ -5280,15 +5300,15 @@
                 var custoPor = {};
                 (precos || []).forEach(function(p) {
                   if (p.custo != null && Number(p.custo) > 0) {
-                    custoPor[normStr(p.marca) + '|' + normStr(p.sku)] = Number(p.custo);
+                    custoPor[normMarca(p.marca) + '|' + normStr(p.sku)] = Number(p.custo);
                   }
                 });
 
                 var parados = (estoque || []).filter(function(x) {
                   return Number(x.unidades) > 0
-                      && !skusAnunciados[normStr(x.marca) + '|' + normStr(x.sku)];
+                      && !skusAnunciados[normMarca(x.marca) + '|' + normStr(x.sku)];
                 }).map(function(x) {
-                  var custo = custoPor[normStr(x.marca) + '|' + normStr(x.sku)];
+                  var custo = custoPor[normMarca(x.marca) + '|' + normStr(x.sku)];
                   return {
                     id: x.id, marca: (x.marca || '').toUpperCase(), sku: x.sku,
                     unidades: Number(x.unidades),
