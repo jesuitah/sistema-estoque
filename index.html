@@ -1700,7 +1700,8 @@
             (function() {
               var chave = a.id + '|' + l.promocao_id;
               if (promoLinhaEdit === chave) {
-                return e('div', {className: 'flex items-center gap-1 justify-end'},
+                return e('div', {className: 'flex flex-col items-end gap-1'},
+                  e('div', {className: 'flex items-center gap-1 justify-end'},
                   // Número e "%" moram na mesma caixinha, como na barra de cima —
                   // o "%" solto ao lado do campo ficava perdido.
                   //
@@ -1724,12 +1725,26 @@
                     }),
                     e('span', {className: 'text-slate-500 text-[10px]'}, '%')
                   ),
-                  e('button', {
-                    onClick: function() { aplicarNaLinha(a.id, l); },
+                    e('button', {
+                      onClick: function() { aplicarNaLinha(a.id, l); },
+                      disabled: promoAtivando,
+                      title: 'aplicar (Enter) · Esc cancela',
+                      className: 'bg-emerald-600 hover:bg-emerald-500 text-white rounded h-6 w-6 flex items-center justify-center text-[11px] font-bold flex-shrink-0'
+                    }, promoAtivando ? '…' : '✓')
+                  ),
+                  // "Deixar de participar", como no painel do Mercado Livre.
+                  //
+                  // Só aparece pra quem ESTÁ na promoção — não faz sentido oferecer saída
+                  // de onde o anúncio nem entrou. Fica numa segunda linha porque a coluna
+                  // é estreita: espremer um terceiro botão ao lado do campo empurrava o
+                  // "%" pra fora. E em vermelho discreto, não em vermelho de alarme: é
+                  // uma ação legítima, só não é a que se faz sem pensar.
+                  ativa && e('button', {
+                    onClick: function() { sairDaLinha(a.id, l); },
                     disabled: promoAtivando,
-                    title: 'aplicar (Enter) · Esc cancela',
-                    className: 'bg-emerald-600 hover:bg-emerald-500 text-white rounded h-6 w-6 flex items-center justify-center text-[11px] font-bold flex-shrink-0'
-                  }, promoAtivando ? '…' : '✓')
+                    title: 'tira este anúncio desta promoção',
+                    className: 'text-[10.5px] text-red-400 hover:text-red-300 whitespace-nowrap'
+                  }, '🗑 Deixar de participar')
                 );
               }
               return e('div', {className: 'text-right'},
@@ -1860,6 +1875,50 @@
             setPromoResultado(d);
             // Atualização silenciosa: sem apagar a lista, sem limpar a busca nem as
             // caixinhas marcadas, e sem perder onde você estava na página.
+            if (promoSel) recarregarItens(promoSel, false);
+            carregarPromocoes();
+          })
+          .catch(function() {
+            setPromoAtivando(false);
+            setPromoResultado({ erro: 'não consegui falar com o servidor' });
+          });
+      }
+
+      // "Deixar de participar" — tira o anúncio DAQUELA promoção, como no painel do ML.
+      //
+      // Pergunta antes. É a única ação da aba que só tira: aplicar um percentual errado
+      // se conserta aplicando outro, mas sair da promoção só se desfaz entrando de novo,
+      // e nas campanhas do próprio ML nem sempre há vaga na volta.
+      function sairDaLinha(itemId, linha) {
+        var nome = linha.promocao_nome || 'esta promoção';
+        if (!confirm('Deixar de participar de "' + nome + '"?\n\n'
+          + 'O anúncio perde o desconto na hora. Para voltar, é preciso participar de novo — '
+          + 'e nas promoções do próprio Mercado Livre a vaga pode não estar mais disponível.')) return;
+
+        setPromoAtivando(true);
+        setPromoResultado(null);
+
+        fetch(PROMO_URL + '?acao=sair', {
+          method: 'POST',
+          headers: promoCabecalhos(),
+          body: JSON.stringify({
+            conta: linha.conta,
+            promocao_id: linha.promocao_id,
+            promocao_tipo: linha.promocao_tipo,
+            itens: [itemId],
+          }),
+        })
+          .then(function(r) { return r.json(); })
+          .then(function(d) {
+            setPromoAtivando(false);
+            setPromoLinhaEdit(null);
+            // A tela de resultado fala em "aplicados/recusados". Traduz a saída pro
+            // mesmo formato, senão o sucesso não aparece em lugar nenhum.
+            setPromoResultado({
+              erro: d.erro,
+              saidos: d.saidos,
+              recusados: d.recusados,
+            });
             if (promoSel) recarregarItens(promoSel, false);
             carregarPromocoes();
           })
@@ -3667,14 +3726,22 @@
                   // Mostra o percentual que o SERVIDOR recebeu, não o que está na
                   // caixinha. Se um dia sair diferente do que você digitou, dá pra ver
                   // na hora em vez de descobrir pelo preço final.
+                  // Saída da promoção. Cinza, não verde: sair não é conquista nem erro,
+                  // é uma decisão que deu certo. Verde aqui competiria com o "aplicados".
+                  (promoResultado.saidos || []).length > 0 && e('div', {className: 'text-xs text-slate-300 bg-slate-800 border border-slate-600 rounded px-3 py-2'},
+                    '🗑 ' + promoResultado.saidos.length + ' anúncio(s) saíram da promoção'),
                   (promoResultado.ativados || []).length > 0 && e('div', {className: 'text-xs text-emerald-300 bg-emerald-900 bg-opacity-25 border border-emerald-800 rounded px-3 py-2'},
                     '✅ ' + promoResultado.ativados.length + ' anúncio(s) aplicados'
                     + (promoResultado.percentual_recebido != null
                         ? ' com ' + promoResultado.percentual_recebido + '% de desconto'
                         : ' — com o desconto definido pelo Mercado Livre')),
                   (promoResultado.recusados || []).length > 0 && e('div', {className: 'text-xs bg-amber-900 bg-opacity-25 border border-amber-800 rounded px-3 py-2'},
+                    // O texto muda conforme o que foi pedido: dizer "não entraram" quando
+                    // a pessoa clicou em "deixar de participar" é o contrário do que houve.
                     e('div', {className: 'text-amber-300 font-bold mb-1'},
-                      '⚠ ' + promoResultado.recusados.length + ' não entraram — o Mercado Livre recusou:'),
+                      '⚠ ' + promoResultado.recusados.length
+                      + (promoResultado.saidos ? ' não saíram' : ' não entraram')
+                      + ' — o Mercado Livre recusou:'),
                     e('div', {className: 'space-y-0.5 max-h-40 overflow-y-auto'},
                       promoResultado.recusados.map(function(r) {
                         return e('div', {key: r.item_id, className: 'text-amber-200 truncate'},
