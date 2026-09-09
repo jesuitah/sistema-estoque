@@ -2587,6 +2587,13 @@
           if (trabalhando || agoraMs - (window._roboUltimaChecagem || 0) > 30000) {
             window._roboUltimaChecagem = agoraMs;
             carregarStatusRobo();
+            // O "há X min" de cada rotina também precisa envelhecer junto.
+            //
+            // Ele só era lido ao ENTRAR na aba e congelava ali: quem deixasse a tela
+            // aberta via "há 2 horas" com a patrulha tendo rodado 6 segundos antes, e
+            // concluía que o robô tinha parado. O robô estava certo; a tela é que não
+            // acompanhava. Nesta mesma batida sai de graça.
+            carregarUltimasExecucoes();
           }
         }, 4000);
         var subscription = supabase
