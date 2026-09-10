@@ -293,16 +293,27 @@ async function sair(corpo: {
   };
 
   const { data: cache } = await sb.from('ml_promocoes_itens')
-    .select('item_id, title').eq('conta', conta).eq('promocao_id', promocao_id).in('item_id', itens);
+    .select('item_id, title, offer_id').eq('conta', conta).eq('promocao_id', promocao_id).in('item_id', itens);
   const titulos = new Map((cache ?? []).map((c) => [c.item_id, c.title]));
+  const ofertas = new Map((cache ?? []).map((c) => [c.item_id, c.offer_id]));
 
   const saidos: unknown[] = [];
   const recusados: unknown[] = [];
 
   for (const itemId of itens) {
+    // SAIR DE UMA PROMOÇÃO DO ML TAMBÉM EXIGE O offer_id.
+    //
+    // Já sabíamos que ENTRAR exigia. Descobrimos que SAIR exige igual: a mesma chamada,
+    // no mesmo anúncio, respondeu 400 "Offer id is required" sem ele e 200 com ele.
+    //
+    // Nas campanhas do Matheus (SELLER_CAMPAIGN, DEAL...) não existe offer_id e a saída
+    // sempre funcionou — por isso o erro só apareceu agora, na primeira vez que ele
+    // tentou sair de uma "Impulsione suas vendas".
+    const oferta = ofertas.get(itemId);
     const r = await chamarComInsistencia(
       `https://api.mercadolibre.com/seller-promotions/items/${itemId}`
-      + `?app_version=v2&promotion_type=${promocao_tipo}&promotion_id=${promocao_id}`,
+      + `?app_version=v2&promotion_type=${promocao_tipo}&promotion_id=${promocao_id}`
+      + (oferta ? `&offer_id=${encodeURIComponent(oferta)}` : ''),
       { method: 'DELETE', headers: auth },
     );
 
