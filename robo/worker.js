@@ -477,7 +477,16 @@ async function ligarFlex(navegador, pagina, tarefa, accessToken) {
   // Confirma pela API, nunca pela tela. A tela do ML mente: mostra o estado novo
   // antes de ter salvo. Foi a lição da patrulha do Full.
   for (let i = 0; i < 4; i++) {
-    if (await flexAgora() === true) return { ok: true, flex: 'ligado' };
+    if (await flexAgora() === true) {
+      // AVISA O CATÁLOGO. Sem isto o ML fica certo e o sistema fica errado: o
+      // histórico da aba mostrava "sem flex" em anúncios que estavam com Flex
+      // ligado, porque lia o `ml_anuncios` de antes da mudança.
+      await sb.from('ml_anuncios')
+        .update({ flex: true })
+        .eq('conta', tarefa.conta).eq('item_id', itemId)
+        .then(() => {}, () => {});
+      return { ok: true, flex: 'ligado' };
+    }
     await new Promise((r) => setTimeout(r, 4000));
   }
   return { ok: false, motivo: 'cliquei e confirmei, mas a API ainda não mostra o Flex ligado' };

@@ -463,6 +463,14 @@
       var chegouResultado = chegouResultadoState[0];
       var setChegouResultado = chegouResultadoState[1];
 
+      var chegouHistoricoState = useState([]);
+      var chegouHistorico = chegouHistoricoState[0];
+      var setChegouHistorico = chegouHistoricoState[1];
+
+      var chegouHistAbertoState = useState(false);
+      var chegouHistAberto = chegouHistAbertoState[0];
+      var setChegouHistAberto = chegouHistAbertoState[1];
+
       var paradoBuscaState = useState('');
       var paradoBusca = paradoBuscaState[0];
       var setParadoBusca = paradoBuscaState[1];
@@ -2291,6 +2299,7 @@
               setChegouResultado(Object.assign({}, d, { na_fila_flex: 0 }));
               setChegouMarcados({});
               carregarCatalogo();
+              carregarChegouHistorico();
               return;
             }
             return supabase.from('ml_tarefas_robo').insert(paraFlex.map(function(r) {
@@ -2308,6 +2317,7 @@
               }));
               setChegouMarcados({});
               carregarCatalogo();
+              carregarChegouHistorico();
               carregarStatusRobo();
             });
           })
@@ -2347,6 +2357,15 @@
         }, 5000);
         return function() { clearInterval(relogio); };
       }, [chegouResultado && chegouResultado.flex_ids, chegouResultado && chegouResultado.flex_prontos]);
+
+      // O que já foi reativado por esta aba. Vem do mesmo histórico que as outras abas
+      // usam (ml_log_acoes) — o filtro é o texto que a função de reativar escreve.
+      function carregarChegouHistorico() {
+        supabase.from('ml_log_acoes')
+          .select('*').ilike('detalhe', 'chegou mercadoria%')
+          .order('quando', { ascending: false }).limit(200)
+          .then(function(r) { if (!r.error && r.data) setChegouHistorico(r.data); });
+      }
 
       // Traz o catálogo inteiro pra memória. É a base da aba "Chegou mercadoria".
       function carregarCatalogo() {
@@ -4720,6 +4739,7 @@
                   onClick: function() {
                     setAnunciosSubTab('chegou');
                     if (catalogo === null) carregarCatalogo();
+                    carregarChegouHistorico();
                   },
                   className: 'px-4 py-2 rounded-lg text-sm font-bold transition-colors ' + (anunciosSubTab === 'chegou' ? 'bg-blue-600 text-white' : 'bg-slate-800 border border-slate-600 text-slate-300 hover:border-slate-400')
                 }, '🚚 Chegou mercadoria'),
@@ -5618,7 +5638,68 @@
                             daConta.length > 0 && e('div', {className: 'space-y-1.5'}, daConta.map(cartaoDoAnuncio))
                           );
                         })
-                      )
+                      ),
+
+                  // HISTÓRICO — mesmo padrão das outras abas: recolhido, e a contagem
+                  // do dia no cabeçalho pra dar a notícia sem precisar abrir.
+                  //
+                  // O título de cada anúncio não está no registro (ele guarda só o
+                  // código), então vem do catálogo que já está em memória. Sem isso a
+                  // lista seria uma coluna de MLB1234567 que ninguém reconhece — foi o
+                  // que já aconteceu no histórico da patrulha.
+                  chegouHistorico.length > 0 && e('div', {className: 'mt-6 pt-4 border-t border-slate-700'},
+                    (function() {
+                      var hoje = new Date().toDateString();
+                      var doDia = chegouHistorico.filter(function(l) {
+                        return new Date(l.quando).toDateString() === hoje;
+                      });
+                      var titulos = {};
+                      (catalogo || []).forEach(function(a) { titulos[a.item_id] = a.title; });
+                      var flexPor = {};
+                      (catalogo || []).forEach(function(a) { flexPor[a.item_id] = a.flex; });
+
+                      return e(React.Fragment, null,
+                        e('button', {
+                          onClick: function() { setChegouHistAberto(!chegouHistAberto); },
+                          className: 'w-full flex items-center justify-between gap-2 text-left px-1 py-1 rounded hover:bg-slate-800 transition-colors'
+                        },
+                          e('span', {className: 'text-sm font-bold text-slate-400'},
+                            (chegouHistAberto ? '▾' : '▸') + ' 🕐 Histórico do que foi reativado'),
+                          e('span', {className: 'text-xs text-slate-600'},
+                            doDia.length ? doDia.length + ' hoje · ' + chegouHistorico.length + ' no total'
+                                         : chegouHistorico.length + ' no total')
+                        ),
+                        chegouHistAberto && e('div', {className: 'mt-3 space-y-1'},
+                          chegouHistorico.slice(0, 60).map(function(l) {
+                            var deuCerto = l.acao === 'reativado';
+                            return e('div', {
+                              key: l.id,
+                              className: 'flex items-center gap-2 text-xs px-3 py-1.5 rounded border ' +
+                                (deuCerto ? 'bg-slate-900 border-slate-800' : 'bg-amber-900 bg-opacity-20 border-amber-800')
+                            },
+                              e('span', {className: 'text-slate-600 whitespace-nowrap'},
+                                new Date(l.quando).toLocaleString('pt-BR',
+                                  {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'})),
+                              e('span', {className: getCorContaML(l.conta) + ' px-1.5 rounded text-[10px] font-bold'}, l.conta),
+                              e('span', {className: 'flex-1 truncate ' + (deuCerto ? 'text-slate-300' : 'text-amber-200'),
+                                title: l.detalhe || ''},
+                                titulos[l.item_id] || l.item_id),
+                              deuCerto
+                                ? e('span', {className: 'text-emerald-400 whitespace-nowrap'}, '89 un')
+                                : e('span', {className: 'text-amber-300 whitespace-nowrap'}, 'não reativou'),
+                              // O estado do Flex é o de AGORA, lido do catálogo — não o
+                              // do momento da reativação. É o que interessa saber.
+                              deuCerto && (flexPor[l.item_id]
+                                ? e('span', {className: 'text-sky-400 whitespace-nowrap'}, 'flex ✓')
+                                : e('span', {className: 'text-slate-600 whitespace-nowrap'}, 'sem flex'))
+                            );
+                          }),
+                          chegouHistorico.length > 60 && e('div', {className: 'text-xs text-slate-600 text-center pt-1'},
+                            'mostrando os 60 mais recentes de ' + chegouHistorico.length)
+                        )
+                      );
+                    })()
+                  )
                 );
               })(),
 
