@@ -2299,9 +2299,13 @@
                 params: { item_id: r.item_id },
                 criado_por: perfilAtivo || null,
               };
-            })).then(function() {
+            })).select().then(function(res) {
               setChegouAtivando(false);
-              setChegouResultado(Object.assign({}, d, { na_fila_flex: paraFlex.length }));
+              setChegouResultado(Object.assign({}, d, {
+                na_fila_flex: paraFlex.length,
+                flex_ids: (res.data || []).map(function(t) { return t.id; }),
+                flex_prontos: 0,
+              }));
               setChegouMarcados({});
               carregarCatalogo();
               carregarStatusRobo();
@@ -2312,6 +2316,37 @@
             setChegouResultado({ erro: 'não consegui falar com o servidor' });
           });
       }
+
+      // O aviso azul do Flex vira verde quando o robô termina.
+      //
+      // Antes ele ficava azul pra sempre: "o robô vai ligar" e nunca dizia se ligou.
+      // Pra saber, você tinha que ir na aba Robô — e a pergunta natural, que o Matheus
+      // fez de primeira, é "e quando ficar pronto, muda?".
+      //
+      // Fica de olho só enquanto há tarefa pendente, e para sozinho quando acaba.
+      useEffect(function() {
+        if (!chegouResultado || !chegouResultado.flex_ids || !chegouResultado.flex_ids.length) return;
+        if (chegouResultado.flex_prontos >= chegouResultado.flex_ids.length) return;
+
+        var relogio = setInterval(function() {
+          supabase.from('ml_tarefas_robo')
+            .select('id, status, resultado')
+            .in('id', chegouResultado.flex_ids)
+            .then(function(r) {
+              if (r.error || !r.data) return;
+              var prontos = r.data.filter(function(t) { return t.status === 'feito'; }).length;
+              var falhou = r.data.filter(function(t) { return t.status === 'falhou'; }).length;
+              setChegouResultado(function(antes) {
+                if (!antes) return antes;
+                return Object.assign({}, antes, { flex_prontos: prontos, flex_falhou: falhou });
+              });
+              if (prontos + falhou >= chegouResultado.flex_ids.length) {
+                carregarCatalogo();   // as etiquetas de Flex na lista ficam certas
+              }
+            });
+        }, 5000);
+        return function() { clearInterval(relogio); };
+      }, [chegouResultado && chegouResultado.flex_ids, chegouResultado && chegouResultado.flex_prontos]);
 
       // Traz o catálogo inteiro pra memória. É a base da aba "Chegou mercadoria".
       function carregarCatalogo() {
@@ -5538,10 +5573,28 @@
                             + chegouResultado.quantidade + ' unidades'),
                           // O Flex tem outro tempo e a tela avisa. Sem isso, você olharia
                           // a etiqueta ainda "desligado" e acharia que falhou.
-                          chegouResultado.na_fila_flex > 0 && e('div', {className: 'text-xs text-sky-300 bg-sky-900 bg-opacity-25 border border-sky-800 rounded px-3 py-2'},
-                            '🤖 o robô vai ligar o Flex em ' + chegouResultado.na_fila_flex + ' anúncio(s) — '
-                            + 'leva uns ' + Math.max(1, Math.round(chegouResultado.na_fila_flex * 17 / 60)) + ' min. '
-                            + 'Precisa do robô ligado; acompanhe na aba Robô.'),
+                          chegouResultado.na_fila_flex > 0 && (function() {
+                            var total = chegouResultado.na_fila_flex;
+                            var prontos = chegouResultado.flex_prontos || 0;
+                            var falhou = chegouResultado.flex_falhou || 0;
+                            var acabou = prontos + falhou >= total;
+                            // Verde quando terminou, azul enquanto trabalha. A cor é a
+                            // resposta pra "já ligou?" sem precisar abrir outra aba.
+                            return e('div', {
+                              className: 'text-xs rounded px-3 py-2 border ' + (acabou
+                                ? (falhou ? 'text-amber-300 bg-amber-900 bg-opacity-25 border-amber-800'
+                                          : 'text-emerald-300 bg-emerald-900 bg-opacity-25 border-emerald-800')
+                                : 'text-sky-300 bg-sky-900 bg-opacity-25 border-sky-800')
+                            },
+                              acabou
+                                ? (falhou
+                                    ? '⚠ Flex ligado em ' + prontos + ' de ' + total + ' — ' + falhou + ' não deu certo, veja o histórico na aba Robô'
+                                    : '✅ Flex ligado em ' + prontos + ' anúncio(s) — tudo pronto')
+                                : '🤖 ligando o Flex... ' + prontos + ' de ' + total + ' prontos · '
+                                  + 'leva uns ' + Math.max(1, Math.round((total - prontos) * 17 / 60)) + ' min. '
+                                  + 'Precisa do robô ligado.'
+                            );
+                          })(),
                           (chegouResultado.recusados || []).length > 0 && e('div', {className: 'text-xs bg-amber-900 bg-opacity-25 border border-amber-800 rounded px-3 py-2'},
                             e('div', {className: 'text-amber-300 font-bold mb-1'},
                               '⚠ ' + chegouResultado.recusados.length + ' não reativaram:'),
