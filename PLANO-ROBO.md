@@ -432,3 +432,39 @@ Candidatos futuros (a definir conforme necessidade):
 **Aceito conscientemente:** automatizar a operação da própria conta de vendedor é prática
 comum, mas não é oficialmente abençoado pelo ML. No volume real da operação, do próprio
 IP, o risco prático é baixo — mas existe.
+
+---
+
+## Ligar/desligar o Envios Flex de um anúncio (descoberto em 10/09/2026)
+
+**A API oficial NÃO faz isso.** Comprovado:
+- `PUT /items/{id}` com `shipping.tags` → `400 "shipping.tags is not modifiable"`
+- Nove endereços plausíveis de API testados → todos `404`
+
+A API só **mostra** o estado, em `shipping.tags`:
+- `self_service_in` — Flex ligado
+- `self_service_out` — desligado
+- `self_service_available` — pode ser ligado
+
+**O caminho é o painel, como no Full.** Receita testada nos dois sentidos, com a API
+confirmando a mudança:
+
+1. `https://www.mercadolivre.com.br/anuncios/{ITEM}/modificar/`
+   (redireciona para o painel do vendedor; esperar ~7s)
+2. Expandir as seções recolhidas — a de envios vem fechada e o texto nem existe no DOM
+   antes disso: `document.querySelectorAll('[aria-expanded="false"]').forEach(el => el.click())`
+3. Achar a caixinha pelo texto ao lado, **não por id** (o `name` é gerado pelo React e
+   muda a cada carga):
+   `[...document.querySelectorAll('input[type=checkbox]')].find(x => /Envios Flex/i.test(x.closest('label,div,li').innerText))`
+4. Clicar na caixinha
+5. Clicar no botão **"Confirmar"** visível (há vários na página; pegar o primeiro visível)
+6. Esperar ~9s e conferir pela API
+
+**Por que não dá pra repetir a chamada HTTP direto** (como fazemos no Full): o clique
+dispara um `PUT .../omni/api/event-request` cujo `path` contém um token de sessão
+(`422927430-update_omni-8a1450130bed`) que muda a cada abertura da página. Tem que ser
+clique de verdade.
+
+**Custo:** ~15 a 20 segundos por anúncio, contra ~2s das ações do Full.
+
+**Turbo:** a caixinha existe ao lado mas vem `disabled` — não dá pra ligar por aqui.
