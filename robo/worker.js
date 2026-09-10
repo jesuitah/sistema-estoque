@@ -407,7 +407,83 @@ async function reativarAnuncio(itemId, accessToken, pausarDepois) {
   return { ok: true, ficou: 'inativo' };
 }
 
-const EXECUTORES = { tirar_do_full: tirarDoFull };
+// ── LIGAR O ENVIOS FLEX ──────────────────────────────────────────────────────
+//
+// A API oficial não faz isso: `PUT /items/{id}` com shipping.tags responde
+// "shipping.tags is not modifiable", e não existe endpoint dedicado (nove testados em
+// 10/09/2026, todos 404). Ela só MOSTRA o estado, em shipping.tags.
+//
+// Então é pelo painel, como a patrulha do Full. E aqui não dá nem pra repetir a
+// chamada HTTP direto: o clique dispara um event-request cujo endereço carrega um
+// código de sessão que muda a cada abertura da página. Tem que ser clique de verdade.
+//
+// Receita validada nos dois sentidos na cobaia MLB3952481311, com a API confirmando
+// a mudança. Ver PLANO-ROBO.md.
+async function ligarFlex(navegador, pagina, tarefa, accessToken) {
+  const itemId = tarefa.params?.item_id;
+  if (!itemId) throw new Error('tarefa sem item_id nos parâmetros');
+
+  const flexAgora = async () => {
+    const r = await fetch(`https://api.mercadolibre.com/items/${itemId}?attributes=id,shipping`,
+      { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (!r.ok) return null;
+    const it = await r.json();
+    const tags = it.shipping?.tags ?? [];
+    if (tags.includes('self_service_in')) return true;
+    if (tags.includes('self_service_available')) return false;
+    return null;                      // este anúncio não aceita Flex
+  };
+
+  const antes = await flexAgora();
+  if (antes === null) return { ok: false, motivo: 'este anúncio não aceita Envios Flex' };
+  if (antes === true) return { ok: true, nada_a_fazer: true, motivo: 'o Flex já estava ligado' };
+
+  await pagina.goto(`https://www.mercadolivre.com.br/anuncios/${itemId}/modificar/`,
+    { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await pagina.waitForTimeout(7000);
+
+  // A seção de envios vem RECOLHIDA — e o texto "Envios Flex" nem existe na página
+  // antes de expandir. Procurar sem abrir não acha nada (perdi meia hora com isso).
+  await pagina.evaluate(() => {
+    document.querySelectorAll('[aria-expanded="false"]').forEach((el) => el.click());
+  });
+  await pagina.waitForTimeout(4000);
+
+  // A caixinha é achada pelo TEXTO ao lado, nunca pelo id: o `name` é gerado pelo
+  // React e muda a cada carregamento da página.
+  const clicou = await pagina.evaluate(() => {
+    const c = [...document.querySelectorAll('input[type=checkbox]')]
+      .find((x) => /Envios Flex/i.test((x.closest('label,div,li') || {}).innerText || ''));
+    if (!c) return 'nao_achei';
+    if (c.disabled) return 'desabilitada';
+    if (c.checked) return 'ja_marcada';
+    c.click();
+    return 'ok';
+  });
+  if (clicou === 'nao_achei') throw new Error('não achei a caixinha do Envios Flex na página');
+  if (clicou === 'desabilitada') return { ok: false, motivo: 'a caixinha do Flex está bloqueada neste anúncio' };
+  await pagina.waitForTimeout(3000);
+
+  const confirmou = await pagina.evaluate(() => {
+    const b = [...document.querySelectorAll('button')]
+      .filter((x) => /^confirmar$/i.test((x.innerText || '').trim()) && x.offsetParent !== null);
+    if (!b.length) return false;
+    b[0].click();
+    return true;
+  });
+  if (!confirmou) throw new Error('não achei o botão Confirmar depois de marcar o Flex');
+  await pagina.waitForTimeout(9000);
+
+  // Confirma pela API, nunca pela tela. A tela do ML mente: mostra o estado novo
+  // antes de ter salvo. Foi a lição da patrulha do Full.
+  for (let i = 0; i < 4; i++) {
+    if (await flexAgora() === true) return { ok: true, flex: 'ligado' };
+    await new Promise((r) => setTimeout(r, 4000));
+  }
+  return { ok: false, motivo: 'cliquei e confirmei, mas a API ainda não mostra o Flex ligado' };
+}
+
+const EXECUTORES = { tirar_do_full: tirarDoFull, ligar_flex: ligarFlex };
 
 // ── Ciclo principal ──────────────────────────────────────────────────────────
 // Traduz erro técnico pra algo que faça sentido na tela. O texto cru do Playwright

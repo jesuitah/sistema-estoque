@@ -455,6 +455,14 @@
       var chegouMarcados = chegouMarcadosState[0];
       var setChegouMarcados = chegouMarcadosState[1];
 
+      var chegouAtivandoState = useState(false);
+      var chegouAtivando = chegouAtivandoState[0];
+      var setChegouAtivando = chegouAtivandoState[1];
+
+      var chegouResultadoState = useState(null);
+      var chegouResultado = chegouResultadoState[0];
+      var setChegouResultado = chegouResultadoState[1];
+
       var paradoBuscaState = useState('');
       var paradoBusca = paradoBuscaState[0];
       var setParadoBusca = paradoBuscaState[1];
@@ -2246,6 +2254,62 @@
             carregarEstoque();
             carregarPrecos();
             carregarSkusAnunciados();
+          });
+      }
+
+      // Reativa os anúncios marcados e manda o Flex pra fila do robô.
+      //
+      // São dois tempos diferentes, de propósito: a reativação é API oficial e acontece
+      // na hora; o Flex é o robô clicando no painel, ~15s por anúncio. A tela diz isso
+      // com todas as letras, pra ninguém achar que travou.
+      function reativarChegada() {
+        var marcados = Object.keys(chegouMarcados).map(function(id) { return chegouMarcados[id]; });
+        if (!marcados.length) return;
+
+        setChegouAtivando(true);
+        setChegouResultado(null);
+
+        fetch('https://pylkufhziohxvwbbaued.supabase.co/functions/v1/ml-reativar-lote', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            itens: marcados.map(function(a) { return { conta: a.conta, item_id: a.item_id }; }),
+          }),
+        })
+          .then(function(r) { return r.json(); })
+          .then(function(d) {
+            var reativados = d.reativados || [];
+            // Só entra na fila do Flex quem REALMENTE reativou e ainda está sem Flex.
+            // Mandar o robô abrir o painel de um anúncio que nem reativou é trabalho
+            // perdido — e ele demora 15 segundos em cada um.
+            var paraFlex = reativados.filter(function(r) {
+              var a = chegouMarcados[r.item_id];
+              return a && a.flex_disponivel && !a.flex;
+            });
+            if (!paraFlex.length) {
+              setChegouAtivando(false);
+              setChegouResultado(Object.assign({}, d, { na_fila_flex: 0 }));
+              setChegouMarcados({});
+              carregarCatalogo();
+              return;
+            }
+            return supabase.from('ml_tarefas_robo').insert(paraFlex.map(function(r) {
+              return {
+                conta: r.conta, tipo: 'ligar_flex', status: 'pendente',
+                params: { item_id: r.item_id },
+                criado_por: perfilAtivo || null,
+              };
+            })).then(function() {
+              setChegouAtivando(false);
+              setChegouResultado(Object.assign({}, d, { na_fila_flex: paraFlex.length }));
+              setChegouMarcados({});
+              carregarCatalogo();
+              carregarStatusRobo();
+            });
+          })
+          .catch(function() {
+            setChegouAtivando(false);
+            setChegouResultado({ erro: 'não consegui falar com o servidor' });
           });
       }
 
@@ -5438,6 +5502,55 @@
                           achados.length + ' anúncio(s) com essa peça · ',
                           e('span', {className: 'text-red-300 font-bold'}, parados.length + ' parado(s)'),
                           parados.length > 0 ? ' — marque os que quer reativar' : ''),
+
+                        // A barra de ação. Só aparece com algo marcado — botão que não
+                        // tem o que fazer é ruído.
+                        (function() {
+                          var marcados = Object.keys(chegouMarcados);
+                          if (!marcados.length) return null;
+                          var comFlexPendente = marcados.filter(function(id) {
+                            var a = chegouMarcados[id];
+                            return a && a.flex_disponivel && !a.flex;
+                          }).length;
+                          return e('div', {className: 'sticky top-2 z-10 flex items-center gap-3 flex-wrap bg-slate-900 border border-slate-700 rounded-lg px-4 py-3'},
+                            e('button', {
+                              onClick: reativarChegada,
+                              disabled: chegouAtivando,
+                              className: 'h-[38px] px-5 rounded-lg font-bold text-sm ' +
+                                (chegouAtivando ? 'bg-slate-800 text-slate-600 cursor-wait'
+                                  : 'bg-emerald-600 hover:bg-emerald-500 text-white')
+                            }, chegouAtivando ? '⏳ reativando...' : 'Reativar ' + marcados.length + ' anúncio(s)'),
+                            e('span', {className: 'text-xs text-slate-400'},
+                              'com 89 unidades' + (comFlexPendente ? ' · e ligar o Flex em ' + comFlexPendente : '')),
+                            e('button', {
+                              onClick: function() { setChegouMarcados({}); },
+                              className: 'text-xs text-slate-400 hover:text-slate-200 underline'
+                            }, 'limpar seleção')
+                          );
+                        })(),
+
+                        chegouResultado && e('div', {className: 'space-y-2'},
+                          chegouResultado.erro && e('div', {className: 'text-xs text-red-300 bg-red-900 bg-opacity-25 border border-red-800 rounded px-3 py-2'},
+                            '⚠ ' + chegouResultado.erro),
+                          (chegouResultado.reativados || []).length > 0 && e('div', {className: 'text-xs text-emerald-300 bg-emerald-900 bg-opacity-25 border border-emerald-800 rounded px-3 py-2'},
+                            '✅ ' + chegouResultado.reativados.length + ' anúncio(s) reativados com '
+                            + chegouResultado.quantidade + ' unidades'),
+                          // O Flex tem outro tempo e a tela avisa. Sem isso, você olharia
+                          // a etiqueta ainda "desligado" e acharia que falhou.
+                          chegouResultado.na_fila_flex > 0 && e('div', {className: 'text-xs text-sky-300 bg-sky-900 bg-opacity-25 border border-sky-800 rounded px-3 py-2'},
+                            '🤖 o robô vai ligar o Flex em ' + chegouResultado.na_fila_flex + ' anúncio(s) — '
+                            + 'leva uns ' + Math.max(1, Math.round(chegouResultado.na_fila_flex * 17 / 60)) + ' min. '
+                            + 'Precisa do robô ligado; acompanhe na aba Robô.'),
+                          (chegouResultado.recusados || []).length > 0 && e('div', {className: 'text-xs bg-amber-900 bg-opacity-25 border border-amber-800 rounded px-3 py-2'},
+                            e('div', {className: 'text-amber-300 font-bold mb-1'},
+                              '⚠ ' + chegouResultado.recusados.length + ' não reativaram:'),
+                            e('div', {className: 'space-y-0.5'},
+                              chegouResultado.recusados.map(function(r) {
+                                return e('div', {key: r.item_id, className: 'text-amber-200 truncate'},
+                                  r.item_id + ' — ' + r.motivo);
+                              }))
+                          )
+                        ),
                         ['KMP', 'ERP', 'LTS'].map(function(c) {
                           var daConta = achados.filter(function(a) { return a.conta === c; });
                           var paradosConta = daConta.filter(function(a) { return a.status === 'paused'; });
