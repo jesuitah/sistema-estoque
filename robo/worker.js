@@ -404,7 +404,67 @@ async function reativarAnuncio(itemId, accessToken, pausarDepois) {
     const detalhe = await pausar.text().catch(() => '');
     return { ok: false, etapa: 'pausar', http: pausar.status, detalhe: detalhe.slice(0, 300) };
   }
+
+  // REGRA DA CASA: estoque zerado → anúncio pausado E Flex desligado. Sem exceção.
+  //
+  // Quem desligava era o Matheus e a equipe, um por um. O sistema pausava e deixava o
+  // Flex ligado — foi ele que criou os 58 anúncios pausados com Flex que encontramos
+  // em 10/09/2026. O buraco era nosso.
+  await enfileirarDesligarFlex(itemId);
+
   return { ok: true, ficou: 'inativo' };
+}
+
+// Acha quem está PAUSADO e ainda com Flex ligado, e põe na fila.
+//
+// Um teto por passada de propósito: cada desligamento leva ~20 segundos de navegador,
+// e o robô tem outras coisas a fazer. Como a varredura roda de hora em hora, uma fila
+// grande se desfaz sozinha ao longo do dia em vez de travar tudo de uma vez.
+const FLEX_POR_PASSADA = 15;
+
+async function enfileirarFlexDosPausados() {
+  const { data: alvos } = await sb.from('ml_anuncios')
+    .select('conta, item_id').eq('status', 'paused').eq('flex', true)
+    .limit(FLEX_POR_PASSADA);
+  if (!alvos || !alvos.length) return 0;
+
+  const { data: naFila } = await sb.from('ml_tarefas_robo')
+    .select('params').eq('tipo', 'desligar_flex').in('status', ['pendente', 'rodando']);
+  const jaEnfileirados = new Set((naFila || []).map((t) => t.params?.item_id));
+
+  const novos = alvos.filter((a) => !jaEnfileirados.has(a.item_id));
+  if (!novos.length) return 0;
+
+  await sb.from('ml_tarefas_robo').insert(novos.map((a) => ({
+    conta: a.conta, tipo: 'desligar_flex', status: 'pendente',
+    params: { item_id: a.item_id }, criado_por: 'robo',
+  })));
+  return novos.length;
+}
+
+// Põe o Flex na fila do robô em vez de desligar aqui.
+//
+// Desligar exige abrir o painel e clicar (~20s) e este ponto do código está no meio de
+// outra tarefa, muitas vezes com o navegador ocupado. Como tarefa, entra na fila e o
+// robô resolve no seu ritmo — e, se falhar, fica registrado em vez de sumir.
+async function enfileirarDesligarFlex(itemId) {
+  try {
+    const { data: anuncio } = await sb.from('ml_anuncios')
+      .select('conta, flex, flex_disponivel').eq('item_id', itemId).maybeSingle();
+    // Sem Flex ligado não há o que desligar — não vale 20 segundos de robô.
+    if (!anuncio || !anuncio.flex) return;
+
+    // Já tem uma na fila pra este anúncio? Não empilha outra.
+    const { data: jaTem } = await sb.from('ml_tarefas_robo')
+      .select('id').eq('tipo', 'desligar_flex').eq('conta', anuncio.conta)
+      .in('status', ['pendente', 'rodando']).contains('params', { item_id: itemId });
+    if (jaTem && jaTem.length) return;
+
+    await sb.from('ml_tarefas_robo').insert({
+      conta: anuncio.conta, tipo: 'desligar_flex', status: 'pendente',
+      params: { item_id: itemId }, criado_por: 'robo',
+    });
+  } catch (_e) { /* enfileirar é acessório: nunca derruba a tarefa principal */ }
 }
 
 // ── LIGAR O ENVIOS FLEX ──────────────────────────────────────────────────────
@@ -492,7 +552,77 @@ async function ligarFlex(navegador, pagina, tarefa, accessToken) {
   return { ok: false, motivo: 'cliquei e confirmei, mas a API ainda não mostra o Flex ligado' };
 }
 
-const EXECUTORES = { tirar_do_full: tirarDoFull, ligar_flex: ligarFlex };
+// ── DESLIGAR O ENVIOS FLEX ───────────────────────────────────────────────────
+//
+// Mesmo caminho do ligar, ao contrário. Regra da casa do Matheus: estoque zerado →
+// anúncio pausado e Flex desligado, sem exceção, seja o envio normal, turbo ou Full.
+//
+// Vale a mesma advertência do ligar: a seção vem recolhida, a caixinha se acha pelo
+// texto ao lado, e a confirmação é pela API, nunca pela tela.
+async function desligarFlex(navegador, pagina, tarefa, accessToken) {
+  const itemId = tarefa.params?.item_id;
+  if (!itemId) throw new Error('tarefa sem item_id nos parâmetros');
+
+  const flexAgora = async () => {
+    const r = await fetch(`https://api.mercadolibre.com/items/${itemId}?attributes=id,shipping`,
+      { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (!r.ok) return null;
+    const tags = (await r.json()).shipping?.tags ?? [];
+    return tags.includes('self_service_in');
+  };
+
+  if (await flexAgora() !== true) {
+    return { ok: true, nada_a_fazer: true, motivo: 'o Flex já estava desligado' };
+  }
+
+  await pagina.goto(`https://www.mercadolivre.com.br/anuncios/${itemId}/modificar/`,
+    { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await pagina.waitForTimeout(7000);
+  await pagina.evaluate(() => {
+    document.querySelectorAll('[aria-expanded="false"]').forEach((el) => el.click());
+  });
+  await pagina.waitForTimeout(4000);
+
+  const clicou = await pagina.evaluate(() => {
+    const c = [...document.querySelectorAll('input[type=checkbox]')]
+      .find((x) => /Envios Flex/i.test((x.closest('label,div,li') || {}).innerText || ''));
+    if (!c) return 'nao_achei';
+    if (c.disabled) return 'desabilitada';
+    if (!c.checked) return 'ja_desmarcada';
+    c.click();
+    return 'ok';
+  });
+  if (clicou === 'nao_achei') throw new Error('não achei a caixinha do Envios Flex na página');
+  if (clicou === 'desabilitada') return { ok: false, motivo: 'a caixinha do Flex está bloqueada neste anúncio' };
+  await pagina.waitForTimeout(3000);
+
+  const confirmou = await pagina.evaluate(() => {
+    const b = [...document.querySelectorAll('button')]
+      .filter((x) => /^confirmar$/i.test((x.innerText || '').trim()) && x.offsetParent !== null);
+    if (!b.length) return false;
+    b[0].click();
+    return true;
+  });
+  if (!confirmou) throw new Error('não achei o botão Confirmar depois de desmarcar o Flex');
+  await pagina.waitForTimeout(9000);
+
+  for (let i = 0; i < 4; i++) {
+    if (await flexAgora() === false) {
+      await sb.from('ml_anuncios').update({ flex: false })
+        .eq('conta', tarefa.conta).eq('item_id', itemId)
+        .then(() => {}, () => {});
+      return { ok: true, flex: 'desligado' };
+    }
+    await new Promise((r) => setTimeout(r, 4000));
+  }
+  return { ok: false, motivo: 'cliquei e confirmei, mas a API ainda mostra o Flex ligado' };
+}
+
+const EXECUTORES = {
+  tirar_do_full: tirarDoFull,
+  ligar_flex: ligarFlex,
+  desligar_flex: desligarFlex,
+};
 
 // ── Ciclo principal ──────────────────────────────────────────────────────────
 // Traduz erro técnico pra algo que faça sentido na tela. O texto cru do Playwright
@@ -872,6 +1002,19 @@ async function main() {
             if (n) log(`   sem estoque: ${n} anúncio(s) enfileirado(s) pra sair do Full`);
           } catch (erro) {
             log(`   verificação de sem estoque falhou: ${mensagemAmigavel(erro)}`);
+          }
+
+          // Regra da casa: anúncio pausado não fica com Flex ligado.
+          //
+          // O gancho na hora de pausar cobre o que o robô mesmo pausa. Esta varredura
+          // cobre o resto — a rotina "sem estoque" do site, e principalmente quando o
+          // Matheus ou a equipe pausa direto pelo painel do ML. Amarrar só nos caminhos
+          // do código deixaria justamente esse de fora.
+          try {
+            const n = await enfileirarFlexDosPausados();
+            if (n) log(`   flex: ${n} anúncio(s) pausado(s) ainda com Flex — enfileirados pra desligar`);
+          } catch (erro) {
+            log(`   varredura de flex falhou: ${mensagemAmigavel(erro)}`);
           }
 
           // Uma vez por dia, recataloga as promoções. Fica junto da patrulha porque
