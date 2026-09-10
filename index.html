@@ -437,6 +437,24 @@
       var skusAnunciados = skusAnunciadosState[0];
       var setSkusAnunciados = skusAnunciadosState[1];
 
+      // ── ABA "CHEGOU MERCADORIA" ──────────────────────────────────────────────
+      //
+      // O catálogo inteiro em memória (~3.400 linhas), carregado quando a aba abre.
+      // Precisa estar aqui e não no banco porque a busca tem que enxergar DENTRO dos
+      // kits — "chegou o 201.0801" acha o anúncio cujo SKU é
+      // "KIT: IGUAÇU: 201.0801 + GBM: 123", e isso não é uma consulta SQL simples.
+      var catalogoState = useState(null);
+      var catalogo = catalogoState[0];
+      var setCatalogo = catalogoState[1];
+
+      var chegouBuscaState = useState('');
+      var chegouBusca = chegouBuscaState[0];
+      var setChegouBusca = chegouBuscaState[1];
+
+      var chegouMarcadosState = useState({});
+      var chegouMarcados = chegouMarcadosState[0];
+      var setChegouMarcados = chegouMarcadosState[1];
+
       var paradoBuscaState = useState('');
       var paradoBusca = paradoBuscaState[0];
       var setParadoBusca = paradoBuscaState[1];
@@ -2229,6 +2247,22 @@
             carregarPrecos();
             carregarSkusAnunciados();
           });
+      }
+
+      // Traz o catálogo inteiro pra memória. É a base da aba "Chegou mercadoria".
+      function carregarCatalogo() {
+        var tudo = [];
+        function pagina(de) {
+          supabase.from('ml_anuncios')
+            .select('conta, item_id, title, seller_sku_bruto, status, flex, flex_disponivel, available_quantity')
+            .range(de, de + 999)
+            .then(function(r) {
+              if (r.error || !r.data) { setCatalogo([]); return; }
+              tudo = tudo.concat(r.data);
+              if (r.data.length === 1000) pagina(de + 1000); else setCatalogo(tudo);
+            });
+        }
+        pagina(0);
       }
 
       function carregarSkusAnunciados() {
@@ -4584,6 +4618,13 @@
                 }, '🔁 Clonar anúncios'),
                 e('button', {
                   onClick: function() {
+                    setAnunciosSubTab('chegou');
+                    if (catalogo === null) carregarCatalogo();
+                  },
+                  className: 'px-4 py-2 rounded-lg text-sm font-bold transition-colors ' + (anunciosSubTab === 'chegou' ? 'bg-blue-600 text-white' : 'bg-slate-800 border border-slate-600 text-slate-300 hover:border-slate-400')
+                }, '🚚 Chegou mercadoria'),
+                e('button', {
+                  onClick: function() {
                     setAnunciosSubTab('parado');
                     if (skusAnunciados === null) carregarSkusAnunciados();
                   },
@@ -5289,6 +5330,128 @@
                       );
                     })()
                   )
+                );
+              })(),
+
+              // ── CHEGOU MERCADORIA ─────────────────────────────────────────────
+              //
+              // Chegou o pedido do fabricante: digita o código da peça e vê, de uma vez,
+              // todos os anúncios parados das TRÊS lojas que dependem dela — inclusive os
+              // kits em que ela entra como componente.
+              //
+              // Hoje isso é: abrir a KMP, procurar, reativar um a um; depois a ERP;
+              // depois a LTS. São 2.386 anúncios pausados no total.
+              //
+              // Por enquanto a tela SÓ MOSTRA. Os botões de ação entram depois que o
+              // Matheus conferir que a lista traz o que deveria.
+              anunciosSubTab === 'chegou' && (function() {
+                var termo = normStr(chegouBusca);
+
+                var achados = (termo.length >= 3 && catalogo)
+                  ? catalogo.filter(function(a) {
+                      return componentesDoSku(a.seller_sku_bruto)
+                        .some(function(c) { return c.sku === termo; });
+                    })
+                  : [];
+
+                // Só o que está PARADO pode ser reativado — é o trabalho de verdade.
+                var parados = achados.filter(function(a) { return a.status === 'paused'; });
+
+                function cartaoDoAnuncio(a) {
+                  var comps = componentesDoSku(a.seller_sku_bruto);
+                  var ehKit = comps.length > 1;
+                  var pausado = a.status === 'paused';
+                  var quanto = (comps.filter(function(c) { return c.sku === termo; })[0] || {}).qtd || 1;
+                  return e('div', {
+                    key: a.item_id,
+                    className: 'flex items-start gap-2 px-3 py-2 rounded border text-xs ' +
+                      (pausado ? 'bg-slate-900 border-slate-700' : 'bg-slate-900/40 border-slate-800 opacity-60')
+                  },
+                    // Só o que dá pra reativar ganha caixinha. Anúncio já ativo aparece
+                    // esmaecido: serve pra você saber que ele existe, não pra agir nele.
+                    pausado
+                      ? e('input', {
+                          type: 'checkbox',
+                          checked: !!chegouMarcados[a.item_id],
+                          onChange: function() {
+                            setChegouMarcados(function(antes) {
+                              var novo = Object.assign({}, antes);
+                              if (novo[a.item_id]) delete novo[a.item_id]; else novo[a.item_id] = a;
+                              return novo;
+                            });
+                          },
+                          className: 'w-4 h-4 mt-0.5 accent-emerald-500 cursor-pointer flex-shrink-0'
+                        })
+                      : e('span', {className: 'w-4 flex-shrink-0 text-center text-emerald-500'}, '✓'),
+                    e('div', {className: 'flex-1 min-w-0'},
+                      e('div', {className: 'text-slate-200 truncate', title: a.title || ''}, a.title || a.item_id),
+                      e('div', {className: 'flex items-center gap-1.5 mt-1 flex-wrap'},
+                        ehKit
+                          ? e('span', {className: 'bg-violet-900 text-violet-300 px-1.5 rounded text-[10px] font-bold'},
+                              'KIT · ' + comps.length + ' peças')
+                          : e('span', {className: 'bg-slate-800 text-slate-400 px-1.5 rounded text-[10px]'}, 'unitário'),
+                        quanto > 1 && e('span', {className: 'bg-amber-900 text-amber-300 px-1.5 rounded text-[10px] font-bold'},
+                          'usa ' + quanto + 'un'),
+                        pausado
+                          ? e('span', {className: 'bg-red-900 text-red-300 px-1.5 rounded text-[10px] font-bold'}, 'PARADO')
+                          : e('span', {className: 'bg-emerald-900 text-emerald-300 px-1.5 rounded text-[10px] font-bold'}, 'já ativo'),
+                        // O estado do Flex, que é metade do trabalho manual de hoje.
+                        a.flex
+                          ? e('span', {className: 'bg-sky-900 text-sky-300 px-1.5 rounded text-[10px]'}, 'flex ligado')
+                          : a.flex_disponivel
+                          ? e('span', {className: 'bg-slate-800 text-slate-500 px-1.5 rounded text-[10px]'}, 'flex desligado')
+                          : e('span', {className: 'bg-slate-800 text-slate-600 px-1.5 rounded text-[10px]'}, 'sem flex'),
+                        e('span', {className: 'text-slate-600 text-[10px]'}, a.seller_sku_bruto || '')
+                      )
+                    )
+                  );
+                }
+
+                return e('div', {className: 'space-y-4'},
+                  e('div', {className: 'bg-slate-800 border border-slate-700 p-5 rounded-lg'},
+                    e('h2', {className: 'text-lg font-bold mb-2'}, '🚚 Chegou mercadoria — reativar nas 3 lojas'),
+                    e('p', {className: 'text-slate-400 text-sm'},
+                      'Digite o código da peça que chegou. Aparecem todos os anúncios parados das três lojas ' +
+                      'que dependem dela — inclusive os kits em que ela entra como componente.'),
+                    e('p', {className: 'text-slate-500 text-xs mt-1'},
+                      'A entrada da quantidade no estoque continua sendo feita na aba Busca, como sempre.')
+                  ),
+
+                  e('input', {
+                    type: 'text', autoFocus: true,
+                    value: chegouBusca,
+                    onChange: function(ev) { setChegouBusca(ev.target.value); setChegouMarcados({}); },
+                    placeholder: 'Código da peça — ex: 201.0801',
+                    className: 'w-full bg-slate-800 text-white px-4 py-3 rounded-lg border border-slate-600 focus:border-blue-400 focus:outline-none text-base'
+                  }),
+
+                  catalogo === null
+                    ? e('div', {className: 'text-center text-slate-400 py-10'}, 'Carregando catálogo...')
+                    : termo.length < 3
+                    ? e('div', {className: 'text-center text-slate-500 py-10 bg-slate-800 border border-slate-700 rounded-lg'},
+                        'Digite o código da peça acima.')
+                    : achados.length === 0
+                    ? e('div', {className: 'text-center text-slate-500 py-10 bg-slate-800 border border-slate-700 rounded-lg'},
+                        'Nenhum anúncio usa a peça "' + chegouBusca.trim() + '" — nem sozinha, nem dentro de kit.')
+                    : e('div', {className: 'space-y-3'},
+                        e('div', {className: 'text-sm text-slate-400'},
+                          achados.length + ' anúncio(s) com essa peça · ',
+                          e('span', {className: 'text-red-300 font-bold'}, parados.length + ' parado(s)'),
+                          parados.length > 0 ? ' — marque os que quer reativar' : ''),
+                        ['KMP', 'ERP', 'LTS'].map(function(c) {
+                          var daConta = achados.filter(function(a) { return a.conta === c; });
+                          var paradosConta = daConta.filter(function(a) { return a.status === 'paused'; });
+                          return e('div', {key: c, className: 'bg-slate-800 border border-slate-700 rounded-lg p-3'},
+                            e('div', {className: 'flex items-center gap-2 mb-2'},
+                              e('span', {className: getCorContaML(c) + ' px-2 py-0.5 rounded text-xs font-bold'}, c),
+                              e('span', {className: 'text-xs text-slate-400'},
+                                daConta.length === 0 ? 'nenhum anúncio com essa peça'
+                                  : daConta.length + ' anúncio(s) · ' + paradosConta.length + ' parado(s)')
+                            ),
+                            daConta.length > 0 && e('div', {className: 'space-y-1.5'}, daConta.map(cartaoDoAnuncio))
+                          );
+                        })
+                      )
                 );
               })(),
 
