@@ -2,18 +2,27 @@
 //
 // É o espelho do ml-reativar-lote. Acabou o produto na empresa (vendeu no Mercado
 // Livre, vendeu no balcão, tanto faz): os anúncios das três lojas que dependem dessa
-// peça saem do ar, e o Envios Flex vai junto. Regra da casa do Matheus, sem exceção.
+// peça saem do ar, e o Envios Flex vai junto.
 //
-// TRÊS CAMINHOS, porque um anúncio não é igual ao outro:
+// DOIS CAMINHOS, porque um anúncio não é igual ao outro:
 //
-//   1. Anúncio comum  -> PUT status=paused aqui mesmo, é o que a API oficial permite.
-//   2. Anúncio no Full -> NÃO dá pra resolver por API. Vira tarefa do robô
-//      (`tirar_do_full` com acao_depois=inativar), que tira do Full, pausa e desliga o
-//      Flex no fim. É a mesma máquina que a aba "Reativar anúncios" já usa.
-//   3. O Flex de quem tinha Flex -> tarefa `desligar_flex` pro robô, porque o ML
-//      responde "shipping.tags is not modifiable" a qualquer tentativa por API.
+//   1. Anúncio comum -> PUT status=paused aqui mesmo, e o Flex vai junto.
 //
-// Ver PLANO-ROBO.md.
+//   2. ANÚNCIO NO FULL -> NÃO PAUSA. Só desliga o Flex.
+//
+//      Regra do Matheus, 11/09/2026, e o motivo é simples quando se olha de onde sai a
+//      peça: o estoque do Full está no galpão do Mercado Livre, não aqui. Acabar na
+//      empresa não impede aquele anúncio de continuar vendendo — quem separa e despacha
+//      é o ML. Pausar seria desligar uma venda que ainda existe.
+//
+//      Mas o Flex, não: Flex é entrega feita por NÓS, com peça daqui. Sem peça aqui,
+//      prometer entrega no mesmo dia é prometer o que não se pode cumprir.
+//
+//      É por isso que "estoque zerado -> pausa" não vale no Full: lá o estoque que
+//      importa não é o nosso.
+//
+// O Flex, nos dois casos, é tarefa do robô: o ML responde "shipping.tags is not
+// modifiable" a qualquer tentativa por API. Ver PLANO-ROBO.md.
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
@@ -76,22 +85,6 @@ async function enfileirarDesligarFlex(conta: string, itemId: string) {
   } catch (_e) { return false; }
 }
 
-async function enfileirarTirarDoFull(conta: string, itemId: string, titulo: string, sku: string) {
-  try {
-    const { data: jaTem } = await sb.from("ml_tarefas_robo")
-      .select("id").eq("tipo", "tirar_do_full").eq("conta", conta)
-      .in("status", ["pendente", "rodando"]).contains("params", { item_id: itemId });
-    if (jaTem && jaTem.length) return false;
-
-    await sb.from("ml_tarefas_robo").insert({
-      conta, tipo: "tirar_do_full", status: "pendente",
-      params: { item_id: itemId, title: titulo, sku_bruto: sku, acao_depois: "inativar" },
-      criado_por: "sistema",
-    });
-    return true;
-  } catch (_e) { return false; }
-}
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ erro: "use POST" }, 405);
@@ -111,7 +104,7 @@ Deno.serve(async (req) => {
     }
 
     const pausados: unknown[] = [];
-    const paraORobo: unknown[] = [];
+    const noFullSoFlex: unknown[] = [];
     const recusados: unknown[] = [];
     let flexNaFila = 0;
 
@@ -141,11 +134,14 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      // No Full a API não resolve: quem tira é o robô, clicando no painel. Ele pausa e
-      // desliga o Flex no fim da própria tarefa, então aqui não se faz mais nada.
+      // NO FULL O ANÚNCIO FICA NO AR. Só o Flex sai. Ver o comentário do topo.
       if (noFull) {
-        const foi = await enfileirarTirarDoFull(it.conta, it.item_id, titulo, corpo.sku ?? "");
-        paraORobo.push({ conta: it.conta, item_id: it.item_id, titulo, na_fila: foi });
+        const foi = temFlex && await enfileirarDesligarFlex(it.conta, it.item_id);
+        if (foi) flexNaFila++;
+        noFullSoFlex.push({
+          conta: it.conta, item_id: it.item_id, titulo,
+          tinha_flex: temFlex, flex_na_fila: foi,
+        });
         continue;
       }
 
@@ -178,9 +174,11 @@ Deno.serve(async (req) => {
         conta: x.conta, item_id: x.item_id, title: x.titulo, acao: "inativado", origem: "site",
         detalhe: `acabou a peça: ${x.ja_estava ? "já estava pausado" : "pausado"}`,
       })),
-      ...(paraORobo as { conta: string; item_id: string; titulo: string }[]).map((x) => ({
-        conta: x.conta, item_id: x.item_id, title: x.titulo, acao: "fila_robo", origem: "site",
-        detalhe: "acabou a peça: está no Full, o robô vai tirar e pausar",
+      ...(noFullSoFlex as { conta: string; item_id: string; titulo: string; tinha_flex: boolean }[]).map((x) => ({
+        conta: x.conta, item_id: x.item_id, title: x.titulo, acao: "full_so_flex", origem: "site",
+        detalhe: x.tinha_flex
+          ? "acabou a peça: está no Full, continua vendendo — só o Flex foi desligado"
+          : "acabou a peça: está no Full, continua vendendo — já estava sem Flex",
       })),
       ...(recusados as { conta: string; item_id: string; titulo: string; motivo: string }[]).map((x) => ({
         conta: x.conta, item_id: x.item_id, title: x.titulo, acao: "falhou", origem: "site",
@@ -189,7 +187,7 @@ Deno.serve(async (req) => {
     ];
     if (registros.length) await sb.from("ml_log_acoes").insert(registros).then(() => {}, () => {});
 
-    return json({ pausados, para_o_robo: paraORobo, recusados, flex_na_fila: flexNaFila });
+    return json({ pausados, no_full_so_flex: noFullSoFlex, recusados, flex_na_fila: flexNaFila });
   } catch (e) {
     return json({ erro: String((e as Error).message ?? e) }, 500);
   }

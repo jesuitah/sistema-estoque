@@ -146,6 +146,10 @@ Deno.serve(async (req: Request) => {
           status: item.status ?? null,
           flex: tags.includes("self_service_in"),
           flex_disponivel: tags.includes("self_service_available") || tags.includes("self_service_in"),
+          // Entrou em 11/09/2026 pela aba "Acabou a peça": anúncio no Full não é pausado
+          // quando a peça acaba aqui, só perde o Flex — e a tela precisa dizer isso
+          // ANTES do clique, não depois.
+          no_full: item.shipping?.logistic_type === "fulfillment",
           marca,
           sku,
           seller_sku_bruto: sellerSkuBruto,
@@ -255,6 +259,7 @@ Deno.serve(async (req: Request) => {
       removidos_por_nao_existirem_mais: limpeza,
       flex_mudou: mudancas.length,
       flex_mudou_sem_pedido_nosso: mudancasDeFora,
+      no_full: anuncios.filter((a) => a.no_full).length,
     };
   }
 

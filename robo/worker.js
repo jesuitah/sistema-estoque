@@ -597,8 +597,13 @@ async function ligarFlex(navegador, pagina, tarefa, accessToken) {
 
 // ── DESLIGAR O ENVIOS FLEX ───────────────────────────────────────────────────
 //
-// Mesmo caminho do ligar, ao contrário. Regra da casa do Matheus: estoque zerado →
-// anúncio pausado e Flex desligado, sem exceção, seja o envio normal, turbo ou Full.
+// Mesmo caminho do ligar, ao contrário. Regra da casa do Matheus: acabou a peça aqui,
+// o Flex sai — sempre, seja o envio normal, turbo ou Full. Flex é entrega feita por
+// NÓS, com peça daqui; sem peça aqui, é promessa que não se cumpre.
+//
+// O que NÃO é sempre é a pausa: anúncio no Full continua vendendo, porque a peça dele
+// está no galpão do Mercado Livre e não na nossa prateleira (esclarecido pelo Matheus
+// em 11/09/2026). Ver ml-pausar-lote.
 //
 // Vale a mesma advertência do ligar: a seção vem recolhida, a caixinha se acha pelo
 // texto ao lado, e a confirmação é pela API, nunca pela tela.

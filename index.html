@@ -2546,10 +2546,17 @@
         if (!marcados.length) return;
 
         var comFlex = marcados.filter(function(a) { return a.flex; }).length;
+        var noFull = marcados.filter(function(a) { return a.no_full; }).length;
+        // A confirmação separa os dois destinos. Dizer só "pausar N" seria mentira
+        // quando tem anúncio do Full no meio — esses continuam vendendo.
         if (!confirm(
-          'Pausar ' + marcados.length + ' anúncio(s) nas lojas'
+          'Pausar ' + (marcados.length - noFull) + ' anúncio(s) nas lojas'
           + (comFlex ? ' e desligar o Flex em ' + comFlex : '') + '?\n\n'
-          + 'Eles saem do ar até você reativar pela aba Chegada de pedido.'
+          + (noFull
+              ? noFull + ' está(ão) no Full e NÃO serão pausados — a peça deles está no\n'
+                + 'galpão do Mercado Livre e continua vendendo. Neles só o Flex sai.\n\n'
+              : '')
+          + 'Os pausados saem do ar até você reativar pela aba Chegada de pedido.'
         )) return;
 
         setAcabouPausando(true);
@@ -2582,7 +2589,7 @@
         var tudo = [];
         function pagina(de) {
           supabase.from('ml_anuncios')
-            .select('conta, item_id, title, seller_sku_bruto, status, flex, flex_disponivel, available_quantity')
+            .select('conta, item_id, title, seller_sku_bruto, status, flex, flex_disponivel, available_quantity, no_full')
             .range(de, de + 999)
             .then(function(r) {
               if (r.error || !r.data) { setCatalogo([]); return; }
@@ -6140,6 +6147,12 @@
                         ativo
                           ? e('span', {className: 'bg-emerald-900 text-emerald-300 px-1.5 rounded text-[10px] font-bold'}, 'NO AR')
                           : e('span', {className: 'bg-slate-800 text-slate-500 px-1.5 rounded text-[10px] font-bold'}, 'já parado'),
+                        // O aviso vem ANTES do clique: este não vai ser pausado, só perde
+                        // o Flex. Descobrir isso depois de mandar 15 de uma vez é ruim.
+                        a.no_full && e('span', {
+                          className: 'bg-violet-900 text-violet-300 px-1.5 rounded text-[10px] font-bold',
+                          title: 'A peça do Full está no galpão do ML, não aqui — este anúncio continua vendendo. Só o Flex será desligado.'
+                        }, 'FULL · só o flex'),
                         a.flex
                           ? e('span', {className: 'bg-sky-900 text-sky-300 px-1.5 rounded text-[10px]'}, 'flex ligado')
                           : e('span', {className: 'bg-slate-800 text-slate-600 px-1.5 rounded text-[10px]'}, 'sem flex'),
@@ -6156,7 +6169,9 @@
                       'Digite o código da peça que acabou. Aparecem todos os anúncios no ar das três lojas ' +
                       'que dependem dela — inclusive os kits em que ela entra como componente.'),
                     e('p', {className: 'text-slate-500 text-xs mt-1'},
-                      'Quem for pausado tem o Envios Flex desligado junto. A baixa da quantidade no estoque ' +
+                      'Quem for pausado tem o Envios Flex desligado junto. ' +
+                      'Anúncio no Full NÃO é pausado — a peça dele está no galpão do Mercado Livre e ' +
+                      'continua vendendo; nesse caso só o Flex sai. A baixa da quantidade no estoque ' +
                       'continua sendo feita na aba Busca, como sempre.')
                   ),
 
@@ -6219,13 +6234,14 @@
                             '🤖 Flex de ' + acabouResultado.flex_na_fila + ' anúncio(s) na fila do robô — '
                             + 'leva uns ' + Math.max(1, Math.round(acabouResultado.flex_na_fila * 17 / 60)) + ' min. '
                             + 'Precisa do robô ligado.'),
-                          // O Full é o caso que NÃO se resolve aqui, e a tela diz isso
-                          // com todas as letras em vez de deixar parecer que falhou.
-                          (acabouResultado.para_o_robo || []).length > 0 && e('div', {className: 'text-xs text-sky-300 bg-sky-900 bg-opacity-25 border border-sky-800 rounded px-3 py-2'},
+                          // O Full segue vendendo, e a tela explica por quê. Sem isso
+                          // pareceria que esses anúncios falharam.
+                          (acabouResultado.no_full_so_flex || []).length > 0 && e('div', {className: 'text-xs text-violet-300 bg-violet-900 bg-opacity-25 border border-violet-800 rounded px-3 py-2'},
                             e('div', {className: 'font-bold mb-1'},
-                              '🤖 ' + acabouResultado.para_o_robo.length + ' está(ão) no Full — o robô vai tirar e pausar'),
-                            e('div', {className: 'text-sky-200 opacity-80'},
-                              'O Mercado Livre não deixa tirar do Full pela API, então quem faz é o robô clicando no painel.')
+                              '📦 ' + acabouResultado.no_full_so_flex.length + ' está(ão) no Full — continuam no ar'),
+                            e('div', {className: 'text-violet-200 opacity-80'},
+                              'A peça do Full está no galpão do Mercado Livre, não aqui — esses seguem vendendo. '
+                              + 'Só o Envios Flex foi desligado.')
                           ),
                           (acabouResultado.recusados || []).length > 0 && e('div', {className: 'text-xs bg-amber-900 bg-opacity-25 border border-amber-800 rounded px-3 py-2'},
                             e('div', {className: 'text-amber-300 font-bold mb-1'},
@@ -6284,7 +6300,7 @@
                               deuCerto
                                 ? e('span', {className: 'text-slate-500 whitespace-nowrap'}, 'pausado')
                                 : e('span', {className: 'text-amber-300 whitespace-nowrap'},
-                                    l.acao === 'fila_robo' ? 'no Full — robô' : 'não pausou')
+                                    l.acao === 'full_so_flex' ? 'Full — só o flex' : 'não pausou')
                             );
                           }),
                           acabouHistorico.length > 60 && e('div', {className: 'text-xs text-slate-600 text-center pt-1'},
