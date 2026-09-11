@@ -592,7 +592,22 @@
       var promoResultadoState = useState(null);    // { ativados, recusados }
       var promoResultado = promoResultadoState[0];
       var setPromoResultado = promoResultadoState[1];
-      var promoPedindoState = useState(false);   // clicou e o robô ainda não começou
+      // QUAL loja foi pedida, e não "se foi pedida alguma".
+      //
+      // Era um sim/não, e por isso clicar em KMP apagava os três botões de uma vez —
+      // parecia que o sistema ia recatalogar as três lojas, quando só a KMP tinha ido
+      // pra fila. Guardando o nome da loja, cada botão sabe se o assunto é com ele.
+      var promoPedindoState = useState(null);   // null | 'KMP' | 'ERP' | 'LTS'
+
+      // Qual rotina da aba Robô acabou de ser pedida no "Rodar agora".
+      //
+      // As rotinas já tinham um "estou trabalhando" cada uma — só que ele era desenhado
+      // na aba Anúncios, não aqui. Na aba Robô você clicava e a tela não mexia um fio:
+      // o botão parecia quebrado mesmo estando funcionando. Este estado cobre também o
+      // vão entre o clique e o momento em que o sinal de verdade aparece.
+      var roboPedidoState = useState(null);
+      var roboPedido = roboPedidoState[0];
+      var setRoboPedido = roboPedidoState[1];
       var promoPedindo = promoPedindoState[0];
       var setPromoPedindo = promoPedindoState[1];
 
@@ -1298,7 +1313,7 @@
         // Marca "pedido" na hora. Sem isto o botão fica mudo por até meio minuto — o
         // robô só olha a fila a cada 3s e a tela só relê o status a cada 30s — e você
         // não sabe se o clique funcionou.
-        setPromoPedindo(true);
+        setPromoPedindo(conta);
         // Não empilha pedidos. Clicar 3x criava 3 varreduras seguidas da mesma loja —
         // ~18 minutos de trabalho repetido pelo mesmo resultado.
         supabase.from('ml_tarefas_robo')
@@ -1321,9 +1336,9 @@
           var relogio = setInterval(function() {
             tentativas++;
             carregarStatusRobo();
-            if (tentativas > 20) { clearInterval(relogio); setPromoPedindo(false); }
+            if (tentativas > 20) { clearInterval(relogio); setPromoPedindo(null); }
           }, 3000);
-        }, function() { setPromoPedindo(false); });
+        }, function() { setPromoPedindo(null); });
       }
 
       function abrirPromocao(p) {
@@ -4443,17 +4458,22 @@
 
             // As rotinas do botão mestre. As promoções ficam fora daqui, num quadro
             // próprio no fim: são 18 minutos contra 3, e têm outro ritmo.
+            // `ocupado` é o sinal de que a rotina está mesmo trabalhando — cada uma já
+            // tinha o seu, só não era lido aqui.
             var rotinas = [
               { nome: 'Reativar fora de venda', chave: 'patrulha', limite: 2,
                 oque: 'Devolve à venda o que o Mercado Livre tirou, insistindo até ceder.',
-                ritmo: 'de hora em hora', acao: pedirPatrulhaAgora },
+                ritmo: 'de hora em hora', acao: pedirPatrulhaAgora,
+                ocupado: !!det.patrulhando },
               { nome: 'Reativar sem estoque', chave: 'patrulha', limite: 2,
                 oque: 'Confere a aba "sem estoque" das 3 lojas e resolve cada caso.',
-                ritmo: 'após cada patrulha', acao: reativarAnunciosSemEstoque },
+                ritmo: 'após cada patrulha', acao: reativarAnunciosSemEstoque,
+                ocupado: !!anunciosReativando },
               { nome: 'Catálogo de anúncios', chave: 'catalogo', limite: 26,
                 oque: 'Relê os anúncios das 3 lojas: categoria, se está parado e se tem Flex. '
                     + 'É o que alimenta "Chegou mercadoria" e a tarifa das promoções.',
-                ritmo: '1× por dia', acao: sincronizarAnuncios },
+                ritmo: '1× por dia', acao: sincronizarAnuncios,
+                ocupado: !!anunciosSincronizando },
             ];
 
             // Uma linha da lista de rotinas.
@@ -4477,12 +4497,32 @@
                 ),
                 // Azul como os outros botões de ação da aba: é tudo "faz agora", e o
                 // cinza fazia parecer um botão de segunda categoria.
-                e('button', {
-                  onClick: r.acao,
-                  disabled: !ligado,
-                  className: 'px-4 py-2 rounded-lg text-xs font-bold whitespace-nowrap ' +
-                    (ligado ? 'bg-blue-600 hover:bg-blue-500 text-white' : 'bg-slate-700 text-slate-500 cursor-not-allowed')
-                }, 'Rodar agora')
+                //
+                // `roboPedido` cobre o vão entre o clique e o sinal de verdade: a
+                // patrulha, por exemplo, só se anuncia como "patrulhando" na releitura
+                // seguinte do status, até meio minuto depois. Sem isso o botão ficava
+                // mudo nesse intervalo e dava a impressão de não ter funcionado.
+                (function() {
+                  var rodando = r.ocupado || roboPedido === r.nome;
+                  return e('button', {
+                    onClick: function() {
+                      setRoboPedido(r.nome);
+                      r.acao();
+                      // Rede de segurança: se a rotina não acender o próprio sinal
+                      // (ou terminar rápido demais pra gente ver), o botão volta
+                      // sozinho em vez de ficar preso em "rodando" pra sempre.
+                      setTimeout(function() {
+                        setRoboPedido(function(atual) { return atual === r.nome ? null : atual; });
+                      }, 45000);
+                    },
+                    disabled: !ligado || rodando,
+                    title: !ligado ? 'O robô precisa estar ligado' : '',
+                    className: 'px-4 py-2 rounded-lg text-xs font-bold whitespace-nowrap ' +
+                      ((!ligado || rodando)
+                        ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
+                        : 'bg-blue-600 hover:bg-blue-500 text-white')
+                  }, rodando ? '⏳ rodando...' : 'Rodar agora');
+                })()
               );
             }
 
@@ -4619,7 +4659,11 @@
                 function botaoDaLoja(c) {
                   var quando = roboUltimas['promocoes_' + c];
                   var atrasada = estaAtrasada(quando, 26);
-                  var bloqueado = !ligado || !!varrendo || promoPedindo;
+                  // Só apaga o botão DESTA loja. As outras duas continuam clicáveis:
+                  // o robô faz uma de cada vez, e pedir a segunda enquanto a primeira
+                  // roda só põe na fila — ela espera a vez sem atrapalhar nada.
+                  var minhaVez = promoPedindo === c || (varrendo && det.conta === c);
+                  var bloqueado = !ligado || minhaVez;
                   return e('div', {key: c, className: 'flex flex-col items-stretch gap-1'},
                     e('button', {
                       onClick: function() { pedirVarreduraPromocoes(c); },
@@ -4654,7 +4698,8 @@
                   // de texto juntos. Fica aqui embaixo, uma linha só, até a barra de
                   // progresso assumir.
                   promoPedindo && !varrendo &&
-                    e('div', {className: 'mt-3 text-xs text-sky-300'}, '⏳ o robô vai começar...'),
+                    e('div', {className: 'mt-3 text-xs text-sky-300'},
+                      '⏳ ' + promoPedindo + ' na fila — o robô vai começar...'),
                   varrendo && e('div', {className: 'mt-3'},
                     e('div', {className: 'flex justify-between text-xs text-sky-200 font-bold mb-1'},
                       e('span', null, 'lendo a ' + det.conta + '...'),
