@@ -422,6 +422,13 @@ async function reativarAnuncio(itemId, accessToken, pausarDepois) {
 // grande se desfaz sozinha ao longo do dia em vez de travar tudo de uma vez.
 const FLEX_POR_PASSADA = 15;
 
+// Depois de tantas falhas seguidas no MESMO anúncio, a varredura desiste dele.
+// Não é teimosia que resolve: o MLB4131914771 falhou 12 vezes seguidas em 11/09/2026
+// com "não achei a caixinha", sempre gastando 18 segundos de navegador e uma das 15
+// vagas da passada, e ainda disparando o aviso vermelho na tela toda hora. Quem tem
+// que olhar esse anúncio é uma pessoa — o robô só precisa parar de bater na porta.
+const DESISTIR_APOS = 3;
+
 async function enfileirarFlexDosPausados() {
   const { data: alvos } = await sb.from('ml_anuncios')
     .select('conta, item_id').eq('status', 'paused').eq('flex', true)
@@ -432,7 +439,17 @@ async function enfileirarFlexDosPausados() {
     .select('params').eq('tipo', 'desligar_flex').in('status', ['pendente', 'rodando']);
   const jaEnfileirados = new Set((naFila || []).map((t) => t.params?.item_id));
 
-  const novos = alvos.filter((a) => !jaEnfileirados.has(a.item_id));
+  const { data: falhas } = await sb.from('ml_tarefas_robo')
+    .select('params').eq('tipo', 'desligar_flex').eq('status', 'falhou');
+  const quantasFalhas = new Map();
+  for (const t of falhas || []) {
+    const id = t.params?.item_id;
+    if (id) quantasFalhas.set(id, (quantasFalhas.get(id) || 0) + 1);
+  }
+  const desistidos = new Set(
+    [...quantasFalhas.entries()].filter(([, n]) => n >= DESISTIR_APOS).map(([id]) => id));
+
+  const novos = alvos.filter((a) => !jaEnfileirados.has(a.item_id) && !desistidos.has(a.item_id));
   if (!novos.length) return 0;
 
   await sb.from('ml_tarefas_robo').insert(novos.map((a) => ({
@@ -496,7 +513,13 @@ async function ligarFlex(navegador, pagina, tarefa, accessToken) {
 
   const antes = await flexAgora();
   if (antes === null) return { ok: false, motivo: 'este anúncio não aceita Envios Flex' };
-  if (antes === true) return { ok: true, nada_a_fazer: true, motivo: 'o Flex já estava ligado' };
+  if (antes === true) {
+    // Mesma lição do desligar: o catálogo acompanha mesmo sem trabalho a fazer.
+    await sb.from('ml_anuncios').update({ flex: true })
+      .eq('conta', tarefa.conta).eq('item_id', itemId)
+      .then(() => {}, () => {});
+    return { ok: true, nada_a_fazer: true, motivo: 'o Flex já estava ligado' };
+  }
 
   await pagina.goto(`https://www.mercadolivre.com.br/anuncios/${itemId}/modificar/`,
     { waitUntil: 'domcontentloaded', timeout: 60000 });
@@ -572,6 +595,14 @@ async function desligarFlex(navegador, pagina, tarefa, accessToken) {
   };
 
   if (await flexAgora() !== true) {
+    // O CATÁLOGO PRECISA SABER, mesmo quando não houve trabalho nenhum.
+    // Sem esta linha o anúncio ficava `flex = true` no nosso banco para sempre: a
+    // varredura o pegava de novo a cada hora, a tarefa terminava em meio segundo
+    // dizendo "já estava desligado", e no dia seguinte tudo outra vez. O MLB3416464101
+    // rodou assim 12 vezes em 11/09/2026, comendo uma das 15 vagas por passada.
+    await sb.from('ml_anuncios').update({ flex: false })
+      .eq('conta', tarefa.conta).eq('item_id', itemId)
+      .then(() => {}, () => {});
     return { ok: true, nada_a_fazer: true, motivo: 'o Flex já estava desligado' };
   }
 

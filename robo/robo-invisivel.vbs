@@ -11,9 +11,25 @@
 ' Só há uma exceção: quando este .vbs é COPIADO para a pasta Inicializar, a cópia
 ' perde a referência — por isso ela guarda o caminho na primeira vez que roda.
 
-Dim shell, fso, pasta, caminhoGuardado, arqConfig
+' Este arquivo roda de 5 em 5 minutos (tarefa RoboEstoque), não só ao ligar o PC.
+' Motivo: em 11/09/2026 o robô morreu sozinho às 09:40 e ficou fora do ar até alguém
+' perceber, porque o único gatilho era o logon. Como este .vbs manda o node pro fundo
+' e termina na hora, o Windows achava que a tarefa tinha dado certo e nunca reiniciava.
+' Agora ele acorda sempre — e a primeira coisa que faz é conferir se já tem robô de pé.
+
+Dim shell, fso, pasta, caminhoGuardado, arqConfig, wmi, processos, p
 Set shell = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
+
+' Já tem um robô rodando? Então não faz nada. Dois ao mesmo tempo brigariam pelas
+' sessões do navegador em robo\sessoes (o Chrome não deixa dois abrirem o mesmo perfil).
+Set wmi = GetObject("winmgmts:\\.\root\cimv2")
+Set processos = wmi.ExecQuery("SELECT CommandLine FROM Win32_Process WHERE Name = 'node.exe'")
+For Each p In processos
+  If Not IsNull(p.CommandLine) Then
+    If InStr(LCase(p.CommandLine), "worker.js") > 0 Then WScript.Quit 0
+  End If
+Next
 
 ' 1) o robô está ao lado deste arquivo?
 pasta = fso.GetParentFolderName(WScript.ScriptFullName)
