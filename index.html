@@ -2805,7 +2805,7 @@
         var marca = novaMarca.trim().toUpperCase();
         var sku = novoSku.trim().toUpperCase();
         if (!marca || !sku) { alert('Preencha a Marca e o SKU!'); return; }
-        var custo = parseFloat(String(novoCusto || '').replace(',', '.')) || 0;
+        var custo = lerMoeda(novoCusto) || 0;
 
         // Verifica se já existe em estoque e precos antes de inserir
         Promise.all([
@@ -2910,6 +2910,39 @@
         if (m === 'KINTOP') return 'KK';
         if (m === 'MULTIQUALITA') return 'KQ';
         return m;
+      }
+
+      // ── DINHEIRO: DIGITA SÓ NÚMERO, O SISTEMA PÕE VÍRGULA E PONTO ───────────
+      //
+      // Antes o campo era texto puro: pra trocar 12,00 por 3,87 você tinha que apagar
+      // o que estava lá primeiro. Se esquecesse, saía "0,00387" — foi o que o Matheus
+      // mostrou em 11/09/2026. É o mesmo jeito da maquininha e do caixa: os dígitos
+      // entram pela direita e os dois últimos são sempre os centavos.
+      //
+      // 387 -> "3,87"   ·   1250 -> "12,50"   ·   123456 -> "1.234,56"   ·   "" -> ""
+      function moedaDigitando(texto) {
+        var digitos = String(texto == null ? '' : texto).replace(/\D/g, '');
+        // Zeros à esquerda não significam nada aqui: digitar 0,05 e depois mais um 7
+        // tem que virar 0,57, não 0,057.
+        digitos = digitos.replace(/^0+(?=\d{3,})/, '');
+        if (!digitos) return '';
+        while (digitos.length < 3) digitos = '0' + digitos;
+        var reais = digitos.slice(0, -2).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+        return reais + ',' + digitos.slice(-2);
+      }
+
+      // O caminho de volta: "1.234,56" -> 1234.56. O parseFloat cru não serve, porque
+      // o ponto de milhar faria "1.234,56" virar 1.234 — erro de mil vezes no custo.
+      function lerMoeda(texto) {
+        var limpo = String(texto == null ? '' : texto).replace(/\./g, '').replace(',', '.');
+        var n = parseFloat(limpo);
+        return isNaN(n) ? null : n;
+      }
+
+      // Número -> o texto que o campo mostra enquanto se edita (sem "R$").
+      function moedaParaCampo(n) {
+        if (n == null || isNaN(Number(n))) return '';
+        return moedaDigitando(String(Math.round(Number(n) * 100)));
       }
 
       function parseSKUsML(celula) {
@@ -3454,8 +3487,11 @@
         return result;
       }
       function salvarCustoProduto(p) {
-        var novoCusto = parseFloat(String(custoEditValue || '').replace(',', '.'));
-        if (isNaN(novoCusto) || novoCusto <= 0) { alert('Custo inválido.'); return; }
+        // `lerMoeda` e não `parseFloat`: com o campo formatando sozinho, um custo de
+        // mil reais chega como "1.234,56" — e o parseFloat pararia no ponto de milhar,
+        // salvando 1,23 no lugar de 1.234,56.
+        var novoCusto = lerMoeda(custoEditValue);
+        if (novoCusto == null || novoCusto <= 0) { alert('Custo inválido.'); return; }
         var usaCustoML = p.custo_ml !== null && p.custo_ml !== undefined && Number(p.custo_ml) > 0;
         var update = usaCustoML ? { custo_ml: novoCusto } : { custo: novoCusto };
         supabase.from('precos').update(update).eq('marca', p.marca).eq('sku', p.sku).then(function(res) {
@@ -3471,9 +3507,10 @@
       }
 
       function salvarFreteProduto(p) {
-        var val = freteEditValue.trim().replace(',', '.');
-        var novoFrete = val === '' ? null : parseFloat(val);
-        if (val !== '' && (isNaN(novoFrete) || novoFrete < 0)) { alert('Frete inválido.'); return; }
+        // Campo vazio continua querendo dizer "Auto" — é o jeito de tirar o valor fixo.
+        var val = String(freteEditValue || '').trim();
+        var novoFrete = val === '' ? null : lerMoeda(val);
+        if (val !== '' && (novoFrete == null || novoFrete < 0)) { alert('Frete inválido.'); return; }
         supabase.from('precos').update({ frete_ml_override: novoFrete }).eq('marca', p.marca).eq('sku', p.sku).then(function(res) {
           if (res.error) { alert('Erro ao salvar: ' + res.error.message); return; }
           setPrecos(function(prev) {
@@ -4313,7 +4350,7 @@
                   inputMode: 'numeric',
                   placeholder: 'Custo (R$)',
                   value: novoCusto,
-                  onChange: function(ev) { setNovoCusto(ev.target.value); },
+                  onChange: function(ev) { setNovoCusto(moedaDigitando(ev.target.value)); },
                   className: 'bg-slate-700 text-white px-4 py-2 rounded border border-slate-600 focus:border-blue-400 focus:outline-none text-sm'
                 }),
                 e('button', {
@@ -5520,10 +5557,24 @@
               anunciosSubTab === 'chegou' && (function() {
                 var termo = normStr(chegouBusca);
 
+                // PEDAÇO DO CÓDIGO BASTA, como na aba de Busca.
+                //
+                // Antes era comparação exata: digitar "0801" não achava a IGUAÇU 201.0801,
+                // era preciso acertar o código inteiro, com pontuação e tudo. Quem está
+                // conferindo mercadoria tem a caixa na mão e lê o que está escrito nela —
+                // que quase nunca é o código completo do jeito que o ML guarda.
+                //
+                // A comparação é sobre o código JÁ NORMALIZADO dos dois lados (sem ponto,
+                // traço nem acento), então "201.0801", "201-0801" e "2010801" acham a
+                // mesma peça.
+                function combina(sku) {
+                  return String(sku || '').indexOf(termo) !== -1;
+                }
+
                 var achados = (termo.length >= 3 && catalogo)
                   ? catalogo.filter(function(a) {
                       return componentesDoSku(a.seller_sku_bruto)
-                        .some(function(c) { return c.sku === termo; });
+                        .some(function(c) { return combina(c.sku); });
                     })
                   : [];
 
@@ -5543,7 +5594,7 @@
                 function faltasDoKit(comps) {
                   var faltando = [], desconhecidas = [];
                   comps.forEach(function(c) {
-                    if (c.sku === termo) return;
+                    if (combina(c.sku)) return;
                     var u = unidadesPorPeca[c.marca + '|' + c.sku];
                     if (u === undefined) desconhecidas.push(c.marca + ': ' + c.sku);
                     else if (u <= 0) faltando.push(c.marca + ': ' + c.sku);
@@ -5555,7 +5606,7 @@
                   var comps = componentesDoSku(a.seller_sku_bruto);
                   var ehKit = comps.length > 1;
                   var pausado = a.status === 'paused';
-                  var quanto = (comps.filter(function(c) { return c.sku === termo; })[0] || {}).qtd || 1;
+                  var quanto = (comps.filter(function(c) { return combina(c.sku); })[0] || {}).qtd || 1;
                   var faltas = ehKit ? faltasDoKit(comps) : { faltando: [], desconhecidas: [] };
                   return e('div', {
                     key: a.item_id,
@@ -6466,7 +6517,7 @@
                               e('input', {
                                 type: 'text', inputMode: 'numeric', autoFocus: true,
                                 value: custoEditValue,
-                                onChange: function(ev) { setCustoEditValue(ev.target.value); },
+                                onChange: function(ev) { setCustoEditValue(moedaDigitando(ev.target.value)); },
                                 onKeyDown: function(ev) {
                                   if (ev.key === 'Enter') salvarCustoProduto(p);
                                   if (ev.key === 'Escape') setEditandoCustoChave(null);
@@ -6481,7 +6532,7 @@
                               e('button', {
                                 onClick: function() {
                                   setEditandoCustoChave(chave);
-                                  setCustoEditValue(String(custoML.toFixed(2)).replace('.', ','));
+                                  setCustoEditValue(moedaParaCampo(custoML));
                                 },
                                 className: 'opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-blue-400 text-xs',
                                 title: 'Editar custo'
@@ -6526,7 +6577,7 @@
                                 type: 'text', inputMode: 'numeric', autoFocus: true,
                                 placeholder: 'Ex: 30,00 (vazio = Auto)',
                                 value: freteEditValue,
-                                onChange: function(ev) { setFreteEditValue(ev.target.value); },
+                                onChange: function(ev) { setFreteEditValue(moedaDigitando(ev.target.value)); },
                                 onKeyDown: function(ev) {
                                   if (ev.key === 'Enter') salvarFreteProduto(p);
                                   if (ev.key === 'Escape') setEditandoFreteChave(null);
@@ -6541,7 +6592,7 @@
                               e('button', {
                                 onClick: function() {
                                   setEditandoFreteChave(chave);
-                                  setFreteEditValue(freteProduto !== null ? String(freteProduto.toFixed(2)).replace('.', ',') : '');
+                                  setFreteEditValue(freteProduto !== null ? moedaParaCampo(freteProduto) : '');
                                 },
                                 className: 'opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-blue-400 text-xs',
                                 title: 'Editar frete ML'
