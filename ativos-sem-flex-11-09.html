@@ -1,0 +1,553 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ativos sem Flex com estoque</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin:0; background:#0f172a; color:#e2e8f0;
+         font:14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; padding:28px 20px 60px; }
+  .wrap { max-width:1100px; margin:0 auto; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .sub { color:#94a3b8; font-size:13px; margin-bottom:22px; }
+  .cartoes { display:flex; gap:12px; flex-wrap:wrap; margin-bottom:24px; }
+  .c { background:#1e293b; border:1px solid #334155; border-radius:8px; padding:12px 16px; min-width:120px; }
+  .c b { display:block; font-size:24px; line-height:1.2; }
+  .c span { color:#94a3b8; font-size:12px; }
+  .c.alerta b { color:#fbbf24; }
+  .rolagem { overflow-x:auto; border:1px solid #334155; border-radius:8px; }
+  table { border-collapse:collapse; width:100%; min-width:840px; }
+  th { background:#1e293b; color:#94a3b8; font-size:11px; text-transform:uppercase;
+       letter-spacing:.04em; text-align:left; padding:9px 12px; position:sticky; top:0; }
+  td { padding:9px 12px; border-top:1px solid #1e293b; vertical-align:top; }
+  tr.nosso { background:rgba(251,191,36,.06); }
+  tr.nosso td:first-child { box-shadow:inset 3px 0 0 #fbbf24; }
+  .loja { font-weight:700; font-size:12px; }
+  .titulo a { color:#e2e8f0; text-decoration:none; }
+  .titulo a:hover { color:#7dd3fc; text-decoration:underline; }
+  .id { color:#64748b; font-size:11px; margin-top:2px; font-family:ui-monospace,Consolas,monospace; }
+  .kit { background:#4c1d95; color:#ddd6fe; padding:1px 5px; border-radius:3px; font-size:10px; font-weight:700; }
+  .sku, .est { font-family:ui-monospace,Consolas,monospace; font-size:12px; color:#cbd5e1; }
+  .est { color:#86efac; }
+  .num { text-align:right; white-space:nowrap; }
+  .data { color:#94a3b8; font-size:12px; }
+  .nota { margin-top:20px; color:#94a3b8; font-size:12.5px; max-width:760px; }
+  .nota b { color:#fbbf24; }
+</style></head><body><div class="wrap">
+  <h1>Anúncios ativos sem Flex — e com a peça em estoque</h1>
+  <div class="sub">Conferência de 11/09/2026 · as 3 lojas · clique no título para abrir a edição do anúncio no Mercado Livre</div>
+
+  <div class="cartoes">
+    <div class="c"><b>41</b><span>anúncios</span></div>
+    <div class="c alerta"><b>14</b><span>com 89 un (reativados por nós)</span></div>
+    <div class="c"><b>9</b><span>ERP</span></div>
+    <div class="c"><b>20</b><span>KMP</span></div>
+    <div class="c"><b>12</b><span>LTS</span></div>
+  </div>
+
+  <div class="rolagem"><table>
+    <thead><tr>
+      <th>Loja</th><th>Anúncio</th><th>SKU</th><th>Estoque aqui</th>
+      <th class="num">Un. no ML</th><th class="num">Preço</th><th class="num">Reativado</th>
+    </tr></thead>
+    <tbody>
+    <tr class="nosso">
+      <td><span class="loja" style="color:#34d399">ERP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB4099476529/modificar/" target="_blank" rel="noopener">Kit Correia Dentada + Tensor Vw Gol G5 1.0 8v 2009 Em Diante</a>
+        <div class="id">MLB4099476529</div>
+      </td>
+      <td class="sku">GBM: DKITVW135STP</td>
+      <td class="est">GBM:DKITVW135STP=1</td>
+      <td class="num">89</td>
+      <td class="num">R$ 159,85</td>
+      <td class="num data">09/09/2026</td>
+    </tr>
+    <tr class="nosso">
+      <td><span class="loja" style="color:#f472b6">LTS</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB3412471967/modificar/" target="_blank" rel="noopener">Válvula Termostática Completa Ford Fiesta 2010 2011 2012 </a>
+        <div class="id">MLB3412471967</div>
+      </td>
+      <td class="sku">GBM: AGN066004</td>
+      <td class="est">GBM:AGN066004=2</td>
+      <td class="num">89</td>
+      <td class="num">R$ 216,24</td>
+      <td class="num data">07/09/2026</td>
+    </tr>
+    <tr class="nosso">
+      <td><span class="loja" style="color:#60a5fa">KMP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB3412408499/modificar/" target="_blank" rel="noopener">Cavalete Ford Fiesta Ecosport Focus 1.0 1.6 Flex Completo</a>
+        <div class="id">MLB3412408499</div>
+      </td>
+      <td class="sku">GBM: AGN066004</td>
+      <td class="est">GBM:AGN066004=2</td>
+      <td class="num">89</td>
+      <td class="num">R$ 216,45</td>
+      <td class="num data">05/09/2026</td>
+    </tr>
+    <tr class="nosso">
+      <td><span class="loja" style="color:#f472b6">LTS</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB3956274155/modificar/" target="_blank" rel="noopener">Jogo Cabo Vela Honda Civic 1.6 16v 1996 1997 1998 1999 2000 Preto</a>
+        <div class="id">MLB3956274155</div>
+      </td>
+      <td class="sku">PERFECT: 50K01P</td>
+      <td class="est">PERFECT:50K01P=1</td>
+      <td class="num">89</td>
+      <td class="num">R$ 275,16</td>
+      <td class="num data">04/09/2026</td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#f472b6">LTS</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB3863847076/modificar/" target="_blank" rel="noopener">Valvula Carcaça Aluminio Ford Focus 1.6 2005 2006</a>
+        <div class="id">MLB3863847076</div>
+      </td>
+      <td class="sku">GBM: AGN066006</td>
+      <td class="est">GBM:AGN066006=1</td>
+      <td class="num">1</td>
+      <td class="num">R$ 218,46</td>
+      <td class="num data">04/09/2026</td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#60a5fa">KMP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB3703586960/modificar/" target="_blank" rel="noopener">Carcaça Termostática Alumínio Kmg Ford Ka 1.0 Flex 2009</a>
+        <div class="id">MLB3703586960</div>
+      </td>
+      <td class="sku">GBM: AGN066003</td>
+      <td class="est">GBM:AGN066003=4</td>
+      <td class="num">1</td>
+      <td class="num">R$ 226,75</td>
+      <td class="num data">01/09/2026</td>
+    </tr>
+    <tr class="nosso">
+      <td><span class="loja" style="color:#34d399">ERP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB5217252428/modificar/" target="_blank" rel="noopener">Válvula Termostática Escort Pampa Gol Saveiro 1.0 1.6 Ae Cht</a>
+        <div class="id">MLB5217252428</div>
+      </td>
+      <td class="sku">IGUAÇU: 401.1248-77</td>
+      <td class="est">IGUACU:401124877=2</td>
+      <td class="num">89</td>
+      <td class="num">R$ 57,63</td>
+      <td class="num data">—</td>
+    </tr>
+    <tr class="nosso">
+      <td><span class="loja" style="color:#34d399">ERP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB3734006135/modificar/" target="_blank" rel="noopener">Sensor Temperatura Painel Fiat Palio Uno Tempra Marea Brava</a>
+        <div class="id">MLB3734006135</div>
+      </td>
+      <td class="sku">IGUAÇU: 203.2018</td>
+      <td class="est">IGUACU:2032018=8</td>
+      <td class="num">89</td>
+      <td class="num">R$ 54,19</td>
+      <td class="num data">—</td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#34d399">ERP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB4474532138/modificar/" target="_blank" rel="noopener">Jogo Kit Velas Ignição Vw Golf Polo Fox Gol G4 G5 G6 1.0 1.6</a>
+        <div class="id">MLB4474532138</div>
+      </td>
+      <td class="sku">GAUSS: GV7R02</td>
+      <td class="est">GAUSS:GV7R02=1</td>
+      <td class="num">1</td>
+      <td class="num">R$ 76,34</td>
+      <td class="num data">—</td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#34d399">ERP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB4203335801/modificar/" target="_blank" rel="noopener">Radiador Gm Onix Cobalt Prisma 2012 2013 2014 Com Ar Manual Preto</a>
+        <div class="id">MLB4203335801</div>
+      </td>
+      <td class="sku">AUTOGIC: AG85202</td>
+      <td class="est">AUTOGIC:AG85202=1</td>
+      <td class="num">1</td>
+      <td class="num">R$ 407,27</td>
+      <td class="num data">—</td>
+    </tr>
+    <tr class="nosso">
+      <td><span class="loja" style="color:#34d399">ERP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB4771434446/modificar/" target="_blank" rel="noopener">Válvula Termostática Gm Captiva Malibu 2.4 16v Gasolina 09 </a>
+        <div class="id">MLB4771434446</div>
+      </td>
+      <td class="sku">IGUAÇU: 401.1452-82</td>
+      <td class="est">IGUACU:401145282=10</td>
+      <td class="num">89</td>
+      <td class="num">R$ 148,93</td>
+      <td class="num data">—</td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#34d399">ERP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB5087008641/modificar/" target="_blank" rel="noopener">Sensor Temperatura Painel Ford F1000 F350 F600 F750 1974 </a>
+        <div class="id">MLB5087008641</div>
+      </td>
+      <td class="sku">IGUAÇU: 203.2007</td>
+      <td class="est">IGUACU:2032007=3</td>
+      <td class="num">98</td>
+      <td class="num">R$ 93,57</td>
+      <td class="num data">—</td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#34d399">ERP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB5386085218/modificar/" target="_blank" rel="noopener">Kit Junta Tampa Válvula Gm Tracker Cruze 1.8 16v Sonic</a>
+        <div class="id">MLB5386085218</div>
+      </td>
+      <td class="sku">GBM: 55357237</td>
+      <td class="est">GBM:55357237=2</td>
+      <td class="num">2</td>
+      <td class="num">R$ 108,64</td>
+      <td class="num data">—</td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#34d399">ERP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB5290496518/modificar/" target="_blank" rel="noopener">Carcaça Válvula Termostática Ford Fiesta Focus Eco Gasolina</a>
+        <div class="id">MLB5290496518</div>
+      </td>
+      <td class="sku">GBM: AGN066006</td>
+      <td class="est">GBM:AGN066006=1</td>
+      <td class="num">1</td>
+      <td class="num">R$ 213,56</td>
+      <td class="num data">—</td>
+    </tr>
+    <tr class="nosso">
+      <td><span class="loja" style="color:#60a5fa">KMP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB3628221498/modificar/" target="_blank" rel="noopener">Valvula Termostática Iguaçu Toyota Etios 1.3 1.5 2012</a>
+        <div class="id">MLB3628221498</div>
+      </td>
+      <td class="sku">IGUAÇU: 401.1118-82</td>
+      <td class="est">IGUACU:401111882=3</td>
+      <td class="num">89</td>
+      <td class="num">R$ 110,39</td>
+      <td class="num data">—</td>
+    </tr>
+    <tr class="nosso">
+      <td><span class="loja" style="color:#60a5fa">KMP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB3314143665/modificar/" target="_blank" rel="noopener">Carcaça Termostatica Aluminio Original Ford Ka 1.0 Flex 2009</a>
+        <div class="id">MLB3314143665</div>
+      </td>
+      <td class="sku">GBM: AGN066003</td>
+      <td class="est">GBM:AGN066003=4</td>
+      <td class="num">89</td>
+      <td class="num">R$ 283,70</td>
+      <td class="num data">—</td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#60a5fa">KMP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB1208948236/modificar/" target="_blank" rel="noopener">Conjunto Valvula E Sensor Ka 1.0/1.6 08/13 Flex Courier Flex</a>
+        <div class="id">MLB1208948236</div>
+      </td>
+      <td class="sku">GBM: AGN066003</td>
+      <td class="est">GBM:AGN066003=4</td>
+      <td class="num">88</td>
+      <td class="num">R$ 269,94</td>
+      <td class="num data">—</td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#60a5fa">KMP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB1493950618/modificar/" target="_blank" rel="noopener">Kit Cavalete Distribuição Água Gol G5 Fox 1.0 1.6 Golf C/tub</a>
+        <div class="id">MLB1493950618</div>
+      </td>
+      <td class="sku">GBM: AGN066001AL CZ</td>
+      <td class="est">GBM:AGN066001ALCZ=39</td>
+      <td class="num">1</td>
+      <td class="num">R$ 298,23</td>
+      <td class="num data">—</td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#60a5fa">KMP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB1766437161/modificar/" target="_blank" rel="noopener">Kit Carcaça Completa Ford Fiesta Ka Courier Eco Gasolina</a>
+        <div class="id">MLB1766437161</div>
+      </td>
+      <td class="sku">GBM: AGN066006</td>
+      <td class="est">GBM:AGN066006=1</td>
+      <td class="num">1</td>
+      <td class="num">R$ 287,54</td>
+      <td class="num data">—</td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#60a5fa">KMP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB3953483549/modificar/" target="_blank" rel="noopener">Reservatório De Água Gm Ágile Celta Prisma Com Ar 3 Saídas</a>
+        <div class="id">MLB3953483549</div>
+      </td>
+      <td class="sku">FLORIO: 14.498</td>
+      <td class="est">FLORIO:14498=2</td>
+      <td class="num">1</td>
+      <td class="num">R$ 139,53</td>
+      <td class="num data">—</td>
+    </tr>
+    <tr class="nosso">
+      <td><span class="loja" style="color:#60a5fa">KMP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB2718878091/modificar/" target="_blank" rel="noopener">Par Buzina Dupla Caracol Agudo Grave Universal Origina</a>
+        <div class="id">MLB2718878091</div>
+      </td>
+      <td class="sku">GAUSS: GB1054</td>
+      <td class="est">GAUSS:GB1054=1</td>
+      <td class="num">89</td>
+      <td class="num">R$ 78,92</td>
+      <td class="num data">—</td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#60a5fa">KMP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB2068718359/modificar/" target="_blank" rel="noopener">Kit Tensor Correia Dentada Ecosport Dragon Ka 3 Cilindro 1.5</a>
+        <div class="id">MLB2068718359</div>
+      </td>
+      <td class="sku">GBM: KBI011</td>
+      <td class="est">GBM:KBI011=1</td>
+      <td class="num">1</td>
+      <td class="num">R$ 1564,78</td>
+      <td class="num data">—</td>
+    </tr>
+    <tr class="nosso">
+      <td><span class="loja" style="color:#60a5fa">KMP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB2084369047/modificar/" target="_blank" rel="noopener">Valvula Termostatica Carcaça Fiesta 1.0 1.6 Flex 2008 A 2013</a>
+        <div class="id">MLB2084369047</div>
+      </td>
+      <td class="sku">GBM: AGN066004</td>
+      <td class="est">GBM:AGN066004=2</td>
+      <td class="num">89</td>
+      <td class="num">R$ 245,49</td>
+      <td class="num data">—</td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#60a5fa">KMP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB2130058350/modificar/" target="_blank" rel="noopener">Ventoinha Radiador Gol G5 G6 Voyage Fox Modelo Novo Com Ar</a>
+        <div class="id">MLB2130058350</div>
+      </td>
+      <td class="sku">YMAX: 1310</td>
+      <td class="est">YMAX:1310=3</td>
+      <td class="num">1</td>
+      <td class="num">R$ 341,96</td>
+      <td class="num data">—</td>
+    </tr>
+    <tr class="nosso">
+      <td><span class="loja" style="color:#60a5fa">KMP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB2606188769/modificar/" target="_blank" rel="noopener">Cavalete Válvula Termostática Ford Ka Courier Flex 07 08 09</a>
+        <div class="id">MLB2606188769</div>
+      </td>
+      <td class="sku">GBM: AGN066003</td>
+      <td class="est">GBM:AGN066003=4</td>
+      <td class="num">89</td>
+      <td class="num">R$ 283,50</td>
+      <td class="num data">—</td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#60a5fa">KMP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB3713123964/modificar/" target="_blank" rel="noopener">Cavalete Distribuição Água Ecosport Fiesta Zetec Alumínio</a>
+        <div class="id">MLB3713123964</div>
+      </td>
+      <td class="sku">GBM: AGN066004</td>
+      <td class="est">GBM:AGN066004=2</td>
+      <td class="num">1</td>
+      <td class="num">R$ 247,56</td>
+      <td class="num data">—</td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#60a5fa">KMP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB3346224711/modificar/" target="_blank" rel="noopener">Válvula Termostatica Carcaça Ecosport 1.0 1.6 Flex 2007 2013</a>
+        <div class="id">MLB3346224711</div>
+      </td>
+      <td class="sku">GBM: AGN066004</td>
+      <td class="est">GBM:AGN066004=2</td>
+      <td class="num">1</td>
+      <td class="num">R$ 246,00</td>
+      <td class="num data">—</td>
+    </tr>
+    <tr class="nosso">
+      <td><span class="loja" style="color:#60a5fa">KMP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB3703612032/modificar/" target="_blank" rel="noopener">Valvula Termostatica Ka 1.0 1.6 8v 2009 2010 2011 2012 2013</a>
+        <div class="id">MLB3703612032</div>
+      </td>
+      <td class="sku">GBM: AGN066003</td>
+      <td class="est">GBM:AGN066003=4</td>
+      <td class="num">89</td>
+      <td class="num">R$ 225,54</td>
+      <td class="num data">—</td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#60a5fa">KMP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB3703564356/modificar/" target="_blank" rel="noopener">Válvula Termostática Alumínio Ford Ka Courier 1.0 1.6 Flex</a>
+        <div class="id">MLB3703564356</div>
+      </td>
+      <td class="sku">GBM: AGN066003</td>
+      <td class="est">GBM:AGN066003=4</td>
+      <td class="num">98</td>
+      <td class="num">R$ 224,78</td>
+      <td class="num data">—</td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#60a5fa">KMP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB1460029659/modificar/" target="_blank" rel="noopener">Cavalete Distribuição Agua Fiesta Ka Ecosport Zetec Alumínio</a>
+        <div class="id">MLB1460029659</div>
+      </td>
+      <td class="sku">GBM: AGN066004</td>
+      <td class="est">GBM:AGN066004=2</td>
+      <td class="num">1</td>
+      <td class="num">R$ 217,52</td>
+      <td class="num data">—</td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#60a5fa">KMP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB4341001537/modificar/" target="_blank" rel="noopener">Radiador Fiat 500 1.4 16v Manual Mexicano 2010 2011 2012</a>
+        <div class="id">MLB4341001537</div>
+      </td>
+      <td class="sku">AUTOGIC: AG85485</td>
+      <td class="est">AUTOGIC:AG85485=1</td>
+      <td class="num">3</td>
+      <td class="num">R$ 567,49</td>
+      <td class="num data">—</td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#60a5fa">KMP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB4940755467/modificar/" target="_blank" rel="noopener">Sensor Partida Frio Gol Parati Quadrado Iguaçu 204.4005</a>
+        <div class="id">MLB4940755467</div>
+      </td>
+      <td class="sku">IGUAÇU: 204.4005</td>
+      <td class="est">IGUACU:2044005=3</td>
+      <td class="num">95</td>
+      <td class="num">R$ 71,91</td>
+      <td class="num data">—</td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#f472b6">LTS</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB2668754055/modificar/" target="_blank" rel="noopener">Bomba D'água Gol G3 G4 G5 G6 Kombi Fox Polo Saveiro Original</a>
+        <div class="id">MLB2668754055</div>
+      </td>
+      <td class="sku">URBA: UB0630A</td>
+      <td class="est">URBA:UB0630A=1</td>
+      <td class="num">1</td>
+      <td class="num">R$ 224,00</td>
+      <td class="num data">—</td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#f472b6">LTS</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB2098045963/modificar/" target="_blank" rel="noopener">Bomba Agua Vw Fox Polo Voyage Gol 1.0 1.6 G3 G4 G5 G6 G7  </a>
+        <div class="id">MLB2098045963 <span class="kit">KIT</span></div>
+      </td>
+      <td class="sku">KIT: URBA: UB0630A + HITECH: HT-11000 - 2UN</td>
+      <td class="est">URBA:UB0630A=1 | HITECH:HT11000=499</td>
+      <td class="num">1</td>
+      <td class="num">R$ 182,70</td>
+      <td class="num data">—</td>
+    </tr>
+    <tr class="nosso">
+      <td><span class="loja" style="color:#f472b6">LTS</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB1963596985/modificar/" target="_blank" rel="noopener">Carcaça Completa Válvula Sensor Gol 1.0 16v At Sem Ar Iguaçu</a>
+        <div class="id">MLB1963596985</div>
+      </td>
+      <td class="sku">IGUAÇU: 601.3008-87</td>
+      <td class="est">IGUACU:601300887=9</td>
+      <td class="num">89</td>
+      <td class="num">R$ 294,86</td>
+      <td class="num data">—</td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#f472b6">LTS</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB2108943520/modificar/" target="_blank" rel="noopener">Kit Correia Dentada Tensor Gol 1.0 1.6 G3 G4 G5 Fox Voyage</a>
+        <div class="id">MLB2108943520</div>
+      </td>
+      <td class="sku">GBM: DKITVW135STP</td>
+      <td class="est">GBM:DKITVW135STP=1</td>
+      <td class="num">2</td>
+      <td class="num">R$ 189,30</td>
+      <td class="num data">—</td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#f472b6">LTS</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB2096951637/modificar/" target="_blank" rel="noopener">Kit Tensor Correia Dentada Ford Ka Ecosport 1.5 12v Original</a>
+        <div class="id">MLB2096951637</div>
+      </td>
+      <td class="sku">GBM: KBI011</td>
+      <td class="est">GBM:KBI011=1</td>
+      <td class="num">1</td>
+      <td class="num">R$ 1593,71</td>
+      <td class="num data">—</td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#f472b6">LTS</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB3757572980/modificar/" target="_blank" rel="noopener">Kit Cabo E Vela Sandero 1.0 16v 2013 2014 2015 2016 2017 Preto</a>
+        <div class="id">MLB3757572980 <span class="kit">KIT</span></div>
+      </td>
+      <td class="sku">KIT: GAUSS: GV7R03 + PERFECT: 70R16P</td>
+      <td class="est">GAUSS:GV7R03=6 | PERFECT:70R16P=1</td>
+      <td class="num">1</td>
+      <td class="num">R$ 227,56</td>
+      <td class="num data">—</td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#f472b6">LTS</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB1965178531/modificar/" target="_blank" rel="noopener">Bomba Carcaça D'agua Vw Up 1.0 3cil Golf Jetta Audi 1.4 Tsi</a>
+        <div class="id">MLB1965178531</div>
+      </td>
+      <td class="sku">GBM: AGN452506</td>
+      <td class="est">GBM:AGN452506=2</td>
+      <td class="num">1</td>
+      <td class="num">R$ 678,40</td>
+      <td class="num data">—</td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#f472b6">LTS</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB3397809365/modificar/" target="_blank" rel="noopener">Válvula Termostática Fiesta Ecosport Zetec Rocam Gasolina</a>
+        <div class="id">MLB3397809365</div>
+      </td>
+      <td class="sku">GBM: AGN066006</td>
+      <td class="est">GBM:AGN066006=1</td>
+      <td class="num">1</td>
+      <td class="num">R$ 214,76</td>
+      <td class="num data">—</td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#f472b6">LTS</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB3902906840/modificar/" target="_blank" rel="noopener">Valvula Termostatica Fiesta 1.0 1.6 Flex 2009 2010 2011 2012</a>
+        <div class="id">MLB3902906840</div>
+      </td>
+      <td class="sku">GBM: AGN066004</td>
+      <td class="est">GBM:AGN066004=2</td>
+      <td class="num">1</td>
+      <td class="num">R$ 216,45</td>
+      <td class="num data">—</td>
+    </tr>
+    </tbody>
+  </table></div>
+
+  <p class="nota">As linhas em <b>amarelo</b> estão com 89 unidades — o número que só o nosso sistema usa ao reativar.
+  São as que o sistema colocou no ar e deixou sem Flex. As demais têm quantidade normal do dia a dia: o Flex
+  provavelmente foi desligado à mão em algum momento.</p>
+  <p class="nota">Um grupo se repete: <b>GBM: AGN066003 e AGN066004</b> (carcaça/válvula termostática Ford Ka,
+  Fiesta e Ecosport) aparecem 10 vezes. Parece um lote tratado junto que ficou todo sem Flex.</p>
+</div></body></html>

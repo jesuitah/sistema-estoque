@@ -154,6 +154,27 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    // HISTÓRICO DO FLEX — lido ANTES de gravar por cima.
+    //
+    // O catálogo guarda só a foto: como o Flex está agora. Isso não distingue "alguém
+    // desligou sem querer" de "nunca teve Flex", e era justamente essa a dúvida do
+    // Matheus em 11/09/2026. Comparando o que estava com o que chegou, a mudança fica
+    // registrada com data — e aí dá pra responder.
+    //
+    // Só grava o que MUDOU: numa passada normal isso é zero ou uma mão-cheia de linhas.
+    const antes = new Map<string, boolean>();
+    for (let de = 0; ; de += 1000) {
+      const { data } = await supabase.from("ml_anuncios")
+        .select("item_id, flex").eq("conta", conta.conta).range(de, de + 999);
+      if (!data || !data.length) break;
+      for (const a of data) antes.set(a.item_id, a.flex);
+      if (data.length < 1000) break;
+    }
+
+    const mudancas = anuncios
+      .filter((a) => antes.has(a.item_id) && antes.get(a.item_id) !== a.flex)
+      .map((a) => ({ conta: a.conta, item_id: a.item_id, de: antes.get(a.item_id), para: a.flex }));
+
     if (anuncios.length > 0) {
       const { error: errUpsert } = await supabase
         .from("ml_anuncios")
@@ -162,6 +183,24 @@ Deno.serve(async (req: Request) => {
         resultado[conta.conta] = { erro: "falha ao salvar anúncios", detalhe: errUpsert };
         continue;
       }
+    }
+
+    let mudancasDeFora = 0;
+    if (mudancas.length) {
+      // Foi o robô, a nosso pedido, ou mudou por fora? A diferença é o que separa
+      // "o sistema funcionando" de "erro de processo" — e é a única das duas que
+      // interessa no aviso semanal.
+      const desde = new Date(Date.now() - 36 * 60 * 60 * 1000).toISOString();
+      const { data: tarefas } = await supabase.from("ml_tarefas_robo")
+        .select("params").eq("conta", conta.conta).eq("status", "feito")
+        .in("tipo", ["ligar_flex", "desligar_flex"]).gte("concluido_em", desde);
+      const pedidoNosso = new Set((tarefas ?? []).map((t: any) => t.params?.item_id));
+
+      const linhas = mudancas.map((m) => ({
+        ...m, origem: pedidoNosso.has(m.item_id) ? "robo" : "fora",
+      }));
+      mudancasDeFora = linhas.filter((l) => l.origem === "fora").length;
+      await supabase.from("ml_flex_historico").insert(linhas).then(() => {}, () => {});
     }
 
     // LIMPEZA DOS FANTASMAS.
@@ -214,6 +253,8 @@ Deno.serve(async (req: Request) => {
       total_anuncios_conta: idsTotal.length,
       catalogados_agora: anuncios.length,
       removidos_por_nao_existirem_mais: limpeza,
+      flex_mudou: mudancas.length,
+      flex_mudou_sem_pedido_nosso: mudancasDeFora,
     };
   }
 

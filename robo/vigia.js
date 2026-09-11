@@ -192,6 +192,49 @@ async function levantarProblemas(sb) {
     });
   }
 
+  // 5) ANÚNCIO QUE PERDEU O FLEX SEM NINGUÉM PEDIR — resumo da semana.
+  //
+  // Nasceu da pergunta do Matheus em 11/09/2026: "estamos errando mesmo?". Tinha 254
+  // anúncios ativos sem Flex, e não dava pra saber se era erro ou decisão antiga —
+  // o sistema só guardava a foto do estado atual, nunca o filme.
+  //
+  // Agora o catálogo anota cada mudança em ml_flex_historico, e aqui só interessa um
+  // caso: o Flex caiu (true -> false) em anúncio que continua ATIVO, sem tarefa nossa
+  // por trás. Anúncio pausado não conta — ali desligar é a regra da casa.
+  //
+  // Semanal de propósito. Se a semana foi limpa, ele não aparece: silêncio é a resposta
+  // "não, não estamos errando".
+  try {
+    const seteDias = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
+    const { data: quedas } = await sb.from('ml_flex_historico')
+      .select('conta, item_id, quando')
+      .eq('de', true).eq('para', false).eq('origem', 'fora')
+      .gte('quando', seteDias);
+
+    if (quedas && quedas.length) {
+      // Só os que continuam ativos: se o anúncio pausou depois, o Flex desligado está
+      // certo e não há nada a corrigir.
+      const { data: aindaAtivos } = await sb.from('ml_anuncios')
+        .select('conta, item_id').eq('status', 'active')
+        .in('item_id', quedas.map((q) => q.item_id));
+      const ativo = new Set((aindaAtivos || []).map((a) => a.conta + '|' + a.item_id));
+      const alvos = quedas.filter((q) => ativo.has(q.conta + '|' + q.item_id));
+
+      if (alvos.length) {
+        const porConta = {};
+        for (const a of alvos) porConta[a.conta] = (porConta[a.conta] || 0) + 1;
+        const resumo = Object.keys(porConta).sort()
+          .map((c) => `${c}: ${porConta[c]}`).join(', ');
+        achados.push({
+          chave: 'flex_caiu_sozinho', gravidade: 'aviso',
+          mensagem: `${alvos.length} anúncio(s) ativos perderam o Envios Flex nos últimos 7 dias sem pedido do sistema (${resumo})`,
+        });
+      }
+    }
+  } catch (_e) {
+    // Conferência acessória: se falhar, não derruba o resto da vigilância.
+  }
+
   return achados;
 }
 

@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pausados com estoque</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin:0; background:#0f172a; color:#e2e8f0;
+         font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; padding:28px 20px 60px; }
+  .wrap { max-width:1100px; margin:0 auto; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .sub { color:#94a3b8; font-size:13px; margin-bottom:22px; }
+  .cartoes { display:flex; gap:12px; flex-wrap:wrap; margin-bottom:24px; }
+  .c { background:#1e293b; border:1px solid #334155; border-radius:8px; padding:12px 16px; min-width:118px; }
+  .c b { display:block; font-size:24px; line-height:1.2; }
+  .c span { color:#94a3b8; font-size:12px; }
+  .c.alerta b { color:#f87171; }
+  .rolagem { overflow-x:auto; border:1px solid #334155; border-radius:8px; }
+  table { border-collapse:collapse; width:100%; min-width:860px; }
+  th { background:#1e293b; color:#94a3b8; font-size:11px; text-transform:uppercase;
+       letter-spacing:.04em; text-align:left; padding:9px 12px; position:sticky; top:0; }
+  td { padding:9px 12px; border-top:1px solid #1e293b; vertical-align:top; }
+  tr.folga { background:rgba(248,113,113,.07); }
+  tr.folga td:first-child { box-shadow:inset 3px 0 0 #f87171; }
+  tr.cobaia { opacity:.45; }
+  .loja { font-weight:700; font-size:12px; }
+  .titulo a { color:#e2e8f0; text-decoration:none; }
+  .titulo a:hover { color:#7dd3fc; text-decoration:underline; }
+  .id { color:#64748b; font-size:11px; margin-top:2px; font-family:ui-monospace,Consolas,monospace; }
+  .tag { padding:1px 5px; border-radius:3px; font-size:10px; font-weight:700; }
+  .kit { background:#4c1d95; color:#ddd6fe; }
+  .cob { background:#334155; color:#94a3b8; }
+  .sku,.est { font-family:ui-monospace,Consolas,monospace; font-size:12px; color:#cbd5e1; }
+  .est { color:#86efac; }
+  .num { text-align:right; white-space:nowrap; }
+  .sim { color:#34d399; } .nao { color:#94a3b8; }
+  .nota { margin-top:20px; color:#94a3b8; font-size:12.5px; max-width:780px; }
+  .nota b { color:#f87171; }
+</style></head><body><div class="wrap">
+  <h1>Anúncios pausados — com a peça em estoque aqui</h1>
+  <div class="sub">Conferência de 11/09/2026 · catálogo sincronizado agora · clique no título para abrir o anúncio no Mercado Livre</div>
+
+  <div class="cartoes">
+    <div class="c alerta"><b>36</b><span>pausados com estoque</span></div>
+    <div class="c"><b>3</b><span>com 3+ unidades</span></div>
+    <div class="c"><b>9</b><span>ERP</span></div>
+    <div class="c"><b>13</b><span>KMP</span></div>
+    <div class="c"><b>14</b><span>LTS</span></div>
+  </div>
+
+  <div class="rolagem"><table>
+    <thead><tr>
+      <th>Loja</th><th>Anúncio</th><th>SKU</th><th>Estoque aqui</th>
+      <th class="num">Preço</th><th class="num">Flex</th>
+    </tr></thead>
+    <tbody>
+    <tr class="folga">
+      <td><span class="loja" style="color:#34d399">ERP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB6815708974/modificar/" target="_blank" rel="noopener">Reservatório Água Radiador Vw Ibiza Gol Saveiro Parati G3 G4</a>
+        <div class="id">MLB6815708974</div>
+      </td>
+      <td class="sku">FLORIO: 11418</td>
+      <td class="est">FLORIO:11418=6</td>
+      <td class="num">R$ 121,51</td>
+      <td class="num"><span class="nao">não</span></td>
+    </tr>
+    <tr class="folga">
+      <td><span class="loja" style="color:#34d399">ERP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB3698330859/modificar/" target="_blank" rel="noopener">Par Pivô Bandeja Superior Dianteira Ford Fusion 2006 Á 2012</a>
+        <div class="id">MLB3698330859</div>
+      </td>
+      <td class="sku">KIT: MOTORACO:  MP0206 - 2UN</td>
+      <td class="est">MOTORACO:MP0206=4</td>
+      <td class="num">R$ 172,15</td>
+      <td class="num"><span class="nao">não</span></td>
+    </tr>
+    <tr class="folga">
+      <td><span class="loja" style="color:#60a5fa">KMP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB6200275098/modificar/" target="_blank" rel="noopener">Par Coxim Amortecedor Dianteiro Gm Celta Corsa Prisma Tigra</a>
+        <div class="id">MLB6200275098</div>
+      </td>
+      <td class="sku">KIT: GBM: 93256312AXIOS - 2UN</td>
+      <td class="est">GBM:93256312AXIOS=4</td>
+      <td class="num">R$ 125,41</td>
+      <td class="num"><span class="nao">não</span></td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#34d399">ERP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB3659426351/modificar/" target="_blank" rel="noopener">Válvula Termostática Completa Fiesta Ecosport Focus 1.6 Flex</a>
+        <div class="id">MLB3659426351</div>
+      </td>
+      <td class="sku">GBM: AGN066004</td>
+      <td class="est">GBM:AGN066004=2</td>
+      <td class="num">R$ 209,63</td>
+      <td class="num"><span class="nao">não</span></td>
+    </tr>
+    <tr class="cobaia">
+      <td><span class="loja" style="color:#60a5fa">KMP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB3952481311/modificar/" target="_blank" rel="noopener">Reservatório Água C Tampa Fiat Strada Palio Siena Sist Behr</a>
+        <div class="id">MLB3952481311 <span class="tag kit">KIT</span> <span class="tag cob">COBAIA — ignore</span></div>
+      </td>
+      <td class="sku">KIT: FLORIO: 13.412 + 23047</td>
+      <td class="est">FLORIO:13412=2 | FLORIO:23047=91</td>
+      <td class="num">R$ 118,14</td>
+      <td class="num"><span class="nao">não</span></td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#60a5fa">KMP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB2120812648/modificar/" target="_blank" rel="noopener">Kit Correia Dentada Duster Oroch 2.0 16v 2012 2013 2014 2015</a>
+        <div class="id">MLB2120812648</div>
+      </td>
+      <td class="sku">ZEN: 15043</td>
+      <td class="est">ZEN:15043=2</td>
+      <td class="num">R$ 564,75</td>
+      <td class="num"><span class="nao">não</span></td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#60a5fa">KMP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB1965263269/modificar/" target="_blank" rel="noopener">Bomba Dagua Vw Golf 1.4 Tsi Up 1.0 Gol Voyage 1.0 12v </a>
+        <div class="id">MLB1965263269</div>
+      </td>
+      <td class="sku">GBM: AGN452506</td>
+      <td class="est">GBM:AGN452506=2</td>
+      <td class="num">R$ 659,45</td>
+      <td class="num"><span class="nao">não</span></td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#60a5fa">KMP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB1932041976/modificar/" target="_blank" rel="noopener">Kit Correia Dentada - Renault Duster Oroch Sandero 2.0 16v</a>
+        <div class="id">MLB1932041976</div>
+      </td>
+      <td class="sku">ZEN: 15043</td>
+      <td class="est">ZEN:15043=2</td>
+      <td class="num">R$ 569,00</td>
+      <td class="num"><span class="nao">não</span></td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#60a5fa">KMP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB1965263406/modificar/" target="_blank" rel="noopener">Bomba D'agua Vw Up 1.0 12v 2014/.. 3cil. Completa C/ Carcaça</a>
+        <div class="id">MLB1965263406</div>
+      </td>
+      <td class="sku">GBM: AGN452506</td>
+      <td class="est">GBM:AGN452506=2</td>
+      <td class="num">R$ 667,18</td>
+      <td class="num"><span class="nao">não</span></td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#f472b6">LTS</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB4268056347/modificar/" target="_blank" rel="noopener">Kit Correia Tensor Válvula Bomba D'água Gm Corsa 1.8 8v 2003</a>
+        <div class="id">MLB4268056347 <span class="tag kit">KIT</span></div>
+      </td>
+      <td class="sku">KIT: RK9308B + SCHADEK: 20.145 + GBM: AGN066005</td>
+      <td class="est">SCHADEK:20145=3 | GBM:AGN066005=2</td>
+      <td class="num">R$ 433,92</td>
+      <td class="num"><span class="nao">não</span></td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#f472b6">LTS</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB1791974430/modificar/" target="_blank" rel="noopener">Sensor Nível Boia Combustível Todos Hb20 Flex Ds 23157 </a>
+        <div class="id">MLB1791974430</div>
+      </td>
+      <td class="sku">DS: 23157</td>
+      <td class="est">DS:23157=2</td>
+      <td class="num">R$ 125,80</td>
+      <td class="num"><span class="nao">não</span></td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#34d399">ERP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB4703464380/modificar/" target="_blank" rel="noopener">Par Pivô De Suspensão Inferior Mercedes Sprinter Acima 2012</a>
+        <div class="id">MLB4703464380</div>
+      </td>
+      <td class="sku">KIT: MOTORACO: MP3007 - 2UN</td>
+      <td class="est">MOTORACO:MP3007=1</td>
+      <td class="num">R$ 163,48</td>
+      <td class="num"><span class="nao">não</span></td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#34d399">ERP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB5286675630/modificar/" target="_blank" rel="noopener">Bomba D'água Citroën C3 Peugeot 206 207 Sw Hoggar 1.4 8v</a>
+        <div class="id">MLB5286675630 <span class="tag kit">KIT</span></div>
+      </td>
+      <td class="sku">KIT: URBA: UB0807 + HITECH: HT-11000 - 2UN</td>
+      <td class="est">URBA:UB0807=1 | HITECH:HT11000=499</td>
+      <td class="num">R$ 234,96</td>
+      <td class="num"><span class="nao">não</span></td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#34d399">ERP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB5398377574/modificar/" target="_blank" rel="noopener">Kit Correia + Tensor Ford Ka Ecosport 1.5 12v Dragon 2017 18</a>
+        <div class="id">MLB5398377574</div>
+      </td>
+      <td class="sku">GBM: KBI011</td>
+      <td class="est">GBM:KBI011=1</td>
+      <td class="num">R$ 1549,62</td>
+      <td class="num"><span class="nao">não</span></td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#34d399">ERP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB4859375850/modificar/" target="_blank" rel="noopener">Par Barra Axial De Direção Fiat Stilo 03  Bravo 11  2017</a>
+        <div class="id">MLB4859375850</div>
+      </td>
+      <td class="sku">KIT: MOTORACO: MAD680203 - 2UN</td>
+      <td class="est">MOTORACO:MAD680203=1</td>
+      <td class="num">R$ 120,63</td>
+      <td class="num"><span class="nao">não</span></td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#34d399">ERP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB5995721292/modificar/" target="_blank" rel="noopener">Radiador Brasado Fiat 500 1.4 16v Manual Mexicano 2010 2011</a>
+        <div class="id">MLB5995721292</div>
+      </td>
+      <td class="sku">AUTOGIC: AG85485</td>
+      <td class="est">AUTOGIC:AG85485=1</td>
+      <td class="num">R$ 524,46</td>
+      <td class="num"><span class="nao">não</span></td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#34d399">ERP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB5409937912/modificar/" target="_blank" rel="noopener">Cinta De Airbag Honda Fit 1.4 E 1.5 2003  2008 77900senh01 Preto</a>
+        <div class="id">MLB5409937912</div>
+      </td>
+      <td class="sku">KQ: MQ2018</td>
+      <td class="est">KQ:MQ2018=1</td>
+      <td class="num">R$ 128,97</td>
+      <td class="num"><span class="nao">não</span></td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#60a5fa">KMP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB1848101755/modificar/" target="_blank" rel="noopener">Kit Cabo + Velas De Ignição Gol G4 1.0 8v  Flex  Preto</a>
+        <div class="id">MLB1848101755 <span class="tag kit">KIT</span></div>
+      </td>
+      <td class="sku">KIT: GAUSS: GV7R02 + PERFECT: 10V25P</td>
+      <td class="est">GAUSS:GV7R02=1 | PERFECT:10V25P=2</td>
+      <td class="num">R$ 165,72</td>
+      <td class="num"><span class="nao">não</span></td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#60a5fa">KMP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB2633338558/modificar/" target="_blank" rel="noopener">Bomba D'água Volks Gol G2 G3 G4 G5 G6 Fox Golf Polo Kombi 8v</a>
+        <div class="id">MLB2633338558 <span class="tag kit">KIT</span></div>
+      </td>
+      <td class="sku">KIT: URBA: UB0630A + HITECH: HT-11000 - 2UN</td>
+      <td class="est">URBA:UB0630A=1 | HITECH:HT11000=499</td>
+      <td class="num">R$ 163,24</td>
+      <td class="num"><span class="nao">não</span></td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#60a5fa">KMP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB4970438561/modificar/" target="_blank" rel="noopener">Coxim Traseiro Cambio Journey Fiat Freemont Journey 2.4</a>
+        <div class="id">MLB4970438561</div>
+      </td>
+      <td class="sku">MOTORACO: MCX154</td>
+      <td class="est">MOTORACO:MCX154=1</td>
+      <td class="num">R$ 298,54</td>
+      <td class="num"><span class="nao">não</span></td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#60a5fa">KMP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB1879989429/modificar/" target="_blank" rel="noopener">Bomba Água Gol Fox Voyage Kombi 1.0 1.4 1.6 G5 G6 At Ea111</a>
+        <div class="id">MLB1879989429</div>
+      </td>
+      <td class="sku">URBA: UB0630A</td>
+      <td class="est">URBA:UB0630A=1</td>
+      <td class="num">R$ 140,64</td>
+      <td class="num"><span class="nao">não</span></td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#60a5fa">KMP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB2007570022/modificar/" target="_blank" rel="noopener">Kit Cabos E Velas Fox Gol G4 G5 Voyage 1.0 1.6 8v Flex Preto</a>
+        <div class="id">MLB2007570022 <span class="tag kit">KIT</span></div>
+      </td>
+      <td class="sku">KIT: GAUSS: GV7R02 + PERFECT: 10V25P</td>
+      <td class="est">GAUSS:GV7R02=1 | PERFECT:10V25P=2</td>
+      <td class="num">R$ 164,88</td>
+      <td class="num"><span class="nao">não</span></td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#60a5fa">KMP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB2081872032/modificar/" target="_blank" rel="noopener">Jogo De Velas Fox Gol G4 G5 G6 Voyage Fox 1.0 1.6 8v Flex </a>
+        <div class="id">MLB2081872032</div>
+      </td>
+      <td class="sku">GAUSS: GV7R02</td>
+      <td class="est">GAUSS:GV7R02=1</td>
+      <td class="num">R$ 95,61</td>
+      <td class="num"><span class="nao">não</span></td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#60a5fa">KMP</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB4199991440/modificar/" target="_blank" rel="noopener">Cinta Airbag Fita Honda Fit 2003 2004 2005 2006 2007 2008</a>
+        <div class="id">MLB4199991440</div>
+      </td>
+      <td class="sku">KQ: MQ2018</td>
+      <td class="est">KQ:MQ2018=1</td>
+      <td class="num">R$ 134,63</td>
+      <td class="num"><span class="nao">não</span></td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#f472b6">LTS</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB2139248679/modificar/" target="_blank" rel="noopener">Par De Bieleta Suspenção Nissan Sentra 2012 2013 2014 2015</a>
+        <div class="id">MLB2139248679</div>
+      </td>
+      <td class="sku">KIT: DAYTRON: DTB161 - 2UN</td>
+      <td class="est">DAYTRON:DTB161=1</td>
+      <td class="num">R$ 111,78</td>
+      <td class="num"><span class="nao">não</span></td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#f472b6">LTS</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB2205611713/modificar/" target="_blank" rel="noopener">Par De Bieleta Suspensão Peugeot 306 Partner 1993 A 2013</a>
+        <div class="id">MLB2205611713</div>
+      </td>
+      <td class="sku">KIT: DAYTRON: DTB013 - 2UN</td>
+      <td class="est">DAYTRON:DTB013=1</td>
+      <td class="num">R$ 112,87</td>
+      <td class="num"><span class="nao">não</span></td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#f472b6">LTS</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB2606177922/modificar/" target="_blank" rel="noopener">Buzina Dupla Carro Caminhão Caracol Universal 12v Gauss</a>
+        <div class="id">MLB2606177922</div>
+      </td>
+      <td class="sku">GAUSS: GB1054</td>
+      <td class="est">GAUSS:GB1054=1</td>
+      <td class="num">R$ 75,81</td>
+      <td class="num"><span class="nao">não</span></td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#f472b6">LTS</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB3615093591/modificar/" target="_blank" rel="noopener">Par Terminal Direção Vw Santana Quantum Versailles Royale</a>
+        <div class="id">MLB3615093591</div>
+      </td>
+      <td class="sku">KIT: MOTORACO: MT1030 - 2UN</td>
+      <td class="est">MOTORACO:MT1030=1</td>
+      <td class="num">R$ 115,67</td>
+      <td class="num"><span class="nao">não</span></td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#f472b6">LTS</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB4495545760/modificar/" target="_blank" rel="noopener">Cinta Airbag Fita Honda Fit 2003 2004 2005 2006 77900senh01</a>
+        <div class="id">MLB4495545760</div>
+      </td>
+      <td class="sku">KQ: MQ2018</td>
+      <td class="est">KQ:MQ2018=1</td>
+      <td class="num">R$ 132,28</td>
+      <td class="num"><span class="nao">não</span></td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#f472b6">LTS</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB2131951553/modificar/" target="_blank" rel="noopener">Par De Bieleta Suspenção New Civic 2007 2008 2009 2010 2011</a>
+        <div class="id">MLB2131951553 <span class="tag kit">KIT</span></div>
+      </td>
+      <td class="sku">KIT: DAYTRON: DTB050 + DTB051</td>
+      <td class="est">DAYTRON:DTB050=1 | DAYTRON:DTB051=1</td>
+      <td class="num">R$ 101,42</td>
+      <td class="num"><span class="nao">não</span></td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#f472b6">LTS</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB2665604074/modificar/" target="_blank" rel="noopener">Jogo Kit Velas Ignição Gauss Polo Fox Gol G4 G5 G6 1.0 1.6</a>
+        <div class="id">MLB2665604074</div>
+      </td>
+      <td class="sku">GAUSS: GV7R02</td>
+      <td class="est">GAUSS:GV7R02=1</td>
+      <td class="num">R$ 76,80</td>
+      <td class="num"><span class="nao">não</span></td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#f472b6">LTS</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB1935933040/modificar/" target="_blank" rel="noopener">Carcaça Válvula Termostática Sensor Fiesta Ka Courier Iguaçu</a>
+        <div class="id">MLB1935933040</div>
+      </td>
+      <td class="sku">IGUAÇU: 601.3005-82</td>
+      <td class="est">IGUACU:601300582=1</td>
+      <td class="num">R$ 296,80</td>
+      <td class="num"><span class="nao">não</span></td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#f472b6">LTS</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB2215545815/modificar/" target="_blank" rel="noopener">Sensor Nível Boia Combustível Fiat Mobi 1.0 2016 A 2022 Ds </a>
+        <div class="id">MLB2215545815</div>
+      </td>
+      <td class="sku">DS: 23187</td>
+      <td class="est">DS:23187=1</td>
+      <td class="num">R$ 126,30</td>
+      <td class="num"><span class="nao">não</span></td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#f472b6">LTS</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB2108587862/modificar/" target="_blank" rel="noopener">Sensor De Nível Nissan Versa 1.6 16v Flex March Kicks Ds </a>
+        <div class="id">MLB2108587862</div>
+      </td>
+      <td class="sku">DS: 23143</td>
+      <td class="est">DS:23143=1</td>
+      <td class="num">R$ 120,70</td>
+      <td class="num"><span class="nao">não</span></td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#f472b6">LTS</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB4980378808/modificar/" target="_blank" rel="noopener">Ventoinha Condensador Ar Condicionado Gm Vectra 1997  05</a>
+        <div class="id">MLB4980378808</div>
+      </td>
+      <td class="sku">KK: KT101008</td>
+      <td class="est">KK:KT101008=1</td>
+      <td class="num">R$ 312,25</td>
+      <td class="num"><span class="nao">não</span></td>
+    </tr>
+    <tr class="">
+      <td><span class="loja" style="color:#f472b6">LTS</span></td>
+      <td class="titulo">
+        <a href="https://www.mercadolivre.com.br/anuncios/MLB4340931443/modificar/" target="_blank" rel="noopener">Radiador Arrefecimento Fiat 500 1.4 16v 2010 2011 2012 2013</a>
+        <div class="id">MLB4340931443</div>
+      </td>
+      <td class="sku">AUTOGIC: AG85485</td>
+      <td class="est">AUTOGIC:AG85485=1</td>
+      <td class="num">R$ 556,91</td>
+      <td class="num"><span class="nao">não</span></td>
+    </tr>
+    </tbody>
+  </table></div>
+
+  <p class="nota">Em <b>vermelho</b>, os que têm 3 unidades ou mais da peça mais escassa — são os mais
+  seguros de reativar, porque não dependem de uma peça solta que pode ter saído e não ter sido baixada.
+  A coluna Flex diz como o anúncio vai voltar: se estiver "não", vai voltar a vender sem Flex.</p>
+  <p class="nota">De 2.315 anúncios pausados nas três lojas, 1.461 estão pausados com razão (peça
+  zerada aqui) e 818 têm SKU que não está cadastrado no sistema — desses não dá pra afirmar nada,
+  nem que é erro nem que está certo.</p>
+</div></body></html>

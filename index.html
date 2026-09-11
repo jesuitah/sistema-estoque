@@ -1541,6 +1541,19 @@
         return mapa;
       }, [precos]);
 
+      // Quantas unidades temos de cada peça, com a chave normalizada igual à do custo.
+      // Serve pra aba "Chegou mercadoria" avisar quando um kit está incompleto.
+      // `undefined` e zero são coisas DIFERENTES aqui: undefined é "peça que o sistema
+      // não conhece" e zero é "conheço e acabou" — e a tela fala diferente nos dois casos.
+      var unidadesPorPeca = useMemo(function() {
+        var mapa = {};
+        (estoque || []).forEach(function(r) {
+          var k = normMarca(r.marca) + '|' + normStr(r.sku);
+          mapa[k] = (mapa[k] || 0) + (Number(r.unidades) || 0);
+        });
+        return mapa;
+      }, [estoque]);
+
       // Custo do anúncio inteiro. `null` = não dá pra saber, e a tela mostra vazio.
       //
       // Basta UM componente sem custo cadastrado para o kit inteiro ficar sem custo:
@@ -5477,11 +5490,33 @@
                 // Só o que está PARADO pode ser reativado — é o trabalho de verdade.
                 var parados = achados.filter(function(a) { return a.status === 'paused'; });
 
+                // AS OUTRAS PEÇAS DO KIT.
+                //
+                // Chegou a peça A, mas o kit também leva a B — e se a B estiver zerada o
+                // kit vai pro ar incompleto. Isto AVISA, não impede: é justamente na hora
+                // que a mercadoria chega que o estoque do sistema está mais atrasado
+                // (você recebe a caixa e lança as quantidades depois). Barrar com base num
+                // número velho seria pior que não barrar. Quem decide é quem está olhando.
+                //
+                // A peça que você acabou de digitar fica de fora da conferência: ela é a
+                // que chegou, então o número dela aqui não quer dizer nada.
+                function faltasDoKit(comps) {
+                  var faltando = [], desconhecidas = [];
+                  comps.forEach(function(c) {
+                    if (c.sku === termo) return;
+                    var u = unidadesPorPeca[c.marca + '|' + c.sku];
+                    if (u === undefined) desconhecidas.push(c.marca + ': ' + c.sku);
+                    else if (u <= 0) faltando.push(c.marca + ': ' + c.sku);
+                  });
+                  return { faltando: faltando, desconhecidas: desconhecidas };
+                }
+
                 function cartaoDoAnuncio(a) {
                   var comps = componentesDoSku(a.seller_sku_bruto);
                   var ehKit = comps.length > 1;
                   var pausado = a.status === 'paused';
                   var quanto = (comps.filter(function(c) { return c.sku === termo; })[0] || {}).qtd || 1;
+                  var faltas = ehKit ? faltasDoKit(comps) : { faltando: [], desconhecidas: [] };
                   return e('div', {
                     key: a.item_id,
                     className: 'flex items-start gap-2 px-3 py-2 rounded border text-xs ' +
@@ -5522,7 +5557,20 @@
                           ? e('span', {className: 'bg-slate-800 text-slate-500 px-1.5 rounded text-[10px]'}, 'flex desligado')
                           : e('span', {className: 'bg-slate-800 text-slate-600 px-1.5 rounded text-[10px]'}, 'sem flex'),
                         e('span', {className: 'text-slate-600 text-[10px]'}, a.seller_sku_bruto || '')
-                      )
+                      ),
+                      // O aviso do kit incompleto fica em linha própria, embaixo das
+                      // etiquetas: é a informação que decide se você marca ou não, e
+                      // espremida entre as outras ela passaria batida.
+                      (faltas.faltando.length > 0 || faltas.desconhecidas.length > 0) &&
+                        e('div', {className: 'flex items-start gap-1.5 mt-1.5 flex-wrap'},
+                          faltas.faltando.length > 0 && e('span', {
+                            className: 'bg-red-950 text-red-300 border border-red-800 px-2 py-0.5 rounded text-[11px] font-bold'
+                          }, '⚠ falta ' + faltas.faltando.join(', ')),
+                          faltas.desconhecidas.length > 0 && e('span', {
+                            className: 'bg-slate-800 text-slate-400 border border-slate-600 px-2 py-0.5 rounded text-[11px]',
+                            title: 'Estas peças não estão cadastradas no sistema, então não dá pra saber se temos.'
+                          }, '? não sei de ' + faltas.desconhecidas.join(', '))
+                        )
                     )
                   );
                 }
