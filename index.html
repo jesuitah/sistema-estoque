@@ -2556,7 +2556,7 @@
               ? noFull + ' está(ão) no Full e NÃO serão pausados — a peça deles está no\n'
                 + 'galpão do Mercado Livre e continua vendendo. Neles só o Flex sai.\n\n'
               : '')
-          + 'Os pausados saem do ar até você reativar pela aba Chegada de pedido.'
+          + 'Os pausados saem do ar até você reativar pela aba Chegou peça.'
         )) return;
 
         setAcabouPausando(true);
@@ -2584,7 +2584,8 @@
           });
       }
 
-      // Traz o catálogo inteiro pra memória. É a base da aba "Chegada de pedido".
+      // Traz o catálogo inteiro pra memória. É a base das abas "Chegou peça" e
+      // "Acabou peça" — as duas leem daqui, por isso carrega uma vez só.
       function carregarCatalogo() {
         var tudo = [];
         function pagina(de) {
@@ -5049,10 +5050,12 @@
                   onClick: function() { setAnunciosSubTab('fora_venda'); carregarStatusRobo(); },
                   className: 'px-4 py-2 rounded-lg text-sm font-bold transition-colors ' + (anunciosSubTab === 'fora_venda' ? 'bg-blue-600 text-white' : 'bg-slate-800 border border-slate-600 text-slate-300 hover:border-slate-400')
                 }, '🔄 Reativar fora de venda'),
-                e('button', {
-                  onClick: function() { setAnunciosSubTab('gaps'); },
-                  className: 'px-4 py-2 rounded-lg text-sm font-bold transition-colors ' + (anunciosSubTab === 'gaps' ? 'bg-blue-600 text-white' : 'bg-slate-800 border border-slate-600 text-slate-300 hover:border-slate-400')
-                }, '🔁 Clonar anúncios'),
+                // A ORDEM É A DO DIA DE TRABALHO, não a ordem em que as abas nasceram.
+                //
+                // Primeiro o que o robô deixou pendente (reativar), depois o movimento
+                // de mercadoria — chegou e acabou, uma do lado da outra porque são a
+                // mesma tarefa em sentidos opostos — e por último o que é ocasional:
+                // clonar, ver o estoque parado, criar anúncio novo.
                 e('button', {
                   onClick: function() {
                     setAnunciosSubTab('chegou');
@@ -5060,9 +5063,7 @@
                     carregarChegouHistorico();
                   },
                   className: 'px-4 py-2 rounded-lg text-sm font-bold transition-colors ' + (anunciosSubTab === 'chegou' ? 'bg-blue-600 text-white' : 'bg-slate-800 border border-slate-600 text-slate-300 hover:border-slate-400')
-                }, '🚚 Chegada de pedido'),
-                // Ao lado da irmã de propósito: são a mesma tarefa em sentidos opostos,
-                // e quem usa uma vai procurar a outra ali do lado.
+                }, '🚚 Chegou peça'),
                 e('button', {
                   onClick: function() {
                     setAnunciosSubTab('acabou');
@@ -5070,7 +5071,11 @@
                     carregarAcabouHistorico();
                   },
                   className: 'px-4 py-2 rounded-lg text-sm font-bold transition-colors ' + (anunciosSubTab === 'acabou' ? 'bg-blue-600 text-white' : 'bg-slate-800 border border-slate-600 text-slate-300 hover:border-slate-400')
-                }, '🛑 Acabou a peça'),
+                }, '🛑 Acabou peça'),
+                e('button', {
+                  onClick: function() { setAnunciosSubTab('gaps'); },
+                  className: 'px-4 py-2 rounded-lg text-sm font-bold transition-colors ' + (anunciosSubTab === 'gaps' ? 'bg-blue-600 text-white' : 'bg-slate-800 border border-slate-600 text-slate-300 hover:border-slate-400')
+                }, '🔁 Clonar anúncios'),
                 e('button', {
                   onClick: function() {
                     setAnunciosSubTab('parado');
@@ -5906,7 +5911,7 @@
 
                 return e('div', {className: 'space-y-4'},
                   e('div', {className: 'bg-slate-800 border border-slate-700 p-5 rounded-lg'},
-                    e('h2', {className: 'text-lg font-bold mb-2'}, '🚚 Chegada de pedido — reativar nas 3 lojas'),
+                    e('h2', {className: 'text-lg font-bold mb-2'}, '🚚 Chegou peça — reativar nas 3 lojas'),
                     e('p', {className: 'text-slate-400 text-sm'},
                       'Digite o código da peça que chegou. Aparecem todos os anúncios parados das três lojas ' +
                       'que dependem dela — inclusive os kits em que ela entra como componente.'),
@@ -6164,7 +6169,7 @@
 
                 return e('div', {className: 'space-y-4'},
                   e('div', {className: 'bg-slate-800 border border-slate-700 p-5 rounded-lg'},
-                    e('h2', {className: 'text-lg font-bold mb-2'}, '🛑 Acabou a peça — pausar nas 3 lojas'),
+                    e('h2', {className: 'text-lg font-bold mb-2'}, '🛑 Acabou peça — pausar nas 3 lojas'),
                     e('p', {className: 'text-slate-400 text-sm'},
                       'Digite o código da peça que acabou. Aparecem todos os anúncios no ar das três lojas ' +
                       'que dependem dela — inclusive os kits em que ela entra como componente.'),
