@@ -1143,6 +1143,20 @@
           .order('atualizado_em', { ascending: false }).limit(1)
           .then(function(r) { if (r.data && r.data[0]) guardar('promocoes', r.data[0].atualizado_em); });
 
+        // E TAMBÉM LOJA POR LOJA.
+        //
+        // O "há X" geral mostra a leitura mais recente de QUALQUER loja — o que escondia
+        // o problema achado em 11/09/2026: o botão só recatalogava a loja selecionada,
+        // então KMP era lida toda hora e a ERP e a LTS ficavam pra trás sem ninguém ver.
+        // Com um selo por loja, loja atrasada aparece.
+        ['KMP', 'ERP', 'LTS'].forEach(function(c) {
+          supabase.from('ml_promocoes_itens').select('atualizado_em').eq('conta', c)
+            .order('atualizado_em', { ascending: false }).limit(1)
+            .then(function(r) {
+              if (r.data && r.data[0]) guardar('promocoes_' + c, r.data[0].atualizado_em);
+            });
+        });
+
         supabase.from('ml_fretes').select('criado_em')
           .order('criado_em', { ascending: false }).limit(1)
           .then(function(r) { if (r.data && r.data[0]) guardar('frete', r.data[0].criado_em); });
@@ -4553,31 +4567,57 @@
               // contra 3, e um ritmo diferente: campanha nova não aparece duas vezes
               // por dia. Misturada com elas, parecia custar o mesmo.
               (function() {
-                var quando = roboUltimas.promocoes;
-                var atrasada = estaAtrasada(quando, 26);
                 var varrendo = det.varrendo_promocoes;
+
+                // UM BOTÃO POR LOJA.
+                //
+                // Antes era um botão só, que dizia "as 3 lojas" mas recatalogava apenas a
+                // loja selecionada lá na aba Promoções — e ela começa sempre em KMP. Em
+                // 11/09/2026 o histórico mostrava KMP lida 20 vezes contra 2 da ERP e 2
+                // da LTS, essas duas paradas havia nove dias, sem nada na tela avisando.
+                //
+                // Agora cada loja tem seu botão e seu "há X". Quem está atrasada aparece
+                // em amarelo, e dá pra recatalogar só a que precisa — que é como o
+                // Matheus trabalha: mexeu na LTS, atualiza a LTS.
+                function botaoDaLoja(c) {
+                  var quando = roboUltimas['promocoes_' + c];
+                  var atrasada = estaAtrasada(quando, 26);
+                  var bloqueado = !ligado || !!varrendo || promoPedindo;
+                  return e('div', {key: c, className: 'flex flex-col items-stretch gap-1'},
+                    e('button', {
+                      onClick: function() { pedirVarreduraPromocoes(c); },
+                      disabled: bloqueado,
+                      title: !ligado ? 'O robô precisa estar ligado' : 'Recatalogar as promoções da ' + c,
+                      className: 'px-5 py-3 rounded-lg font-bold text-sm whitespace-nowrap border transition-colors ' +
+                        (bloqueado
+                          ? 'bg-slate-700 text-slate-500 border-slate-700 cursor-not-allowed'
+                          : 'bg-blue-600 hover:bg-blue-500 text-white border-blue-500')
+                    }, '🔄 ' + c),
+                    e('span', {
+                      className: 'text-[11px] text-center ' +
+                        (atrasada ? 'text-amber-400 font-semibold' : 'text-slate-500')
+                    }, desdeQuando(quando))
+                  );
+                }
+
                 return e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg p-5'},
-                  e('div', {className: 'flex items-center justify-between gap-4 flex-wrap'},
+                  e('div', {className: 'flex items-start justify-between gap-4 flex-wrap'},
                     e('div', null,
                       e('h3', {className: 'font-bold'}, '🏷 Promoções, frete e tarifa'),
                       e('p', {className: 'text-sm text-slate-400 mt-1'},
-                        'Relê as campanhas das 3 lojas e recalcula o custo de frete e a tarifa de cada anúncio.'),
-                      e('p', {className: 'text-xs mt-1'},
-                        e('span', {className: 'text-slate-500'}, '1× por dia · leva ~18 min · '),
-                        e('span', {className: atrasada ? 'text-amber-400 font-semibold' : 'text-slate-400'},
-                          desdeQuando(quando))
-                      )
+                        'Relê as campanhas de uma loja e recalcula o custo de frete e a tarifa de cada anúncio dela.'),
+                      e('p', {className: 'text-xs mt-1 text-slate-500'},
+                        'As 3 rodam sozinhas 1× por dia · cada loja leva ~18 min · clique só na que você precisa agora')
                     ),
-                    e('button', {
-                      onClick: function() { pedirVarreduraPromocoes(promoConta); },
-                      disabled: !ligado || !!varrendo || promoPedindo,
-                      title: !ligado ? 'O robô precisa estar ligado' : '',
-                      className: 'px-5 py-3 rounded-lg font-bold text-sm whitespace-nowrap ' +
-                        ((!ligado || varrendo || promoPedindo)
-                          ? 'bg-slate-700 text-slate-500 cursor-not-allowed'
-                          : 'bg-blue-600 hover:bg-blue-500 text-white')
-                    }, varrendo ? '⏳ lendo...' : promoPedindo ? '⏳ o robô vai começar...' : '🔄 Recatalogar promoções')
+                    e('div', {className: 'flex gap-2 flex-wrap'},
+                      ['KMP', 'ERP', 'LTS'].map(botaoDaLoja))
                   ),
+                  // O aviso de "pedido feito" perdeu o lugar dele quando o botão virou
+                  // três: não cabia escrever isso dentro de um botão sem os três mudarem
+                  // de texto juntos. Fica aqui embaixo, uma linha só, até a barra de
+                  // progresso assumir.
+                  promoPedindo && !varrendo &&
+                    e('div', {className: 'mt-3 text-xs text-sky-300'}, '⏳ o robô vai começar...'),
                   varrendo && e('div', {className: 'mt-3'},
                     e('div', {className: 'flex justify-between text-xs text-sky-200 font-bold mb-1'},
                       e('span', null, 'lendo a ' + det.conta + '...'),
