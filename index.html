@@ -2436,25 +2436,45 @@
         var marcados = Object.keys(chegouMarcados).map(function(id) { return chegouMarcados[id]; });
         if (!marcados.length) return;
 
+        // Quem está PARADO precisa voltar a vender; quem já está no ar só precisa do
+        // Flex de volta. O segundo caso existe por causa do Full: lá o anúncio nunca
+        // foi pausado, só perdeu o Flex, e sem esta separação não havia como devolvê-lo.
+        var paraReativar = marcados.filter(function(a) { return a.status === 'paused'; });
+
         setChegouAtivando(true);
         setChegouResultado(null);
 
-        fetch('https://pylkufhziohxvwbbaued.supabase.co/functions/v1/ml-reativar-lote', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({
-            itens: marcados.map(function(a) { return { conta: a.conta, item_id: a.item_id }; }),
-          }),
-        })
-          .then(function(r) { return r.json(); })
+        var reativacao = paraReativar.length
+          ? fetch('https://pylkufhziohxvwbbaued.supabase.co/functions/v1/ml-reativar-lote', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({
+                itens: paraReativar.map(function(a) { return { conta: a.conta, item_id: a.item_id }; }),
+              }),
+            }).then(function(r) { return r.json(); })
+          : Promise.resolve({ reativados: [], recusados: [], quantidade: 0 });
+
+        reativacao
           .then(function(d) {
             var reativados = d.reativados || [];
-            // Só entra na fila do Flex quem REALMENTE reativou e ainda está sem Flex.
-            // Mandar o robô abrir o painel de um anúncio que nem reativou é trabalho
-            // perdido — e ele demora 15 segundos em cada um.
-            var paraFlex = reativados.filter(function(r) {
-              var a = chegouMarcados[r.item_id];
-              return a && a.flex_disponivel && !a.flex;
+            var recusadosIds = {};
+            (d.recusados || []).forEach(function(r) { recusadosIds[r.item_id] = true; });
+
+            // O FLEX VAI PRA FILA SEM CONSULTAR O CATÁLOGO DA TELA.
+            //
+            // Era aqui o erro: a decisão olhava `a.flex` do catálogo que estava em
+            // memória. Em 11/09/2026 o Matheus pausou uma peça, o robô desligou o Flex
+            // dela, e quando ele foi reativar a tela ainda tinha o retrato de antes —
+            // com Flex ligado. O filtro concluiu "esse já tem Flex" e não enfileirou
+            // nada, nos três anúncios. O dado da tela envelhece; o único que não mente
+            // é o do próprio Mercado Livre.
+            //
+            // Agora manda todo mundo que ACEITA Flex. O robô lê a API antes de abrir o
+            // navegador: se já estiver ligado ele devolve "nada a fazer" em uma chamada,
+            // sem gastar os 15 segundos. Uma tarefa à toa é barata; um Flex que não
+            // volta custa venda.
+            var paraFlex = marcados.filter(function(a) {
+              return a.flex_disponivel && !recusadosIds[a.item_id];
             });
             if (!paraFlex.length) {
               setChegouAtivando(false);
@@ -5059,7 +5079,12 @@
                 e('button', {
                   onClick: function() {
                     setAnunciosSubTab('chegou');
-                    if (catalogo === null) carregarCatalogo();
+                    // SEMPRE relê, não só na primeira vez.
+                    //
+                    // O catálogo em memória envelhece enquanto você trabalha: pausar uma
+                    // peça e ir reativar em seguida deixava a tela com o retrato de antes.
+                    // Foi essa foto velha que fez o Flex não voltar na AG85941.
+                    carregarCatalogo();
                     carregarChegouHistorico();
                   },
                   className: 'px-4 py-2 rounded-lg text-sm font-bold transition-colors ' + (anunciosSubTab === 'chegou' ? 'bg-blue-600 text-white' : 'bg-slate-800 border border-slate-600 text-slate-300 hover:border-slate-400')
@@ -5067,7 +5092,12 @@
                 e('button', {
                   onClick: function() {
                     setAnunciosSubTab('acabou');
-                    if (catalogo === null) carregarCatalogo();
+                    // SEMPRE relê, não só na primeira vez.
+                    //
+                    // O catálogo em memória envelhece enquanto você trabalha: pausar uma
+                    // peça e ir reativar em seguida deixava a tela com o retrato de antes.
+                    // Foi essa foto velha que fez o Flex não voltar na AG85941.
+                    carregarCatalogo();
                     carregarAcabouHistorico();
                   },
                   className: 'px-4 py-2 rounded-lg text-sm font-bold transition-colors ' + (anunciosSubTab === 'acabou' ? 'bg-blue-600 text-white' : 'bg-slate-800 border border-slate-600 text-slate-300 hover:border-slate-400')
@@ -5824,6 +5854,20 @@
                 // Só o que está PARADO pode ser reativado — é o trabalho de verdade.
                 var parados = achados.filter(function(a) { return a.status === 'paused'; });
 
+                // MAS REATIVAR NÃO É A ÚNICA COISA QUE PODE FALTAR.
+                //
+                // Anúncio no Full não é pausado quando a peça acaba, só perde o Flex.
+                // Quando a peça volta, ele já está no ar — e do jeito antigo a tela o
+                // mostrava esmaecido, sem caixinha, sem nenhum jeito de devolver o Flex.
+                // Aconteceu com o Matheus na KMP em 11/09/2026: ele pausou e reativou a
+                // AG85941 e o Flex da KMP ficou desligado sem saída pela tela.
+                var soFaltaFlex = achados.filter(function(a) {
+                  return a.status === 'active' && a.flex_disponivel && !a.flex;
+                });
+                function precisaDeAlgo(a) {
+                  return a.status === 'paused' || (a.status === 'active' && a.flex_disponivel && !a.flex);
+                }
+
                 // AS OUTRAS PEÇAS DO KIT.
                 //
                 // Chegou a peça A, mas o kit também leva a B — e se a B estiver zerada o
@@ -5851,14 +5895,16 @@
                   var pausado = a.status === 'paused';
                   var quanto = (comps.filter(function(c) { return combina(c.sku); })[0] || {}).qtd || 1;
                   var faltas = ehKit ? faltasDoKit(comps) : { faltando: [], desconhecidas: [] };
+                  var temOQueFazer = precisaDeAlgo(a);
                   return e('div', {
                     key: a.item_id,
                     className: 'flex items-start gap-2 px-3 py-2 rounded border text-xs ' +
-                      (pausado ? 'bg-slate-900 border-slate-700' : 'bg-slate-900/40 border-slate-800 opacity-60')
+                      (temOQueFazer ? 'bg-slate-900 border-slate-700' : 'bg-slate-900/40 border-slate-800 opacity-60')
                   },
-                    // Só o que dá pra reativar ganha caixinha. Anúncio já ativo aparece
-                    // esmaecido: serve pra você saber que ele existe, não pra agir nele.
-                    pausado
+                    // Ganha caixinha quem tem o que fazer: o parado (reativar) e também
+                    // o que já está no ar mas perdeu o Flex. Quem está completo aparece
+                    // esmaecido — serve pra você saber que existe, não pra agir nele.
+                    temOQueFazer
                       ? e('input', {
                           type: 'checkbox',
                           checked: !!chegouMarcados[a.item_id],
@@ -5884,6 +5930,12 @@
                         pausado
                           ? e('span', {className: 'bg-red-900 text-red-300 px-1.5 rounded text-[10px] font-bold'}, 'PARADO')
                           : e('span', {className: 'bg-emerald-900 text-emerald-300 px-1.5 rounded text-[10px] font-bold'}, 'já ativo'),
+                        // Diz o que falta neste, pra não parecer que a caixinha apareceu
+                        // sem motivo num anúncio que já está no ar.
+                        !pausado && temOQueFazer && e('span', {
+                          className: 'bg-sky-900 text-sky-300 px-1.5 rounded text-[10px] font-bold',
+                          title: 'O anúncio já está vendendo — só falta devolver o Envios Flex.'
+                        }, 'só falta o flex'),
                         // O estado do Flex, que é metade do trabalho manual de hoje.
                         a.flex
                           ? e('span', {className: 'bg-sky-900 text-sky-300 px-1.5 rounded text-[10px]'}, 'flex ligado')
@@ -5913,8 +5965,9 @@
                   e('div', {className: 'bg-slate-800 border border-slate-700 p-5 rounded-lg'},
                     e('h2', {className: 'text-lg font-bold mb-2'}, '🚚 Chegou peça — reativar nas 3 lojas'),
                     e('p', {className: 'text-slate-400 text-sm'},
-                      'Digite o código da peça que chegou. Aparecem todos os anúncios parados das três lojas ' +
-                      'que dependem dela — inclusive os kits em que ela entra como componente.'),
+                      'Digite o código da peça que chegou. Aparecem todos os anúncios das três lojas que ' +
+                      'dependem dela — inclusive os kits em que ela entra como componente. Dá pra marcar ' +
+                      'tanto os parados (voltam a vender) quanto os que estão no ar sem Flex.'),
                     e('p', {className: 'text-slate-500 text-xs mt-1'},
                       'A entrada da quantidade no estoque continua sendo feita na aba Busca, como sempre.')
                   ),
@@ -5936,20 +5989,39 @@
                     ? e('div', {className: 'text-center text-slate-500 py-10 bg-slate-800 border border-slate-700 rounded-lg'},
                         'Nenhum anúncio usa a peça "' + chegouBusca.trim() + '" — nem sozinha, nem dentro de kit.')
                     : e('div', {className: 'space-y-3'},
-                        e('div', {className: 'text-sm text-slate-400'},
-                          achados.length + ' anúncio(s) com essa peça · ',
-                          e('span', {className: 'text-red-300 font-bold'}, parados.length + ' parado(s)'),
-                          parados.length > 0 ? ' — marque os que quer reativar' : ''),
+                        e('div', {className: 'text-sm text-slate-400 flex items-center gap-2 flex-wrap'},
+                          e('span', null, achados.length + ' anúncio(s) com essa peça'),
+                          parados.length > 0 && e('span', {className: 'text-red-300 font-bold'},
+                            '· ' + parados.length + ' parado(s)'),
+                          soFaltaFlex.length > 0 && e('span', {className: 'text-sky-300 font-bold'},
+                            '· ' + soFaltaFlex.length + ' no ar sem Flex'),
+                          (parados.length + soFaltaFlex.length) > 0
+                            && e('span', {className: 'text-slate-500'}, '— marque o que quer acertar'),
+                          (parados.length + soFaltaFlex.length) > 1 && e('button', {
+                            onClick: function() {
+                              var novo = {};
+                              achados.filter(precisaDeAlgo).forEach(function(a) { novo[a.item_id] = a; });
+                              setChegouMarcados(novo);
+                            },
+                            className: 'text-xs text-slate-300 hover:text-white underline'
+                          }, 'marcar todos os ' + (parados.length + soFaltaFlex.length))
+                        ),
 
                         // A barra de ação. Só aparece com algo marcado — botão que não
                         // tem o que fazer é ruído.
                         (function() {
-                          var marcados = Object.keys(chegouMarcados);
+                          var marcados = Object.keys(chegouMarcados).map(function(id) { return chegouMarcados[id]; });
                           if (!marcados.length) return null;
-                          var comFlexPendente = marcados.filter(function(id) {
-                            var a = chegouMarcados[id];
-                            return a && a.flex_disponivel && !a.flex;
-                          }).length;
+                          var vaoReativar = marcados.filter(function(a) { return a.status === 'paused'; }).length;
+                          var vaoSoFlex = marcados.length - vaoReativar;
+                          var comFlex = marcados.filter(function(a) { return a.flex_disponivel; }).length;
+                          // O botão diz o que vai acontecer com cada grupo. "Reativar 3"
+                          // seria mentira quando um deles já está no ar e só espera o Flex.
+                          var rotulo = vaoReativar && vaoSoFlex
+                            ? 'Reativar ' + vaoReativar + ' e acertar o Flex de ' + vaoSoFlex
+                            : vaoReativar
+                              ? 'Reativar ' + vaoReativar + ' anúncio(s)'
+                              : 'Ligar o Flex em ' + vaoSoFlex + ' anúncio(s)';
                           return e('div', {className: 'sticky top-2 z-10 flex items-center gap-3 flex-wrap bg-slate-900 border border-slate-700 rounded-lg px-4 py-3'},
                             e('button', {
                               onClick: reativarChegada,
@@ -5957,9 +6029,11 @@
                               className: 'h-[38px] px-5 rounded-lg font-bold text-sm ' +
                                 (chegouAtivando ? 'bg-slate-800 text-slate-600 cursor-wait'
                                   : 'bg-emerald-600 hover:bg-emerald-500 text-white')
-                            }, chegouAtivando ? '⏳ reativando...' : 'Reativar ' + marcados.length + ' anúncio(s)'),
+                            }, chegouAtivando ? '⏳ reativando...' : rotulo),
                             e('span', {className: 'text-xs text-slate-400'},
-                              'com 89 unidades' + (comFlexPendente ? ' · e ligar o Flex em ' + comFlexPendente : '')),
+                              (vaoReativar ? 'com 89 unidades' : '')
+                              + (vaoReativar && comFlex ? ' · ' : '')
+                              + (comFlex ? 'Flex de ' + comFlex + ' vai pro robô' : '')),
                             e('button', {
                               onClick: function() { setChegouMarcados({}); },
                               className: 'text-xs text-slate-400 hover:text-slate-200 underline'
