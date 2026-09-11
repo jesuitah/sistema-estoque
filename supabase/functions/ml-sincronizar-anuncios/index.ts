@@ -71,6 +71,11 @@ Deno.serve(async (req: Request) => {
   const resultado: Record<string, unknown> = {};
 
   for (const conta of contas) {
+    // Marca a hora ANTES de começar a conta. Tudo que esta passada gravar fica com
+    // carimbo posterior a ele; o que sobrar com carimbo anterior é anúncio que não
+    // existe mais. Um marco por conta, nunca um global: as contas são processadas em
+    // sequência e um marco só apagaria anúncios vivos da última.
+    const marcoDaPassada = new Date().toISOString();
     let accessToken = conta.access_token;
     const expiraEm = new Date(conta.expires_at).getTime() - Date.now();
     if (expiraEm < 10 * 60 * 1000) {
@@ -159,7 +164,57 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    resultado[conta.conta] = { total_anuncios_conta: idsTotal.length, catalogados_agora: anuncios.length };
+    // LIMPEZA DOS FANTASMAS.
+    //
+    // Anúncio apagado no Mercado Livre não sumia daqui: esta rotina só regravava o que
+    // existe, nunca apagava o que deixou de existir. O resultado era anúncio morto
+    // aparecendo em "Estoque parado" e em "Chegou mercadoria", e o robô tentando
+    // desligar o Flex de página que nem abre mais (13 tentativas numa válvula PCV da
+    // LTS em 11/09/2026, antes de o Matheus contar que tinha apagado o anúncio).
+    //
+    // Como a passada toca TODO anúncio vivo da conta, quem ficou com carimbo velho não
+    // existe mais. As duas travas abaixo são o que separa "o anúncio morreu" de "a
+    // passada é que veio capenga" — e apagar por engano custaria caro.
+    let limpeza: unknown = "passada parcial — não limpei";
+    const passadaCompleta =
+      limite === 0 &&                             // com limite a passada é parcial de propósito
+      idsTotal.length > 0 &&
+      anuncios.length >= idsTotal.length * 0.9;   // detalhou quase tudo que listou
+
+    if (passadaCompleta) {
+      // OLHA ANTES DE APAGAR. As travas acima comparam a passada com ela mesma: se o
+      // scan do ML devolvesse metade dos anúncios da conta, os 0,9 continuariam batendo
+      // e a outra metade — viva — seria apagada. Esta trava compara com o que JÁ estava
+      // no catálogo, que é a única testemunha independente que temos.
+      const { data: velhos } = await supabase
+        .from("ml_anuncios").select("item_id")
+        .eq("conta", conta.conta).lt("atualizado_em", marcoDaPassada);
+      const sumidos = velhos ?? [];
+      const { count: totalNoCatalogo } = await supabase
+        .from("ml_anuncios").select("item_id", { count: "exact", head: true })
+        .eq("conta", conta.conta);
+
+      const demaisPraSerVerdade = sumidos.length > Math.max(20, (totalNoCatalogo ?? 0) * 0.05);
+      if (!sumidos.length) {
+        limpeza = 0;
+      } else if (demaisPraSerVerdade) {
+        // Ninguém apaga 5% do catálogo num dia. Isso é falha do ML ou desta rotina —
+        // e catálogo sobrando conserta sozinho na próxima passada, catálogo apagado não.
+        limpeza = `${sumidos.length} anúncios sumiram de uma vez — não apaguei, confira à mão`;
+      } else {
+        const { data: apagados } = await supabase
+          .from("ml_anuncios").delete()
+          .eq("conta", conta.conta).lt("atualizado_em", marcoDaPassada)
+          .select("item_id");
+        limpeza = apagados?.length ?? 0;
+      }
+    }
+
+    resultado[conta.conta] = {
+      total_anuncios_conta: idsTotal.length,
+      catalogados_agora: anuncios.length,
+      removidos_por_nao_existirem_mais: limpeza,
+    };
   }
 
   return new Response(JSON.stringify(resultado, null, 2), {
