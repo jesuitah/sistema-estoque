@@ -266,6 +266,26 @@ async function obterCsrf(pagina, conta, forcar) {
     return guardado.valor;
   }
   await pagina.goto(PAINEL, { waitUntil: 'domcontentloaded', timeout: 60000 });
+
+  // A SESSÃO DO NAVEGADOR CAIU? Esta conferência não é zelo, é o que faltou.
+  //
+  // Em 11/09/2026 a sessão da KMP expirou no Chrome do robô. O painel passou a
+  // redirecionar pra tela de login — e a tela de login TAMBÉM tem um meta csrf. O robô
+  // pegava aquele token, disparava a chamada de outro domínio e recebia de volta
+  // "Failed to fetch" ou "Execution context was destroyed": erro de Playwright, que não
+  // diz nada a ninguém. Foram 5 falhas seguidas com o aviso vermelho na tela e nenhuma
+  // pista do motivo real, que era simplesmente "precisa entrar de novo".
+  //
+  // `identificarConta` não pega isso: ela pergunta à API oficial, com o token que está
+  // no banco. O token pode estar ótimo e a sessão do navegador, morta — são duas coisas.
+  const url = pagina.url();
+  if (!url.startsWith('https://vendedores.mercadolivre.com.br/')) {
+    throw new Error(
+      `a sessão da ${conta} caiu no navegador do robô — o painel jogou pra ${
+        /login|identification/i.test(url) ? 'a tela de login' : url.split('?')[0]
+      }. Abra o Chrome do robô e entre de novo nessa conta.`);
+  }
+
   await pagina.waitForFunction(
     () => !!document.querySelector('meta[name*=csrf i], meta[name*=xsrf i]'),
     { timeout: 45000 }
