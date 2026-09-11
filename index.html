@@ -26,6 +26,89 @@
     var supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB5bGt1Zmh6aW9oeHZ3YmJhdWVkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1OTIyNzMsImV4cCI6MjA5MTE2ODI3M30.S61OxgJa03KmfJZ_MdFL0ZKAzWdsrrYwnmzuqN6L0vQ';
     var supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
 
+    // ── PERFIL VISUALIZAÇÃO: entra sem senha e NÃO GRAVA NADA ──────────────────
+    //
+    // Serve pra quem precisa só olhar — inclusive eu, o Claude, conferindo se uma tela
+    // ficou como o Matheus pediu. Até 11/09/2026 eu escrevia as telas, validava a lógica
+    // e entregava sem nunca ter visto o resultado, porque entrar exigia senha e senha eu
+    // não digito. Dois bugs de tela chegaram até ele por causa disso no mesmo dia.
+    //
+    // A TRAVA FICA NA SAÍDA DOS DADOS, não nos botões.
+    //
+    // Esconder botão por botão é ilusão de segurança: basta eu esquecer um, ou alguém
+    // criar um novo daqui a um mês, e o perfil "só leitura" grava. Aqui todo gravar passa
+    // por `supabase.from(...)` e pelas funções do servidor — são esses dois caminhos que
+    // ficam fechados, e qualquer botão futuro já nasce travado sem ninguém lembrar disso.
+    //
+    // O QUE ISTO É E O QUE NÃO É: é uma trava do aplicativo, não do banco. A chave que o
+    // site usa é a mesma para todos os perfis, então quem souber mexer no navegador
+    // continua conseguindo gravar — exatamente como já acontece hoje com qualquer perfil.
+    // Isto evita o acidente, não o mal-intencionado. Fechar de verdade seria RLS no
+    // Supabase, que é assunto para quando houver dado de cliente no sistema.
+    var PERFIL_VISITA = 'visita';
+    var RECADO_VISITA = 'Perfil Visualização: a tela é só para conferir, nada é gravado.';
+
+    function souVisita() {
+      try { return localStorage.getItem('perfil_ativo') === PERFIL_VISITA; }
+      catch (_e) { return false; }   // navegador sem localStorage: trata como perfil normal
+    }
+
+    // Um "construtor de consulta" de mentira: aceita toda a corrente de .eq().select()
+    // que o código já escreve e, no fim, devolve o mesmo formato de erro que o Supabase
+    // devolveria. Assim nenhuma tela quebra — ela só recebe "não deu" e mostra o aviso
+    // que já sabe mostrar.
+    function consultaRecusada() {
+      var falsa = {};
+      var resultado = { data: null, error: { message: RECADO_VISITA, code: 'SOMENTE_LEITURA' } };
+      [
+        'select', 'eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'like', 'ilike', 'is', 'in',
+        'contains', 'containedBy', 'range', 'order', 'limit', 'single', 'maybeSingle',
+        'match', 'not', 'or', 'filter', 'returns', 'throwOnError', 'abortSignal', 'csv',
+      ].forEach(function(metodo) { falsa[metodo] = function() { return falsa; }; });
+      falsa.then = function(aoResolver, aoFalhar) {
+        return Promise.resolve(resultado).then(aoResolver, aoFalhar);
+      };
+      falsa.catch = function(aoFalhar) { return Promise.resolve(resultado).catch(aoFalhar); };
+      falsa.finally = function(aoFim) { return Promise.resolve(resultado).finally(aoFim); };
+      return falsa;
+    }
+
+    (function trancarGravacao() {
+      var fromOriginal = supabase.from.bind(supabase);
+      supabase.from = function(tabela) {
+        var construtor = fromOriginal(tabela);
+        if (!souVisita()) return construtor;
+        ['insert', 'update', 'upsert', 'delete'].forEach(function(metodo) {
+          construtor[metodo] = function() {
+            console.warn('[visualização] bloqueado: ' + metodo + ' em ' + tabela);
+            return consultaRecusada();
+          };
+        });
+        return construtor;
+      };
+
+      var rpcOriginal = supabase.rpc.bind(supabase);
+      supabase.rpc = function() {
+        if (!souVisita()) return rpcOriginal.apply(null, arguments);
+        return consultaRecusada();
+      };
+
+      // O outro caminho: as funções do servidor. Quase todas MEXEM no Mercado Livre
+      // (reativar, clonar, entrar em promoção), e nenhuma delas passa pelo `from` acima.
+      var fetchOriginal = window.fetch.bind(window);
+      window.fetch = function(alvo, opcoes) {
+        var endereco = typeof alvo === 'string' ? alvo : (alvo && alvo.url) || '';
+        if (souVisita() && endereco.indexOf('/functions/v1/') !== -1) {
+          console.warn('[visualização] bloqueado: ' + endereco);
+          return Promise.resolve(new Response(
+            JSON.stringify({ erro: RECADO_VISITA }),
+            { status: 403, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        return fetchOriginal(alvo, opcoes);
+      };
+    })();
+
     function StatsCard(props) {
       return e('div', {className: props.cor + ' text-white px-6 py-3 rounded-lg font-bold text-center'},
         e('div', {className: 'text-2xl'}, props.numero),
@@ -128,8 +211,12 @@
       leonardo: null,
       leticia: null,
       expedicao: null,
+      visita: null,                        // vê tudo também — só não grava nada
     };
-    var NOMES_PERFIL = { mestre: 'Mestre', leonardo: 'Leonardo', leticia: 'Letícia', expedicao: 'Expedição' };
+    var NOMES_PERFIL = {
+      mestre: 'Mestre', leonardo: 'Leonardo', leticia: 'Letícia', expedicao: 'Expedição',
+      visita: '👁 Visualização',
+    };
 
     function podeVerAba(perfil, aba) {
       var permitidas = ABAS_POR_PERFIL[perfil];
@@ -157,6 +244,9 @@
       var setCarregando = carregandoState[1];
 
       function escolherPerfil(perfil) {
+        // Visualização não tem senha de propósito: ela não guarda nada e não faz nada.
+        // Pedir senha pra olhar seria proteger o que não precisa de proteção.
+        if (perfil === PERFIL_VISITA) { props.onEntrar(perfil); return; }
         setPerfilSel(perfil);
         setSenha('');
         setSenha2('');
@@ -3831,7 +3921,15 @@
                 ),
                 e('h1', {className: 'text-xl font-bold text-white'}, 'Sistema de Estoque'),
                 e('span', {className: 'text-slate-400 text-sm'}, '— Tempo real'),
-                e('span', {className: 'text-slate-500 text-xs bg-slate-800 px-2 py-0.5 rounded'}, NOMES_PERFIL[perfilAtivo])
+                // No perfil Visualização a etiqueta fica em âmbar e diz o que muda.
+                // Quem abre uma tela e clica sem ver retorno merece saber por quê antes
+                // de achar que o sistema quebrou.
+                perfilAtivo === PERFIL_VISITA
+                  ? e('span', {
+                      className: 'text-amber-300 text-xs bg-amber-900 bg-opacity-40 border border-amber-700 px-2 py-0.5 rounded font-bold',
+                      title: RECADO_VISITA
+                    }, '👁 Visualização — nada é gravado')
+                  : e('span', {className: 'text-slate-500 text-xs bg-slate-800 px-2 py-0.5 rounded'}, NOMES_PERFIL[perfilAtivo])
               ),
               e('div', {className: 'flex gap-2'},
                 e('button', {
@@ -6562,6 +6660,11 @@
                               e('input', {
                                 type: 'text', inputMode: 'numeric', autoFocus: true,
                                 value: custoEditValue,
+                                // JÁ VEM SELECIONADO. Sem isto, formatar sozinho não
+                                // resolve nada: o valor antigo continua no campo e o que
+                                // você digita entra no fim dele — 1,50 mais "387" virava
+                                // 1.503,87. Era essa a reclamação, não a vírgula.
+                                onFocus: function(ev) { ev.target.select(); },
                                 onChange: function(ev) { setCustoEditValue(moedaDigitando(ev.target.value)); },
                                 onKeyDown: function(ev) {
                                   if (ev.key === 'Enter') salvarCustoProduto(p);
@@ -6592,6 +6695,10 @@
                                 type: 'text', inputMode: 'numeric', autoFocus: true,
                                 placeholder: 'Ex: 50 (vazio = padrão)',
                                 value: markupEditValue,
+                                // Mesma coisa do custo: clicou, digitou, trocou. O markup
+                                // não é dinheiro (não leva vírgula), mas o incômodo de ter
+                                // que apagar antes era igual.
+                                onFocus: function(ev) { ev.target.select(); },
                                 onChange: function(ev) { setMarkupEditValue(ev.target.value); },
                                 onKeyDown: function(ev) {
                                   if (ev.key === 'Enter') salvarMarkupProduto(p);
@@ -6622,6 +6729,7 @@
                                 type: 'text', inputMode: 'numeric', autoFocus: true,
                                 placeholder: 'Ex: 30,00 (vazio = Auto)',
                                 value: freteEditValue,
+                                onFocus: function(ev) { ev.target.select(); },
                                 onChange: function(ev) { setFreteEditValue(moedaDigitando(ev.target.value)); },
                                 onKeyDown: function(ev) {
                                   if (ev.key === 'Enter') salvarFreteProduto(p);

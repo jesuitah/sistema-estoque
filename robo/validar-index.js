@@ -136,6 +136,11 @@ const CONHECIDOS = new Set([
   'setInterval', 'clearInterval', 'requestAnimationFrame', 'FileReader', 'Blob',
   'URL', 'FormData', 'Image', 'Audio', 'AbortController', 'Uint8Array', 'atob', 'btoa',
   'CustomEvent', 'Event', 'MutationObserver', 'ResizeObserver', 'getComputedStyle',
+  // A família do fetch. Faltavam aqui e o validador acusou `Response` como nome solto
+  // em 11/09/2026, quando o perfil Visualização passou a devolver uma resposta própria
+  // no lugar das chamadas ao servidor. Era alarme falso — mas alarme falso gasta a
+  // confiança no validador, que é a única coisa entre um erro meu e a tela em branco.
+  'Response', 'Request', 'Headers', 'URLSearchParams', 'Proxy', 'Reflect', 'WeakMap',
   // bibliotecas carregadas por <script src>
   'React', 'ReactDOM', 'Babel', 'XLSX', 'supabase', 'Chart', 'JsBarcode', 'html2canvas',
   // palavras-chave que a regex pode capturar como identificador
