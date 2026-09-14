@@ -50,11 +50,29 @@ async function buscar(url, opcoes = {}, segundos = 20) {
 
 // A varredura demora minutos. Se o Matheus mandar uma tarefa nesse meio tempo, ela
 // espera a varredura acabar — o que é errado: a fila dele vem primeiro.
+// Tem tarefa que a varredura deve deixar passar na frente?
+//
+// Só conta tarefa que o robô CONSEGUE fazer agora. Tarefa de loja com sessão caída fica
+// pendente de propósito, esperando alguém entrar de novo na conta — e se ela contasse,
+// a varredura das promoções cederia a vez a algo que não anda e nunca terminaria.
+//
+// Foi quase isso que aconteceu no fim de semana de 12-14/09/2026, ainda antes de haver
+// pausa por sessão: tarefas da KMP falhando de hora em hora mantiveram a fila sempre
+// ocupada, e TODA varredura de promoções parou nos primeiros 25 anúncios, sem gravar.
+const TIPOS_QUE_USAM_NAVEGADOR = ['tirar_do_full', 'ligar_flex', 'desligar_flex'];
+
 async function temTarefaDoMatheus(sb) {
   const { data } = await sb.from('ml_tarefas_robo')
-    .select('id').eq('status', 'pendente')
-    .not('tipo', 'in', '("patrulha_agora","varrer_promocoes")').limit(1);
-  return !!(data && data.length);
+    .select('conta, tipo').eq('status', 'pendente')
+    .not('tipo', 'in', '("patrulha_agora","varrer_promocoes")').limit(200);
+  if (!data || !data.length) return false;
+
+  const { data: sessoes } = await sb.from('robo_sessoes').select('conta, caida_desde, proxima_tentativa');
+  const emPausa = new Set((sessoes || [])
+    .filter((s) => s.caida_desde && s.proxima_tentativa && new Date(s.proxima_tentativa) > new Date())
+    .map((s) => s.conta));
+
+  return data.some((t) => !(TIPOS_QUE_USAM_NAVEGADOR.includes(t.tipo) && emPausa.has(t.conta)));
 }
 
 async function idsAtivos(userId, auth) {

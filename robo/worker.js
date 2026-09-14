@@ -971,6 +971,27 @@ async function processar(tarefa, navegadores) {
     if (tarefa.tipo === 'varrer_promocoes') {
       const contas = tarefa.params?.conta ? [tarefa.params.conta] : undefined;
       const r = await varrerPromocoes({ contas, log: (m) => log(m) });
+
+      // VARREDURA INTERROMPIDA NÃO É VARREDURA FEITA.
+      //
+      // Ela cede a vez quando chega tarefa na fila e para SEM GRAVAR NADA. Até 14/09/2026
+      // essa parada era registrada como "feito, ok" — e o fim de semana inteiro de leituras
+      // abortadas apareceu como sucesso, enquanto a tela mostrava as promoções de sexta.
+      // Agora ela volta pra fila e roda de novo quando a tarefa da frente terminar.
+      const interrompidas = (r || []).filter((x) => x.interrompida).map((x) => x.conta);
+      if (interrompidas.length) {
+        await sb.from('ml_tarefas_robo').update({
+          status: 'pendente', iniciado_em: null,
+          // PRO FIM DA FILA. A fila pega a tarefa mais antiga primeiro; se esta voltasse
+          // com a data original, seria pega de novo na hora, pararia de novo por causa da
+          // mesma tarefa, e as duas ficariam nesse vai-e-volta sem a outra nunca rodar.
+          criado_em: new Date().toISOString(),
+          erro: `interrompida pra atender outra tarefa (${interrompidas.join(', ')}) — vai rodar de novo`,
+        }).eq('id', tarefa.id);
+        log(`  ↩ promoções de ${interrompidas.join(', ')} interrompidas — voltaram pra fila`);
+        return;
+      }
+
       await atualizarCustos(contas, log);
       await sb.from('ml_tarefas_robo').update({
         status: 'feito',
@@ -1237,10 +1258,19 @@ async function main() {
 
             log('🏷 recatalogando promoções...');
             try {
-              await varrerPromocoes({ log: (m) => log(m) });
+              const r = await varrerPromocoes({ log: (m) => log(m) });
+              const interrompidas = (r || []).filter((x) => x.interrompida).map((x) => x.conta);
               await atualizarCustos(undefined, log);
-              log('   promoções recatalogadas');
+              if (interrompidas.length) {
+                // Não conta como feita: zera o relógio pra tentar de novo na próxima
+                // patrulha, em vez de esperar 24 horas com as promoções velhas na tela.
+                ultimaVarreduraPromo = 0;
+                log(`   promoções de ${interrompidas.join(', ')} interrompidas — tento de novo na próxima patrulha`);
+              } else {
+                log('   promoções recatalogadas');
+              }
             } catch (erro) {
+              ultimaVarreduraPromo = 0;
               log(`   varredura de promoções falhou: ${mensagemAmigavel(erro)}`);
             }
           }
