@@ -140,8 +140,19 @@ async function vigiar() {
     .select("id, chave, mensagem, gravidade, criado_em")
     .is("resolvido_em", null).eq("gravidade", "grave");
 
+  // TAREFA QUE FALHOU NÃO VIRA NOTIFICAÇÃO — mesma regra do app.
+  //
+  // Na primeira hora no ar, o celular do Matheus apitou "⚠️ a tarefa desligar_flex
+  // falhou" enquanto o app, aberto logo em seguida, dizia "Tudo rodando". As duas telas
+  // se contradisseram, e a notificação é que estava errada: uma falha isolada não é algo
+  // que alguém precise fazer. Sessão caída, que é o caso que de fato para uma loja, tem
+  // aviso próprio (sessao_caida) e continua notificando.
+  const QUE_NAO_NOTIFICAM = ["tarefa_falhou:"];
+  const importantes = (abertos ?? []).filter((a) =>
+    !QUE_NAO_NOTIFICAM.some((prefixo) => a.chave.startsWith(prefixo)));
+
   const abertosIds = new Set<string>();
-  for (const a of abertos ?? []) {
+  for (const a of importantes) {
     const chave = `alerta:${a.id}`;
     abertosIds.add(chave);
     if (await primeiraVez(chave)) {
@@ -155,9 +166,14 @@ async function vigiar() {
   for (const av of avisados ?? []) {
     if (abertosIds.has(av.chave)) continue;
     const id = Number(av.chave.split(":")[1]);
-    const { data: al } = await sb.from("robo_alertas").select("chave, mensagem").eq("id", id).maybeSingle();
+    const { data: al } = await sb.from("robo_alertas")
+      .select("chave, mensagem, resolvido_em").eq("id", id).maybeSingle();
     await sb.from("push_avisados").delete().eq("chave", av.chave);
-    if (al) {
+    // Só diz "resolvido" se RESOLVEU — e só do que é assunto de notificação. Sair da
+    // lista porque passou a ser filtrado não é resolver; e dizer "resolvido" de uma falha
+    // de tarefa que nunca deveria ter apitado seria o mesmo ruído, só que do outro lado.
+    const assuntoDeNotificacao = al && !QUE_NAO_NOTIFICAM.some((p) => al.chave.startsWith(p));
+    if (al && al.resolvido_em && assuntoDeNotificacao) {
       await enviarParaTodos("✅ Resolvido", al.mensagem.slice(0, 140), al.chave);
       enviados.push(`resolvido:${id}`);
     }
