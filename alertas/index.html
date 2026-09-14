@@ -234,7 +234,7 @@ function atualizar() {
   Promise.all([
     ler('robo_status', 'select=ultima_batida,parar&id=eq.1'),
     ler('robo_sessoes', 'select=conta,caida_desde'),
-    ler('robo_alertas', 'select=id,chave,mensagem&resolvido_em=is.null&dispensado_em=is.null&gravidade=eq.grave&order=criado_em.desc'),
+    ler('robo_alertas', 'select=id,chave,mensagem,criado_em&resolvido_em=is.null&dispensado_em=is.null&gravidade=eq.grave&order=criado_em.desc'),
     ler('ml_tarefas_robo', 'select=id,conta,tipo,params,erro,concluido_em&status=eq.falhou&concluido_em=gte.' + ontem + '&order=concluido_em.desc&limit=100'),
     ler('ml_tarefas_robo', 'select=conta,tipo,params,concluido_em&status=eq.feito&concluido_em=gte.' + ontem + '&limit=1000'),
     ultimaDe('ml_patrulha_execucoes', 'quando'),
@@ -346,15 +346,18 @@ function desenhar(d) {
     ]));
   });
 
-  // Alertas graves que não são sessão caída nem falha de tarefa (esses já têm lugar próprio).
-  d.alertas.filter(function (a) {
-    return a.chave.indexOf('sessao_caida:') !== 0 && a.chave.indexOf('tarefa_falhou:') !== 0;
-  }).forEach(function (a) {
-    pendencias.push(el('div', { class: 'pendencia grave' }, [
-      el('div', { class: 'o-que' }, ['Atenção']),
-      el('div', { class: 'detalhe' }, [a.mensagem]),
-      botao('Ok, já vi', 'neutro', { acao: 'dispensar', id: a.id }),
-    ]));
+  // OS OUTROS AVISOS DO ROBÔ NÃO SÃO PENDÊNCIA.
+  //
+  // Anúncio preso no Full, patrulha que tropeçou: em todos o robô está tentando de novo,
+  // e ninguém resolve pelo celular. Até 14/09/2026 eles apareciam aqui em vermelho com um
+  // botão "Ok, já vi" — que só escondia o aviso. O Matheus apontou: "clicando em já vi
+  // resolveu algo? acho que não". Botão que finge ser ação saiu. Esses avisos descem pra
+  // área recolhida, como informação, e só se já passaram 20 minutos (antes disso quase
+  // sempre é só o robô na fila, e somem sozinhos).
+  var CARENCIA_MIN = 20;
+  var avisosDoRobo = d.alertas.filter(function (a) {
+    return a.chave.indexOf('sessao_caida:') !== 0 && a.chave.indexOf('tarefa_falhou:') !== 0
+      && minutosDesde(a.criado_em) >= CARENCIA_MIN;
   });
 
   // ── 1) A RESPOSTA ──
@@ -413,14 +416,20 @@ function desenhar(d) {
                             : 'lidas ' + haQuanto(promoMaisVelha)),
   ]));
 
-  // Tarefas que não deram certo: recolhido. Quase nunca é assunto seu — o robô resolve
-  // na próxima, ou é coisa pra investigar. Fica à mão, mas não no caminho.
-  if (d.falhas.length) {
+  // O QUE O ROBÔ ESTÁ RESOLVENDO: recolhido. Não é assunto seu — é o robô tentando de
+  // novo, ou coisa pra investigar. Fica à mão pra quem quiser olhar, mas fora do caminho.
+  var totalRobo = d.falhas.length + avisosDoRobo.length;
+  if (totalRobo) {
     var det = el('details', { class: 'falhas' }, [
       el('summary', {}, [el('span', {}, [
-        d.falhas.length === 1 ? '1 tarefa não deu certo hoje' : d.falhas.length + ' tarefas não deram certo hoje',
+        totalRobo === 1 ? '1 coisa o robô está resolvendo' : totalRobo + ' coisas o robô está resolvendo',
       ])]),
     ]);
+    avisosDoRobo.forEach(function (a) {
+      det.appendChild(el('div', { class: 'falha' }, [
+        el('div', { class: 'detalhe' }, [a.mensagem]),
+      ]));
+    });
     d.falhas.forEach(function (t) {
       var titulo = (t.params && t.params.title) || (t.params && t.params.item_id) || '';
       det.appendChild(el('div', { class: 'falha' }, [

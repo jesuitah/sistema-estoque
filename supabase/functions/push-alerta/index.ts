@@ -13,7 +13,8 @@
 // E os "OK" do app — só o que destrava o sistema, nada de usar o sistema pelo celular
 // (pedido do Matheus em 14/09/2026: "só quero no app o que for pra dar ok no sistema
 // pra ele seguir rodando"):
-//   dispensar       -> "ok, já vi" num alerta
+//   dispensar       -> (sem uso no app desde 14/09/2026: "ok, já vi" só escondia o
+//                      aviso, não resolvia nada — botão que finge ser ação saiu da tela)
 //   tentar_de_novo  -> devolve uma tarefa que falhou pra fila
 //   liberar_sessao  -> "já reconectei no PC": tira a loja da pausa na hora
 //   retomar_robo    -> desfaz o "parar robô"
@@ -131,51 +132,46 @@ async function vigiar() {
     enviados.push("robo_voltou");
   }
 
-  // 2) ALERTAS GRAVES DO VIGIA DO ROBÔ (sessão caída, tarefa que falhou, etc.)
+  // 2) LOJA DESCONECTADA — o único outro caso que depende de uma pessoa.
   //
-  // Só os graves. Os avisos leves (resumo semanal, anúncio insistindo) ficam na tela: se
-  // cada um virasse notificação, em uma semana ninguém olharia mais nenhuma — e aí o
-  // grave de verdade passaria batido igual.
-  const { data: abertos } = await sb.from("robo_alertas")
-    .select("id, chave, mensagem, gravidade, criado_em")
-    .is("resolvido_em", null).eq("gravidade", "grave");
-
-  // TAREFA QUE FALHOU NÃO VIRA NOTIFICAÇÃO — mesma regra do app.
+  // A REGRA DE TUDO O QUE NOTIFICA: SÓ O QUE ALGUÉM PRECISA FAZER.
   //
-  // Na primeira hora no ar, o celular do Matheus apitou "⚠️ a tarefa desligar_flex
-  // falhou" enquanto o app, aberto logo em seguida, dizia "Tudo rodando". As duas telas
-  // se contradisseram, e a notificação é que estava errada: uma falha isolada não é algo
-  // que alguém precise fazer. Sessão caída, que é o caso que de fato para uma loja, tem
-  // aviso próprio (sessao_caida) e continua notificando.
-  const QUE_NAO_NOTIFICAM = ["tarefa_falhou:"];
-  const importantes = (abertos ?? []).filter((a) =>
-    !QUE_NAO_NOTIFICAM.some((prefixo) => a.chave.startsWith(prefixo)));
-
-  const abertosIds = new Set<string>();
-  for (const a of importantes) {
-    const chave = `alerta:${a.id}`;
-    abertosIds.add(chave);
-    if (await primeiraVez(chave)) {
-      await enviarParaTodos("⚠️ Sistema de Estoque", a.mensagem, a.chave);
-      enviados.push(chave);
-    }
-  }
-
-  // 3) O QUE FOI RESOLVIDO — avisa, pra ninguém ficar achando que ainda está quebrado.
-  const { data: avisados } = await sb.from("push_avisados").select("chave").like("chave", "alerta:%");
-  for (const av of avisados ?? []) {
-    if (abertosIds.has(av.chave)) continue;
-    const id = Number(av.chave.split(":")[1]);
-    const { data: al } = await sb.from("robo_alertas")
-      .select("chave, mensagem, resolvido_em").eq("id", id).maybeSingle();
-    await sb.from("push_avisados").delete().eq("chave", av.chave);
-    // Só diz "resolvido" se RESOLVEU — e só do que é assunto de notificação. Sair da
-    // lista porque passou a ser filtrado não é resolver; e dizer "resolvido" de uma falha
-    // de tarefa que nunca deveria ter apitado seria o mesmo ruído, só que do outro lado.
-    const assuntoDeNotificacao = al && !QUE_NAO_NOTIFICAM.some((p) => al.chave.startsWith(p));
-    if (al && al.resolvido_em && assuntoDeNotificacao) {
-      await enviarParaTodos("✅ Resolvido", al.mensagem.slice(0, 140), al.chave);
-      enviados.push(`resolvido:${id}`);
+  // Até 14/09/2026 esta função notificava qualquer alerta grave do vigia do robô. Em
+  // uma manhã o celular do Matheus apitou duas vezes por nada: "tarefa desligar_flex
+  // falhou" e "1 anúncio sem estoque parado no Full". Nos dois o robô já estava cuidando.
+  // A pergunta dele resume a regra: "isso realmente deveria aparecer pra mim? não é algo
+  // que precise de uma atitude minha".
+  //
+  // Passando cada aviso por esse filtro, sobram DOIS: robô desligado (alguém olha o PC)
+  // e loja desconectada (alguém reconecta a conta). O resto — anúncio preso no Full,
+  // patrulha que tropeçou, tarefa que falhou — é o robô tentando de novo, ou é assunto
+  // pra investigar no código. Ninguém resolve isso pelo celular, então não apita.
+  //
+  // Lido de robo_sessoes, e não dos alertas: é a fonte direta, sem depender do vigia do
+  // robô ter rodado.
+  const { data: sessoes } = await sb.from("robo_sessoes").select("conta, caida_desde");
+  for (const s of sessoes ?? []) {
+    // A chave carrega QUANDO caiu: se a mesma loja cair de novo outro dia, é um aviso
+    // novo, e não "já avisei disso" por causa da queda anterior.
+    const prefixo = `sessao:${s.conta}:`;
+    if (s.caida_desde) {
+      if (await primeiraVez(prefixo + s.caida_desde)) {
+        await enviarParaTodos(
+          `🔌 ${s.conta} desconectada`,
+          `A sessão da ${s.conta} caiu. Precisa de alguém no PC pra entrar de novo na conta ` +
+          `pelo Chrome do robô. As outras lojas seguem normais.`,
+          `sessao_${s.conta}`);
+        enviados.push(prefixo + "caiu");
+      }
+    } else {
+      const { data: antigas } = await sb.from("push_avisados")
+        .delete().like("chave", prefixo + "%").select("chave");
+      if (antigas && antigas.length) {
+        // Só avisa que voltou se tinha avisado que caiu. A mesma tag substitui a
+        // notificação de queda em vez de empilhar outra.
+        await enviarParaTodos(`🟢 ${s.conta} conectada de novo`, "Tudo certo, a loja voltou a trabalhar.", `sessao_${s.conta}`);
+        enviados.push(prefixo + "voltou");
+      }
     }
   }
 
