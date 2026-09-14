@@ -367,6 +367,39 @@ async function marcarSessaoDePe(conta) {
   log(`  🔌 sessão da ${conta} de volta — tarefas dela liberadas`);
 }
 
+// ESPERA O "CONFIRMAR" APARECER, EM VEZ DE UM TEMPO FIXO.
+//
+// Antes o robô marcava a caixinha, dormia 3 segundos e procurava o botão uma única
+// vez. Em 14/09/2026 isso falhou duas vezes na KMP ("não achei o botão Confirmar") — e
+// uma delas deu certo na tentativa seguinte, sem mudar nada: era a página do ML
+// demorando mais de 3 segundos pra mostrar o botão. Agora procura de meio em meio
+// segundo, por até 12.
+//
+// Se ainda assim não achar, o erro traz OS BOTÕES QUE APARECERAM na tela. Da próxima
+// vez que falhar, dá pra saber na hora se foi demora ou se o ML trocou o nome do botão —
+// em vez de adivinhar.
+async function clicarConfirmar(pagina, oQueFez) {
+  const limite = Date.now() + 12000;
+  while (Date.now() < limite) {
+    const clicou = await pagina.evaluate(() => {
+      const b = [...document.querySelectorAll('button')]
+        .filter((x) => /^confirmar$/i.test((x.innerText || '').trim()) && x.offsetParent !== null);
+      if (!b.length) return false;
+      b[0].click();
+      return true;
+    }).catch(() => false);
+    if (clicou) return;
+    await pagina.waitForTimeout(500);
+  }
+  const visiveis = await pagina.evaluate(() =>
+    [...document.querySelectorAll('button')]
+      .filter((x) => x.offsetParent !== null)
+      .map((x) => (x.innerText || '').trim()).filter(Boolean).slice(0, 12)
+  ).catch(() => []);
+  throw new Error(`não achei o botão Confirmar depois de ${oQueFez} o Flex ` +
+    `(botões na tela: ${visiveis.length ? visiveis.join(' | ') : 'nenhum'})`);
+}
+
 // O Flex abre a página de edição do anúncio, não o painel — e nela a sessão caída se
 // disfarçava de outra coisa: a tela de login não tem a caixinha do Flex, então o erro
 // saía "não achei a caixinha", e o disjuntor acima nunca desligava a loja. Esta
@@ -696,16 +729,7 @@ async function ligarFlex(navegador, pagina, tarefa, accessToken) {
   });
   if (clicou === 'nao_achei') throw new Error('não achei a caixinha do Envios Flex na página');
   if (clicou === 'desabilitada') return { ok: false, motivo: 'a caixinha do Flex está bloqueada neste anúncio' };
-  await pagina.waitForTimeout(3000);
-
-  const confirmou = await pagina.evaluate(() => {
-    const b = [...document.querySelectorAll('button')]
-      .filter((x) => /^confirmar$/i.test((x.innerText || '').trim()) && x.offsetParent !== null);
-    if (!b.length) return false;
-    b[0].click();
-    return true;
-  });
-  if (!confirmou) throw new Error('não achei o botão Confirmar depois de marcar o Flex');
+  await clicarConfirmar(pagina, 'marcar');
   await pagina.waitForTimeout(9000);
 
   // Confirma pela API, nunca pela tela. A tela do ML mente: mostra o estado novo
@@ -782,16 +806,7 @@ async function desligarFlex(navegador, pagina, tarefa, accessToken) {
   });
   if (clicou === 'nao_achei') throw new Error('não achei a caixinha do Envios Flex na página');
   if (clicou === 'desabilitada') return { ok: false, motivo: 'a caixinha do Flex está bloqueada neste anúncio' };
-  await pagina.waitForTimeout(3000);
-
-  const confirmou = await pagina.evaluate(() => {
-    const b = [...document.querySelectorAll('button')]
-      .filter((x) => /^confirmar$/i.test((x.innerText || '').trim()) && x.offsetParent !== null);
-    if (!b.length) return false;
-    b[0].click();
-    return true;
-  });
-  if (!confirmou) throw new Error('não achei o botão Confirmar depois de desmarcar o Flex');
+  await clicarConfirmar(pagina, 'desmarcar');
   await pagina.waitForTimeout(9000);
 
   for (let i = 0; i < 4; i++) {
