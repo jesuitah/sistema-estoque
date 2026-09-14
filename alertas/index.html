@@ -14,106 +14,148 @@
 <!--
   APP DE ALERTAS DO SISTEMA DE ESTOQUE — pro iPhone, instalado pelo Safari.
 
-  Não é o sistema no celular. Pedido do Matheus em 14/09/2026: "só quero no app o que
-  for pra dar ok no sistema pra ele seguir rodando". Então esta tela mostra UMA coisa:
-  o que precisa de alguém agora. Se nada precisa, ela diz isso e só.
+  O que o Matheus pediu em 14/09/2026, com as palavras dele:
+    - entrar e verificar de maneira visual se está tudo funcionando
+    - ter botões pra ajustar o sistema se precisar de alguma ação
+    - saber por notificação se tem algo errado, e ao abrir, o botão pra agir
+    - NÃO: notificações bestas, ruído
+    - usa mais à noite e no fim de semana
+
+  Então a tela tem três andares, nesta ordem:
+    1. A resposta: "Tudo rodando" ou "N coisas precisam de você"
+    2. O que precisa de você, cada um com o botão pra resolver (só aparece se houver)
+    3. Como está cada parte — pra conferir com os próprios olhos, sem confiar na palavra
 
   Nasceu do fim de semana de 12-14/09: a sessão da KMP caiu no sábado às 12:45 e só se
   soube na segunda, porque o aviso estava numa página que ninguém abre no fim de semana.
 -->
 <style>
   :root {
-    --fundo: #0f172a; --cartao: #1e293b; --borda: #334155;
-    --texto: #e2e8f0; --fraco: #94a3b8; --apagado: #64748b;
-    --verde: #10b981; --vermelho: #ef4444; --ambar: #f59e0b; --azul: #3b82f6;
+    --fundo: #0b1120; --cartao: #151e32; --borda: #243049;
+    --texto: #e5e9f0; --fraco: #97a3b6; --apagado: #5f6b80;
+    --verde: #22c55e; --vermelho: #f05252; --ambar: #f5a524; --azul: #3b82f6;
     color-scheme: dark;
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; background: var(--fundo); color: var(--texto); }
   body {
     font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-    padding: calc(env(safe-area-inset-top) + 16px) 16px calc(env(safe-area-inset-bottom) + 24px);
+    padding: calc(env(safe-area-inset-top) + 14px) 16px calc(env(safe-area-inset-bottom) + 28px);
     max-width: 560px; margin: 0 auto; min-height: 100vh;
   }
-  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
-  h1 { font-size: 22px; margin: 0; letter-spacing: -.01em; }
-  .atualizado { color: var(--apagado); font-size: 12px; }
 
-  .resumo {
-    border-radius: 18px; padding: 22px 18px; margin-bottom: 16px; text-align: center;
-    border: 1px solid var(--borda); background: var(--cartao);
-  }
-  .resumo .icone { font-size: 44px; line-height: 1; margin-bottom: 8px; }
-  .resumo .titulo { font-size: 20px; font-weight: 700; }
-  .resumo .sub { color: var(--fraco); font-size: 14px; margin-top: 4px; }
-  .resumo.ok { border-color: rgba(16,185,129,.4); background: rgba(16,185,129,.08); }
-  .resumo.ok .titulo { color: var(--verde); }
-  .resumo.ruim { border-color: rgba(239,68,68,.45); background: rgba(239,68,68,.08); }
-  .resumo.ruim .titulo { color: #fca5a5; }
+  header { display: flex; align-items: baseline; justify-content: space-between; margin: 4px 2px 16px; }
+  h1 { font-size: 28px; margin: 0; letter-spacing: -.02em; }
+  .recarregar { background: none; border: 0; color: var(--apagado); font: inherit; font-size: 13px;
+    padding: 6px 0 6px 12px; cursor: pointer; }
 
-  .pendencia {
-    background: var(--cartao); border: 1px solid var(--borda); border-left-width: 4px;
-    border-radius: 14px; padding: 14px; margin-bottom: 12px;
-  }
-  .pendencia.grave { border-left-color: var(--vermelho); }
-  .pendencia.atencao { border-left-color: var(--ambar); }
-  .pendencia .o-que { font-weight: 700; font-size: 16px; }
+  /* 1) A resposta */
+  .resposta { border-radius: 20px; padding: 26px 18px 22px; text-align: center; margin-bottom: 18px;
+    border: 1px solid var(--borda); background: var(--cartao); }
+  .resposta .sinal { width: 58px; height: 58px; border-radius: 50%; margin: 0 auto 12px;
+    display: grid; place-items: center; font-size: 30px; }
+  .resposta .titulo { font-size: 22px; font-weight: 700; letter-spacing: -.01em; }
+  .resposta .sub { color: var(--fraco); font-size: 14px; margin-top: 4px; }
+  .resposta.ok { border-color: rgba(34,197,94,.35); background: linear-gradient(180deg, rgba(34,197,94,.10), rgba(34,197,94,.03)); }
+  .resposta.ok .sinal { background: rgba(34,197,94,.18); color: var(--verde); }
+  .resposta.ok .titulo { color: #86efac; }
+  .resposta.ruim { border-color: rgba(240,82,82,.45); background: linear-gradient(180deg, rgba(240,82,82,.12), rgba(240,82,82,.03)); }
+  .resposta.ruim .sinal { background: rgba(240,82,82,.2); }
+  .resposta.ruim .titulo { color: #fca5a5; }
+
+  /* 2) O que precisa de você */
+  .pendencia { background: var(--cartao); border: 1px solid var(--borda); border-radius: 16px;
+    padding: 16px; margin-bottom: 12px; position: relative; overflow: hidden; }
+  .pendencia::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; }
+  .pendencia.grave::before { background: var(--vermelho); }
+  .pendencia.atencao::before { background: var(--ambar); }
+  .pendencia .o-que { font-weight: 700; font-size: 17px; }
   .pendencia .detalhe { color: var(--fraco); font-size: 14px; margin-top: 4px; overflow-wrap: anywhere; }
-  .pendencia .instrucao {
-    font-size: 13px; color: #fcd34d; background: rgba(245,158,11,.1);
-    border-radius: 8px; padding: 8px 10px; margin-top: 10px;
-  }
-  .grupo-titulo { color: var(--apagado); font-size: 12px; text-transform: uppercase;
-    letter-spacing: .06em; margin: 20px 4px 8px; }
+  .pendencia .como { font-size: 14px; color: var(--texto); background: rgba(255,255,255,.04);
+    border-radius: 10px; padding: 10px 12px; margin-top: 12px; }
+  .pendencia .como b { color: #fcd34d; }
 
-  button {
-    font: inherit; font-weight: 700; border: 0; border-radius: 12px; cursor: pointer;
-    padding: 13px 16px; width: 100%; margin-top: 12px; color: #fff; background: var(--azul);
-    min-height: 48px;
-  }
-  button.verde { background: var(--verde); }
-  button.neutro { background: #334155; color: var(--texto); }
-  button:disabled { opacity: .55; }
-  button.pequeno { width: auto; padding: 9px 14px; min-height: 40px; margin-top: 8px; font-size: 14px; }
-
-  .avisos { margin-top: 24px; background: var(--cartao); border: 1px solid var(--borda);
-    border-radius: 14px; padding: 14px; }
-  .avisos h2 { font-size: 15px; margin: 0 0 4px; }
-  .avisos p { color: var(--fraco); font-size: 14px; margin: 4px 0 0; }
-  .passos { margin: 10px 0 0; padding-left: 20px; color: var(--texto); font-size: 14px; }
-  .passos li { margin: 6px 0; }
-  .ok-texto { color: var(--verde); font-weight: 700; }
+  button.acao { font: inherit; font-weight: 700; font-size: 16px; border: 0; border-radius: 13px;
+    cursor: pointer; padding: 14px 16px; width: 100%; margin-top: 12px; color: #fff;
+    background: var(--verde); min-height: 50px; }
+  button.acao.neutro { background: #2a3752; }
+  button.acao:disabled { opacity: .6; }
   .erro { color: #fca5a5; font-size: 13px; margin-top: 8px; }
-  .carregando { text-align: center; color: var(--fraco); padding: 40px 0; }
+
+  /* 3) Como está cada parte */
+  .secao { color: var(--apagado); font-size: 12px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .07em; margin: 24px 4px 8px; }
+  .partes { background: var(--cartao); border: 1px solid var(--borda); border-radius: 16px; overflow: hidden; }
+  .parte { display: flex; align-items: center; gap: 12px; padding: 13px 16px; }
+  .parte + .parte { border-top: 1px solid var(--borda); }
+  .bolinha { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .bolinha.ok { background: var(--verde); box-shadow: 0 0 0 4px rgba(34,197,94,.15); }
+  .bolinha.atencao { background: var(--ambar); box-shadow: 0 0 0 4px rgba(245,165,36,.15); }
+  .bolinha.ruim { background: var(--vermelho); box-shadow: 0 0 0 4px rgba(240,82,82,.15); }
+  .parte .nome { font-weight: 600; flex: 1; }
+  .parte .estado { color: var(--fraco); font-size: 14px; text-align: right; }
+
+  /* Tarefas que não deram certo: recolhido, porque quase nunca é assunto seu */
+  details.falhas { margin-top: 12px; background: var(--cartao); border: 1px solid var(--borda); border-radius: 16px; }
+  details.falhas summary { list-style: none; cursor: pointer; padding: 13px 16px; color: var(--fraco);
+    font-size: 14px; display: flex; justify-content: space-between; }
+  details.falhas summary::-webkit-details-marker { display: none; }
+  details.falhas summary::after { content: "›"; transition: transform .15s; }
+  details.falhas[open] summary::after { transform: rotate(90deg); }
+  .falha { padding: 12px 16px; border-top: 1px solid var(--borda); }
+  .falha .o-que { font-weight: 600; font-size: 15px; }
+  .falha .detalhe { color: var(--fraco); font-size: 13px; margin-top: 2px; overflow-wrap: anywhere; }
+  .falha button.acao { width: auto; min-height: 40px; padding: 9px 16px; font-size: 14px; margin-top: 10px; }
+
+  /* Avisos no rodapé: grande só enquanto não estão ativos */
+  .rodape { margin-top: 22px; text-align: center; color: var(--apagado); font-size: 13px; }
+  .rodape button { background: none; border: 0; color: var(--azul); font: inherit; font-size: 13px;
+    cursor: pointer; padding: 4px; }
+  .ativar { background: var(--cartao); border: 1px solid var(--borda); border-radius: 16px; padding: 16px;
+    margin-top: 22px; text-align: left; }
+  .ativar h2 { font-size: 16px; margin: 0 0 4px; }
+  .ativar p { color: var(--fraco); font-size: 14px; margin: 0; }
+  .ativar ol { margin: 10px 0 0; padding-left: 20px; font-size: 14px; }
+  .ativar li { margin: 6px 0; }
+
+  .carregando { text-align: center; color: var(--fraco); padding: 60px 0; }
 </style>
 </head>
 <body>
   <header>
     <h1>Alertas</h1>
-    <span class="atualizado" id="atualizado"></span>
+    <button class="recarregar" id="recarregar" aria-label="Atualizar agora">atualizando…</button>
   </header>
 
-  <div id="painel"><div class="carregando">Conferindo o sistema…</div></div>
-
-  <div class="avisos" id="avisos"></div>
+  <main id="painel"><div class="carregando">Conferindo o sistema…</div></main>
+  <div id="avisos"></div>
 
 <script>
 // ── Configuração ─────────────────────────────────────────────────────────────
-// A chave pública do Supabase é a mesma que o site já usa (ela é pública por natureza).
-// A chave VAPID pública também: é o par da privada, que fica trancada no servidor.
+// Chave pública do Supabase (a mesma do site, pública por natureza) e a chave VAPID
+// pública (o par da privada, que fica trancada no servidor).
 var SUPA = 'https://pylkufhziohxvwbbaued.supabase.co';
 var ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB5bGt1Zmh6aW9oeHZ3YmJhdWVkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1OTIyNzMsImV4cCI6MjA5MTE2ODI3M30.S61OxgJa03KmfJZ_MdFL0ZKAzWdsrrYwnmzuqN6L0vQ';
 var VAPID_PUBLICA = 'BE3-wwv4XF9na0z9fuE2fyKXPMPn5JesmC7JKI95p5tQDsiugk2E2FjX0vf2EtHTeaXpfMMBKdmCXjJxAZ8Y9Dw';
 var FUNCAO = SUPA + '/functions/v1/push-alerta';
-var ROBO_OFFLINE_MIN = 15;   // o mesmo limite do vigia no servidor
+
+// OS LIMITES DE "ATRASADO" — cada um com folga sobre o ritmo real da rotina.
+//
+// Bolinha amarela à toa ensina a ignorar a bolinha amarela. Por isso nenhum limite é
+// o intervalo exato: a patrulha é de hora em hora mas pode esperar a fila esvaziar, o
+// catálogo é de 3 em 3 horas, as promoções uma vez por dia.
+var LIMITE = {
+  roboMin: 15,           // mesmo número do vigia que manda a notificação
+  patrulhaMin: 150,      // de hora em hora, com folga pra fila cheia
+  catalogoMin: 240,      // de 3 em 3 horas
+  promocoesMin: 26 * 60, // uma vez por dia
+};
 
 // ── Utilidades ───────────────────────────────────────────────────────────────
 function el(tag, attrs, filhos) {
   var n = document.createElement(tag);
   Object.keys(attrs || {}).forEach(function (k) {
-    if (k === 'class') n.className = attrs[k];
-    else if (k === 'onclick') n.addEventListener('click', attrs[k]);
-    else n.setAttribute(k, attrs[k]);
+    if (k === 'class') n.className = attrs[k]; else n.setAttribute(k, attrs[k]);
   });
   (filhos || []).forEach(function (f) {
     if (f == null || f === false) return;
@@ -133,8 +175,7 @@ function ler(tabela, consulta) {
 
 function acao(corpo) {
   return fetch(FUNCAO, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(corpo),
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo),
   }).then(function (r) {
     return r.json().then(function (d) {
       if (!r.ok || d.erro) throw new Error(d.erro || ('erro ' + r.status));
@@ -143,68 +184,91 @@ function acao(corpo) {
   });
 }
 
-function quando(iso) {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleString('pt-BR', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
-}
+function minutosDesde(iso) { return iso ? (Date.now() - new Date(iso).getTime()) / 60000 : Infinity; }
+
 function haQuanto(iso) {
-  var min = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (!iso) return 'nunca';
+  var min = Math.round(minutosDesde(iso));
   if (min < 1) return 'agora';
   if (min < 60) return 'há ' + min + ' min';
   var h = Math.round(min / 60);
-  if (h < 48) return 'há ' + h + ' h';
-  return 'há ' + Math.round(h / 24) + ' dias';
+  if (h < 24) return 'há ' + h + ' h';
+  var d = Math.round(h / 24);
+  return d === 1 ? 'ontem' : 'há ' + d + ' dias';
 }
 
-// Um botão de "ok": trava enquanto trabalha, e relê o painel quando termina.
-function botaoOk(texto, classe, corpo) {
-  var b = el('button', { class: classe || '' }, [texto]);
+function quando(iso) {
+  return new Date(iso).toLocaleString('pt-BR', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+// Um botão que resolve algo: trava enquanto trabalha e relê o painel quando termina.
+function botao(texto, classe, corpo) {
+  var b = el('button', { class: 'acao ' + (classe || '') }, [texto]);
   var msg = el('div', { class: 'erro' });
   b.addEventListener('click', function () {
     b.disabled = true; b.textContent = 'Enviando…'; msg.textContent = '';
     acao(corpo).then(function () {
       b.textContent = '✓ Feito';
-      setTimeout(atualizar, 800);
+      setTimeout(atualizar, 900);
     }).catch(function (e) {
       b.disabled = false; b.textContent = texto;
       msg.textContent = 'Não deu: ' + e.message;
     });
   });
-  var caixa = el('div', {}, [b, msg]);
-  return caixa;
+  return el('div', {}, [b, msg]);
 }
 
-// ── O painel ─────────────────────────────────────────────────────────────────
+// ── Leitura ──────────────────────────────────────────────────────────────────
+var atualizando = false;
 function atualizar() {
-  var desde = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+  if (atualizando) return;
+  atualizando = true;
+  document.getElementById('recarregar').textContent = 'atualizando…';
+
+  var ontem = encodeURIComponent(new Date(Date.now() - 24 * 3600 * 1000).toISOString());
+  var ultimaDe = function (tabela, coluna, filtro) {
+    return ler(tabela, 'select=' + coluna + (filtro || '') + '&order=' + coluna + '.desc&limit=1')
+      .then(function (r) { return r[0] ? r[0][coluna] : null; });
+  };
+
   Promise.all([
     ler('robo_status', 'select=ultima_batida,parar&id=eq.1'),
-    ler('robo_sessoes', 'select=conta,caida_desde,proxima_tentativa&caida_desde=not.is.null'),
-    ler('robo_alertas', 'select=id,chave,mensagem,criado_em&resolvido_em=is.null&dispensado_em=is.null&gravidade=eq.grave&order=criado_em.desc'),
-    ler('ml_tarefas_robo', 'select=id,conta,tipo,params,erro,concluido_em&status=eq.falhou&concluido_em=gte.' + encodeURIComponent(desde) + '&order=concluido_em.desc&limit=100'),
-    ler('ml_tarefas_robo', 'select=conta,tipo,params,concluido_em&status=eq.feito&concluido_em=gte.' + encodeURIComponent(desde) + '&limit=1000'),
+    ler('robo_sessoes', 'select=conta,caida_desde'),
+    ler('robo_alertas', 'select=id,chave,mensagem&resolvido_em=is.null&dispensado_em=is.null&gravidade=eq.grave&order=criado_em.desc'),
+    ler('ml_tarefas_robo', 'select=id,conta,tipo,params,erro,concluido_em&status=eq.falhou&concluido_em=gte.' + ontem + '&order=concluido_em.desc&limit=100'),
+    ler('ml_tarefas_robo', 'select=conta,tipo,params,concluido_em&status=eq.feito&concluido_em=gte.' + ontem + '&limit=1000'),
+    ultimaDe('ml_patrulha_execucoes', 'quando'),
+    ultimaDe('ml_anuncios', 'atualizado_em'),
+    ultimaDe('ml_promocoes_itens', 'atualizado_em', '&conta=eq.KMP'),
+    ultimaDe('ml_promocoes_itens', 'atualizado_em', '&conta=eq.ERP'),
+    ultimaDe('ml_promocoes_itens', 'atualizado_em', '&conta=eq.LTS'),
   ]).then(function (r) {
-    desenhar(r[0][0] || {}, r[1], r[2], falhasQueContam(r[3], r[4]));
-    document.getElementById('atualizado').textContent = 'atualizado ' +
-      new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    desenhar({
+      status: r[0][0] || {},
+      sessoes: r[1],
+      alertas: r[2],
+      falhas: falhasQueContam(r[3], r[4]),
+      patrulha: r[5],
+      catalogo: r[6],
+      promocoes: { KMP: r[7], ERP: r[8], LTS: r[9] },
+    });
+    document.getElementById('recarregar').textContent = 'atualizado ' +
+      new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) + ' ↻';
   }).catch(function (e) {
     var p = document.getElementById('painel');
     p.innerHTML = '';
-    p.appendChild(el('div', { class: 'resumo ruim' }, [
-      el('div', { class: 'icone' }, ['📡']),
+    p.appendChild(el('div', { class: 'resposta ruim' }, [
+      el('div', { class: 'sinal' }, ['📡']),
       el('div', { class: 'titulo' }, ['Não consegui conferir']),
-      el('div', { class: 'sub' }, ['Sem internet, ou o servidor não respondeu. (' + e.message + ')']),
+      el('div', { class: 'sub' }, ['Sem internet, ou o servidor não respondeu. Toque em atualizar pra tentar de novo.']),
     ]));
-  });
+    document.getElementById('recarregar').textContent = 'tentar de novo ↻';
+  }).then(function () { atualizando = false; });
 }
 
-// DAS TAREFAS QUE FALHARAM, SÓ O QUE AINDA ESTÁ DE PÉ.
-//
-// A primeira versão listou "8 coisas precisam de você" e nenhuma precisava: duas já
-// tinham dado certo numa tentativa seguinte, e as outras seis eram o MESMO par de
-// anúncios repetido. Painel que grita por nada vira painel que ninguém abre — e aí o
-// aviso de verdade passa batido junto. Aqui fica uma linha por anúncio, e só se ele não
-// deu certo depois.
+// Das tarefas que falharam, só o que ainda está de pé: uma linha por anúncio, e só se
+// ele não deu certo numa tentativa seguinte. A primeira versão do app mostrou "8 coisas
+// precisam de você" e nenhuma precisava — repetidas e já resolvidas.
 function falhasQueContam(falhas, feitas) {
   function chave(t) { return t.conta + '|' + t.tipo + '|' + ((t.params && t.params.item_id) || t.id); }
   var ultimoSucesso = {};
@@ -215,9 +279,9 @@ function falhasQueContam(falhas, feitas) {
   var vistas = {};
   return falhas.filter(function (t) {
     var k = chave(t);
-    if (vistas[k]) return false;                                            // repetida
+    if (vistas[k]) return false;
     vistas[k] = true;
-    return !(ultimoSucesso[k] && ultimoSucesso[k] > t.concluido_em);        // já resolvida
+    return !(ultimoSucesso[k] && ultimoSucesso[k] > t.concluido_em);
   });
 }
 
@@ -226,99 +290,148 @@ var NOME_TAREFA = {
   varrer_promocoes: 'Ler promoções',
 };
 
-function desenhar(status, sessoes, alertas, falhas) {
-  var painel = document.getElementById('painel');
-  painel.innerHTML = '';
-  var pendencias = [];
-
-  // 1) Robô desligado — não tem botão: pelo celular não dá pra ligar um PC.
-  var minSemSinal = status.ultima_batida
-    ? (Date.now() - new Date(status.ultima_batida).getTime()) / 60000 : 99999;
-  if (minSemSinal > ROBO_OFFLINE_MIN) {
-    pendencias.push(el('div', { class: 'pendencia grave' }, [
-      el('div', { class: 'o-que' }, ['🔴 Robô desligado']),
-      el('div', { class: 'detalhe' }, ['Último sinal ' + (status.ultima_batida ? haQuanto(status.ultima_batida) : '—') + '.']),
-      el('div', { class: 'instrucao' }, ['Precisa de alguém no PC: veja se ele está ligado. O robô volta sozinho em até 5 minutos depois que o PC liga. As tarefas esperam na fila, nada se perde.']),
-    ]));
-  }
-
-  // 2) Robô parado de propósito (botão "Parar robô").
-  if (status.parar) {
-    pendencias.push(el('div', { class: 'pendencia atencao' }, [
-      el('div', { class: 'o-que' }, ['⏸ Robô pausado']),
-      el('div', { class: 'detalhe' }, ['Alguém apertou "Parar robô". Ele está ligado, mas não pega tarefa.']),
-      botaoOk('Retomar robô', 'verde', { acao: 'retomar_robo' }),
-    ]));
-  }
-
-  // 3) Sessão caída — o caso que MAIS parou o sistema. O login em si só dá pra fazer
-  // no PC; o botão daqui serve pra depois disso, pra não esperar 30 min à toa.
-  sessoes.forEach(function (s) {
-    pendencias.push(el('div', { class: 'pendencia grave' }, [
-      el('div', { class: 'o-que' }, ['🔌 Sessão da ' + s.conta + ' caiu']),
-      el('div', { class: 'detalhe' }, ['Desde ' + quando(s.caida_desde) + '. As tarefas da ' + s.conta + ' estão esperando; as outras lojas seguem normais.']),
-      el('div', { class: 'instrucao' }, ['Precisa de alguém no PC: entrar de novo na conta ' + s.conta + ' pelo Chrome do robô. Depois disso, toque abaixo.']),
-      botaoOk('Já reconectei — pode seguir', 'verde', { acao: 'liberar_sessao', conta: s.conta }),
-    ]));
-  });
-
-  // 4) Alertas graves. Os de sessão caída e de tarefa falhada já aparecem acima e
-  // abaixo, com o botão certo — repeti-los aqui só daria duas coisas pra tocar.
-  alertas.filter(function (a) {
-    return a.chave.indexOf('sessao_caida:') !== 0 && a.chave.indexOf('tarefa_falhou:') !== 0;
-  }).forEach(function (a) {
-    pendencias.push(el('div', { class: 'pendencia grave' }, [
-      el('div', { class: 'o-que' }, ['⚠️ Atenção']),
-      el('div', { class: 'detalhe' }, [a.mensagem]),
-      botaoOk('Ok, já vi', 'neutro', { acao: 'dispensar', id: a.id }),
-    ]));
-  });
-
-  // O que PRECISA DE ALGUÉM é só o que está acima. Tarefa que falhou não entra nessa
-  // conta: quase sempre o robô resolve na próxima, ou é coisa pra investigar, não pra
-  // alguém fazer. Ela aparece embaixo, em cinza, sem acender o vermelho do topo.
-  var precisa = pendencias.length;
-
-  var extras = [];
-  if (falhas.length) {
-    extras.push(el('div', { class: 'grupo-titulo' }, ['O robô ainda não conseguiu (' + falhas.length + ')']));
-    falhas.forEach(function (t) {
-      var titulo = (t.params && t.params.title) || (t.params && t.params.item_id) || '';
-      extras.push(el('div', { class: 'pendencia' }, [
-        el('div', { class: 'o-que' }, [(NOME_TAREFA[t.tipo] || t.tipo) + ' · ' + t.conta]),
-        titulo ? el('div', { class: 'detalhe' }, [titulo]) : null,
-        el('div', { class: 'detalhe' }, [explicarErro(t.erro)]),
-        botaoOk('Tentar de novo', 'pequeno neutro', { acao: 'tentar_de_novo', id: t.id }),
-      ]));
-    });
-  }
-
-  // O resumo no topo: a resposta pra "preciso fazer alguma coisa?" antes de ler qualquer detalhe.
-  painel.appendChild(precisa
-    ? el('div', { class: 'resumo ruim' }, [
-        el('div', { class: 'icone' }, ['✋']),
-        el('div', { class: 'titulo' }, [precisa === 1 ? '1 coisa precisa de você' : precisa + ' coisas precisam de você']),
-      ])
-    : el('div', { class: 'resumo ok' }, [
-        el('div', { class: 'icone' }, ['✅']),
-        el('div', { class: 'titulo' }, ['Tudo rodando']),
-        el('div', { class: 'sub' }, ['Robô trabalhando · último sinal ' + haQuanto(status.ultima_batida)]),
-      ]));
-  pendencias.forEach(function (p) { painel.appendChild(p); });
-  extras.forEach(function (p) { painel.appendChild(p); });
-}
-
-// Erro técnico cru não serve no celular — o primeiro print tinha um endereço de página
-// estourando a tela. Uma frase curta diz o suficiente pra saber se é grave.
+// Erro técnico cru não serve no celular. Uma frase curta basta pra saber se é grave.
 function explicarErro(erro) {
   var t = String(erro || '');
   if (/sessão da .* caiu|tela de login/i.test(t)) return 'A sessão da loja estava caída.';
   if (/caixinha do Envios Flex/i.test(t)) return 'Não achou a opção de Flex na página do anúncio.';
+  if (/botão Confirmar/i.test(t)) return 'A página do anúncio não confirmou a mudança.';
   if (/Navigation|navigat|Execution context|Target page|browser has been closed/i.test(t))
     return 'A página do Mercado Livre não carregou direito.';
   if (/HTTP 5\d\d|internal|Something went wrong/i.test(t)) return 'O Mercado Livre deu erro interno.';
   if (/HTTP 4\d\d|recusad/i.test(t)) return 'O Mercado Livre recusou a ação.';
   return t.length > 90 ? t.slice(0, 90) + '…' : t;
+}
+
+// ── Desenho ──────────────────────────────────────────────────────────────────
+function desenhar(d) {
+  var painel = document.getElementById('painel');
+  painel.innerHTML = '';
+  var st = d.status;
+  var roboMin = minutosDesde(st.ultima_batida);
+  var roboVivo = roboMin <= LIMITE.roboMin;
+  var caidas = d.sessoes.filter(function (s) { return s.caida_desde; });
+
+  // ── 2) O QUE PRECISA DE VOCÊ ──
+  // Só entra aqui o que exige uma pessoa. Cada um diz o que é, o que fazer, e traz o
+  // botão quando o celular consegue resolver.
+  var pendencias = [];
+
+  if (!roboVivo) {
+    pendencias.push(el('div', { class: 'pendencia grave' }, [
+      el('div', { class: 'o-que' }, ['Robô desligado']),
+      el('div', { class: 'detalhe' }, ['Sem sinal ' + haQuanto(st.ultima_batida) + '.']),
+      el('div', { class: 'como' }, [el('b', {}, ['Precisa de alguém no PC: ']),
+        'veja se ele está ligado. O robô volta sozinho em até 5 minutos. Nada se perde — as tarefas esperam na fila.']),
+    ]));
+  }
+
+  if (roboVivo && st.parar) {
+    pendencias.push(el('div', { class: 'pendencia atencao' }, [
+      el('div', { class: 'o-que' }, ['Robô pausado']),
+      el('div', { class: 'detalhe' }, ['Alguém apertou "Parar robô". Ele está ligado, mas não pega tarefa nenhuma.']),
+      botao('Retomar o robô', '', { acao: 'retomar_robo' }),
+    ]));
+  }
+
+  // Sessão caída: o login só dá pra fazer no PC. O botão é pra DEPOIS disso — sem ele o
+  // robô esperaria até 30 minutos pra perceber sozinho.
+  caidas.forEach(function (s) {
+    pendencias.push(el('div', { class: 'pendencia grave' }, [
+      el('div', { class: 'o-que' }, ['Sessão da ' + s.conta + ' caiu']),
+      el('div', { class: 'detalhe' }, ['Desde ' + quando(s.caida_desde) + '. A ' + s.conta + ' está parada; as outras lojas seguem normais.']),
+      el('div', { class: 'como' }, [el('b', {}, ['Precisa de alguém no PC: ']),
+        'entrar de novo na conta ' + s.conta + ' pelo Chrome do robô. Depois toque aqui:']),
+      botao('Já reconectei, pode seguir', '', { acao: 'liberar_sessao', conta: s.conta }),
+    ]));
+  });
+
+  // Alertas graves que não são sessão caída nem falha de tarefa (esses já têm lugar próprio).
+  d.alertas.filter(function (a) {
+    return a.chave.indexOf('sessao_caida:') !== 0 && a.chave.indexOf('tarefa_falhou:') !== 0;
+  }).forEach(function (a) {
+    pendencias.push(el('div', { class: 'pendencia grave' }, [
+      el('div', { class: 'o-que' }, ['Atenção']),
+      el('div', { class: 'detalhe' }, [a.mensagem]),
+      botao('Ok, já vi', 'neutro', { acao: 'dispensar', id: a.id }),
+    ]));
+  });
+
+  // ── 1) A RESPOSTA ──
+  var n = pendencias.length;
+  painel.appendChild(n
+    ? el('div', { class: 'resposta ruim' }, [
+        el('div', { class: 'sinal' }, ['✋']),
+        el('div', { class: 'titulo' }, [n === 1 ? '1 coisa precisa de você' : n + ' coisas precisam de você']),
+        el('div', { class: 'sub' }, ['Veja abaixo o que é e o que fazer.']),
+      ])
+    : el('div', { class: 'resposta ok' }, [
+        el('div', { class: 'sinal' }, ['✓']),
+        el('div', { class: 'titulo' }, ['Tudo rodando']),
+        el('div', { class: 'sub' }, ['Nada precisa de você agora.']),
+      ]));
+  pendencias.forEach(function (p) { painel.appendChild(p); });
+
+  // ── 3) COMO ESTÁ CADA PARTE ──
+  // Pra conferir com os próprios olhos. Verde = em dia; amarelo = atrasado mas
+  // resolve sozinho; vermelho = parado. Amarelo NÃO vira pendência nem notificação.
+  function parte(nome, cor, estado) {
+    return el('div', { class: 'parte' }, [
+      el('span', { class: 'bolinha ' + cor }),
+      el('span', { class: 'nome' }, [nome]),
+      el('span', { class: 'estado' }, [estado]),
+    ]);
+  }
+
+  var lojas = ['KMP', 'ERP', 'LTS'];
+  var lojasCaidas = caidas.map(function (s) { return s.conta; });
+
+  var promoAtrasadas = lojas.filter(function (c) { return minutosDesde(d.promocoes[c]) > LIMITE.promocoesMin; });
+  // A leitura mais antiga das três é a que diz se está em dia. Loja sem leitura
+  // nenhuma conta como a mais antiga de todas — senão pegaria a data de outra loja.
+  var datasPromo = lojas.map(function (c) { return d.promocoes[c]; });
+  var promoMaisVelha = datasPromo.indexOf(null) !== -1 ? null : datasPromo.slice().sort()[0];
+
+  painel.appendChild(el('div', { class: 'secao' }, ['Como está cada parte']));
+  painel.appendChild(el('div', { class: 'partes' }, [
+    parte('Robô',
+      !roboVivo ? 'ruim' : st.parar ? 'atencao' : 'ok',
+      !roboVivo ? 'desligado' : st.parar ? 'pausado' : 'trabalhando'),
+    parte('Lojas',
+      lojasCaidas.length ? 'ruim' : 'ok',
+      lojasCaidas.length ? lojasCaidas.join(', ') + ' desconectada' + (lojasCaidas.length > 1 ? 's' : '')
+                         : 'as 3 conectadas'),
+    parte('Patrulha',
+      minutosDesde(d.patrulha) > LIMITE.patrulhaMin ? 'atencao' : 'ok',
+      haQuanto(d.patrulha)),
+    parte('Catálogo',
+      minutosDesde(d.catalogo) > LIMITE.catalogoMin ? 'atencao' : 'ok',
+      haQuanto(d.catalogo)),
+    parte('Promoções',
+      promoAtrasadas.length ? 'atencao' : 'ok',
+      promoAtrasadas.length ? promoAtrasadas.join(', ') + ' ' + haQuanto(promoMaisVelha)
+                            : 'lidas ' + haQuanto(promoMaisVelha)),
+  ]));
+
+  // Tarefas que não deram certo: recolhido. Quase nunca é assunto seu — o robô resolve
+  // na próxima, ou é coisa pra investigar. Fica à mão, mas não no caminho.
+  if (d.falhas.length) {
+    var det = el('details', { class: 'falhas' }, [
+      el('summary', {}, [el('span', {}, [
+        d.falhas.length === 1 ? '1 tarefa não deu certo hoje' : d.falhas.length + ' tarefas não deram certo hoje',
+      ])]),
+    ]);
+    d.falhas.forEach(function (t) {
+      var titulo = (t.params && t.params.title) || (t.params && t.params.item_id) || '';
+      det.appendChild(el('div', { class: 'falha' }, [
+        el('div', { class: 'o-que' }, [(NOME_TAREFA[t.tipo] || t.tipo) + ' · ' + t.conta]),
+        titulo ? el('div', { class: 'detalhe' }, [titulo]) : null,
+        el('div', { class: 'detalhe' }, [explicarErro(t.erro)]),
+        botao('Tentar de novo', 'neutro', { acao: 'tentar_de_novo', id: t.id }),
+      ]));
+    });
+    painel.appendChild(det);
+  }
 }
 
 // ── Notificações ─────────────────────────────────────────────────────────────
@@ -329,7 +442,6 @@ function chaveParaBytes(base64) {
   for (var i = 0; i < b.length; i++) saida[i] = b.charCodeAt(i);
   return saida;
 }
-
 function instalado() {
   return window.navigator.standalone === true ||
     (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
@@ -339,76 +451,79 @@ function ehIphone() { return /iphone|ipad|ipod/i.test(navigator.userAgent); }
 function desenharAvisos() {
   var caixa = document.getElementById('avisos');
   caixa.innerHTML = '';
-  var suportaPush = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  var suporta = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
 
-  // No iPhone, notificação só existe com o app INSTALADO na tela de início. Aberto no
-  // Safari, a Apple nem oferece a opção — então o que dá pra mostrar é o passo a passo.
+  // No iPhone, notificação só existe com o app na tela de início.
   if (ehIphone() && !instalado()) {
-    caixa.appendChild(el('h2', {}, ['📲 Instale pra receber os avisos']));
-    caixa.appendChild(el('p', {}, ['No iPhone, os avisos só chegam com o app na tela de início:']));
-    caixa.appendChild(el('ol', { class: 'passos' }, [
-      el('li', {}, ['Toque no botão Compartilhar (o quadrado com a seta pra cima), embaixo no Safari']),
-      el('li', {}, ['Role e toque em "Adicionar à Tela de Início"']),
-      el('li', {}, ['Toque em "Adicionar"']),
-      el('li', {}, ['Abra o app "Alertas" pela tela de início e ative os avisos']),
+    caixa.appendChild(el('div', { class: 'ativar' }, [
+      el('h2', {}, ['📲 Instale pra receber os avisos']),
+      el('p', {}, ['No iPhone, os avisos só chegam com o app na tela de início:']),
+      el('ol', {}, [
+        el('li', {}, ['Toque em Compartilhar (quadrado com a seta pra cima)']),
+        el('li', {}, ['Toque em "Adicionar à Tela de Início"']),
+        el('li', {}, ['Abra o "Alertas" pelo ícone e ative os avisos']),
+      ]),
     ]));
     return;
   }
-
-  if (!suportaPush) {
-    caixa.appendChild(el('h2', {}, ['Avisos indisponíveis aqui']));
-    caixa.appendChild(el('p', {}, ['Este navegador não aceita notificações. No iPhone, precisa do iOS 16.4 ou mais novo.']));
+  if (!suporta) {
+    caixa.appendChild(el('div', { class: 'rodape' }, ['Este aparelho não aceita avisos.']));
     return;
   }
 
   navigator.serviceWorker.register('sw.js').then(function (reg) {
     return navigator.serviceWorker.ready.then(function () { return reg.pushManager.getSubscription(); })
       .then(function (inscricao) {
+        // Ativos: vira uma linha discreta no rodapé. Não precisa ocupar a tela toda vez.
         if (inscricao && Notification.permission === 'granted') {
-          caixa.appendChild(el('h2', {}, [el('span', { class: 'ok-texto' }, ['🔔 Avisos ativados'])]));
-          caixa.appendChild(el('p', {}, ['Quando o sistema precisar de você, chega notificação neste celular.']));
-          caixa.appendChild(botaoOk('Mandar um aviso de teste', 'neutro', { acao: 'teste' }));
+          var testar = el('button', {}, ['testar']);
+          var rod = el('div', { class: 'rodape' }, ['🔔 Avisos ativados · ', testar]);
+          testar.addEventListener('click', function () {
+            testar.disabled = true; testar.textContent = 'enviando…';
+            acao({ acao: 'teste' }).then(function () { testar.textContent = 'enviado ✓'; })
+              .catch(function () { testar.disabled = false; testar.textContent = 'não deu, tentar de novo'; });
+          });
+          caixa.appendChild(rod);
           return;
         }
         if (Notification.permission === 'denied') {
-          caixa.appendChild(el('h2', {}, ['🔕 Avisos bloqueados']));
-          caixa.appendChild(el('p', {}, ['Os avisos foram recusados. Pra liberar: Ajustes → Notificações → Alertas → Permitir.']));
+          caixa.appendChild(el('div', { class: 'ativar' }, [
+            el('h2', {}, ['🔕 Avisos bloqueados']),
+            el('p', {}, ['Pra liberar: Ajustes → Notificações → Alertas → Permitir.']),
+          ]));
           return;
         }
-        caixa.appendChild(el('h2', {}, ['🔔 Receber avisos neste celular']));
-        caixa.appendChild(el('p', {}, ['Robô desligado, sessão caída, tarefa que falhou: chega na hora, mesmo com o app fechado.']));
-        var b = el('button', { class: 'verde' }, ['Ativar avisos']);
+        var b = el('button', { class: 'acao' }, ['Ativar avisos']);
         var msg = el('div', { class: 'erro' });
-        // O pedido de permissão TEM que sair de um toque: o iPhone ignora se vier sozinho.
+        // O pedido de permissão TEM que sair de um toque — o iPhone ignora se vier sozinho.
         b.addEventListener('click', function () {
           b.disabled = true; b.textContent = 'Ativando…'; msg.textContent = '';
           Notification.requestPermission().then(function (perm) {
             if (perm !== 'granted') throw new Error('permissão não concedida');
-            return reg.pushManager.subscribe({
-              userVisibleOnly: true, applicationServerKey: chaveParaBytes(VAPID_PUBLICA),
-            });
-          }).then(function (inscricao) {
-            return acao({ acao: 'inscrever', inscricao: inscricao.toJSON(), aparelho: navigator.userAgent });
-          }).then(function () {
-            desenharAvisos();
-          }).catch(function (e) {
-            b.disabled = false; b.textContent = 'Ativar avisos';
-            msg.textContent = 'Não deu: ' + e.message;
+            return reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: chaveParaBytes(VAPID_PUBLICA) });
+          }).then(function (s) {
+            return acao({ acao: 'inscrever', inscricao: s.toJSON(), aparelho: navigator.userAgent });
+          }).then(desenharAvisos).catch(function (e) {
+            b.disabled = false; b.textContent = 'Ativar avisos'; msg.textContent = 'Não deu: ' + e.message;
           });
         });
-        caixa.appendChild(b);
-        caixa.appendChild(msg);
+        caixa.appendChild(el('div', { class: 'ativar' }, [
+          el('h2', {}, ['🔔 Receber avisos neste celular']),
+          el('p', {}, ['Robô desligado ou loja desconectada: chega na hora, mesmo com o app fechado. Nada de aviso à toa.']),
+          b, msg,
+        ]));
       });
   }).catch(function (e) {
-    caixa.appendChild(el('p', { class: 'erro' }, ['Não consegui preparar os avisos: ' + e.message]));
+    caixa.appendChild(el('div', { class: 'rodape' }, ['Não consegui preparar os avisos: ' + e.message]));
   });
 }
 
 // ── Início ───────────────────────────────────────────────────────────────────
+document.getElementById('recarregar').addEventListener('click', atualizar);
 atualizar();
 desenharAvisos();
-setInterval(atualizar, 30000);
-// Voltou pro app (ou tocou numa notificação): relê na hora, sem esperar os 30s.
+setInterval(atualizar, 60000);
+// Voltou pro app ou tocou numa notificação: relê na hora.
 document.addEventListener('visibilitychange', function () { if (!document.hidden) atualizar(); });
 </script>
 </body>
