@@ -18,9 +18,11 @@
 //   tentar_de_novo  -> devolve uma tarefa que falhou pra fila
 //   liberar_sessao  -> "já reconectei no PC": tira a loja da pausa na hora
 //   retomar_robo    -> desfaz o "parar robô"
+//   rodar_tudo      -> o botão do topo: catálogo, patrulha, sem estoque, Flex e as
+//                      promoções atrasadas, pra conferir de longe que tudo roda
 //
 // Passam por aqui, e não direto no banco pelo celular, pra que o app só consiga fazer
-// ESTAS quatro coisas — e nenhuma outra.
+// ESTAS coisas — e nenhuma outra.
 //
 // POR QUE O VIGIA ESTÁ AQUI E NÃO NO ROBÔ: o robô não consegue avisar da própria morte.
 // Se o PC desliga ou o processo cai, quem percebe tem que estar do lado de fora — e esta
@@ -248,6 +250,14 @@ Deno.serve(async (req) => {
         .eq("conta", conta);
       if (error) return json({ erro: error.message }, 500);
       return json({ ok: true });
+    }
+
+    // "Rodar tudo": o botão do topo do app. Quem dispara e protege contra toque duplo é
+    // a função rodar_tudo_agora() no banco — aqui só a chama.
+    if (acao === "rodar_tudo") {
+      const { data, error } = await sb.rpc("rodar_tudo_agora");
+      if (error) return json({ erro: error.message }, 500);
+      return json(data);
     }
 
     if (acao === "retomar_robo") {

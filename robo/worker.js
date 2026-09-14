@@ -1045,6 +1045,26 @@ async function processar(tarefa, navegadores) {
       proximaPatrulha = proximaHoraCheia(Date.now());   // adia a automática, já acabou de rodar
       await baterPonto({ proxima_patrulha: new Date(proximaPatrulha).toISOString() });
       log(`  ✅ patrulha sob demanda concluída — ${lidos} verificados, ${agidos} ação(ões)`);
+
+      // O MESMO QUE A PATRULHA DA HORA CHEIA FAZ LOGO DEPOIS.
+      //
+      // Até 14/09/2026 a patrulha pedida pelo botão parava aqui: não conferia os anúncios
+      // sem estoque nem o Flex dos pausados. E como pedir a patrulha adia a automática
+      // pra próxima hora cheia (linha acima), apertar "Atualizar tudo" fazia essas duas
+      // coisas rodarem MAIS TARDE do que se ninguém tivesse apertado nada. O botão
+      // "Rodar tudo" do app do celular dispara esta tarefa — tem que ser tudo mesmo.
+      try {
+        const n = await enfileirarSemEstoque();
+        if (n) log(`   sem estoque: ${n} anúncio(s) enfileirado(s) pra sair do Full`);
+      } catch (erro) {
+        log(`   verificação de sem estoque falhou: ${mensagemAmigavel(erro)}`);
+      }
+      try {
+        const n = await enfileirarFlexDosPausados();
+        if (n) log(`   flex: ${n} anúncio(s) pausado(s) ainda com Flex — enfileirados pra desligar`);
+      } catch (erro) {
+        log(`   varredura de flex falhou: ${mensagemAmigavel(erro)}`);
+      }
       return;
     }
 

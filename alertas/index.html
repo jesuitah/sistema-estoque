@@ -44,10 +44,27 @@
     max-width: 560px; margin: 0 auto; min-height: 100vh;
   }
 
-  header { display: flex; align-items: baseline; justify-content: space-between; margin: 4px 2px 16px; }
+  header { display: flex; align-items: center; justify-content: space-between; margin: 4px 2px 16px; }
   h1 { font-size: 28px; margin: 0; letter-spacing: -.02em; }
-  .recarregar { background: none; border: 0; color: var(--apagado); font: inherit; font-size: 13px;
-    padding: 6px 0 6px 12px; cursor: pointer; }
+  .rodar-tudo { font: inherit; font-weight: 700; font-size: 15px; color: #fff; background: var(--azul);
+    border: 0; border-radius: 999px; padding: 10px 16px; cursor: pointer; min-height: 42px; }
+  .rodar-tudo:disabled { opacity: .55; }
+
+  /* O andamento do "Rodar tudo": cada parte vira ✓ quando roda de verdade */
+  .rodada { background: var(--cartao); border: 1px solid rgba(59,130,246,.45); border-radius: 16px;
+    padding: 14px 16px; margin-bottom: 16px; }
+  .rodada.fim { border-color: rgba(34,197,94,.45); }
+  .rodada .topo { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+  .rodada .titulo { font-weight: 700; }
+  .rodada .fechar { background: none; border: 0; color: var(--apagado); font: inherit; font-size: 13px; cursor: pointer; padding: 4px 0 4px 10px; }
+  .passo { display: flex; align-items: flex-start; gap: 10px; padding: 7px 0; font-size: 15px; }
+  .passo .marca { width: 20px; text-align: center; flex-shrink: 0; }
+  .passo .texto { flex: 1; }
+  .passo .quando { color: var(--fraco); font-size: 13px; }
+  .passo.esperando .texto { color: var(--fraco); }
+  .passo.nao .texto { color: #fca5a5; }
+  .girando { display: inline-block; animation: girar 1s linear infinite; }
+  @keyframes girar { to { transform: rotate(360deg); } }
 
   /* 1) A resposta */
   .resposta { border-radius: 20px; padding: 26px 18px 22px; text-align: center; margin-bottom: 18px;
@@ -124,11 +141,13 @@
 <body>
   <header>
     <h1>Alertas</h1>
-    <button class="recarregar" id="recarregar" aria-label="Atualizar agora">atualizando…</button>
+    <button class="rodar-tudo" id="rodarTudo">↻ Rodar tudo</button>
   </header>
 
+  <div id="rodada"></div>
   <main id="painel"><div class="carregando">Conferindo o sistema…</div></main>
   <div id="avisos"></div>
+  <div class="rodape" id="atualizado"></div>
 
 <script>
 // ── Configuração ─────────────────────────────────────────────────────────────
@@ -223,7 +242,6 @@ var atualizando = false;
 function atualizar() {
   if (atualizando) return;
   atualizando = true;
-  document.getElementById('recarregar').textContent = 'atualizando…';
 
   var ontem = encodeURIComponent(new Date(Date.now() - 24 * 3600 * 1000).toISOString());
   var ultimaDe = function (tabela, coluna, filtro) {
@@ -243,7 +261,7 @@ function atualizar() {
     ultimaDe('ml_promocoes_itens', 'atualizado_em', '&conta=eq.ERP'),
     ultimaDe('ml_promocoes_itens', 'atualizado_em', '&conta=eq.LTS'),
   ]).then(function (r) {
-    desenhar({
+    var dados = {
       status: r[0][0] || {},
       sessoes: r[1],
       alertas: r[2],
@@ -251,19 +269,144 @@ function atualizar() {
       patrulha: r[5],
       catalogo: r[6],
       promocoes: { KMP: r[7], ERP: r[8], LTS: r[9] },
-    });
-    document.getElementById('recarregar').textContent = 'atualizado ' +
-      new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) + ' ↻';
-  }).catch(function (e) {
+    };
+    desenhar(dados);
+    desenharRodada(dados);
+    document.getElementById('atualizado').textContent = 'atualizado ' +
+      new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  }).catch(function () {
     var p = document.getElementById('painel');
     p.innerHTML = '';
     p.appendChild(el('div', { class: 'resposta ruim' }, [
       el('div', { class: 'sinal' }, ['📡']),
       el('div', { class: 'titulo' }, ['Não consegui conferir']),
-      el('div', { class: 'sub' }, ['Sem internet, ou o servidor não respondeu. Toque em atualizar pra tentar de novo.']),
+      el('div', { class: 'sub' }, ['Sem internet, ou o servidor não respondeu. Feche e abra o app de novo.']),
     ]));
-    document.getElementById('recarregar').textContent = 'tentar de novo ↻';
   }).then(function () { atualizando = false; });
+}
+
+// ── RODAR TUDO ───────────────────────────────────────────────────────────────
+//
+// Pedido do Matheus em 14/09/2026: longe de casa, no fim de semana, apertar um botão e
+// TER CERTEZA de que tudo está rodando. "Certeza" é a palavra que manda aqui: o app não
+// diz "pedido enviado" e pronto. Ele acompanha cada parte e só marca ✓ quando ela
+// rodou de verdade DEPOIS do toque — o catálogo com data nova, a patrulha com registro
+// novo, as promoções lidas de novo. Até lá, fica o relógio girando.
+//
+// A rodada fica guardada no aparelho: se o app for fechado no meio, ao abrir de novo o
+// andamento continua de onde estava.
+var rodada = null;
+try { rodada = JSON.parse(localStorage.getItem('rodada') || 'null'); } catch (_e) { rodada = null; }
+if (rodada && minutosDesde(rodada.desde) > 90) rodada = null;   // rodada velha não interessa
+
+function guardarRodada() {
+  try {
+    if (rodada) localStorage.setItem('rodada', JSON.stringify(rodada));
+    else localStorage.removeItem('rodada');
+  } catch (_e) {}
+}
+
+function rodarTudo() {
+  var b = document.getElementById('rodarTudo');
+  b.disabled = true; b.textContent = 'Enviando…';
+  acao({ acao: 'rodar_tudo' }).then(function (r) {
+    // Toque duplo: o servidor não dispara de novo e devolve a rodada que já está andando.
+    rodada = {
+      desde: r.desde,
+      robo_vivo: r.ja_rodando && rodada ? rodada.robo_vivo : r.robo_vivo,
+      promocoes_na_fila: r.ja_rodando && rodada ? rodada.promocoes_na_fila : (r.promocoes_na_fila || []),
+      promocoes_em_dia: r.ja_rodando && rodada ? rodada.promocoes_em_dia : (r.promocoes_em_dia || []),
+    };
+    guardarRodada();
+    atualizar();
+  }).catch(function (e) {
+    document.getElementById('rodada').innerHTML = '';
+    document.getElementById('rodada').appendChild(el('div', { class: 'rodada' }, [
+      el('div', { class: 'passo nao' }, [el('span', { class: 'marca' }, ['✕']),
+        el('span', { class: 'texto' }, ['Não consegui mandar rodar: ' + e.message])]),
+    ]));
+  }).then(function () {
+    b.disabled = false; b.textContent = '↻ Rodar tudo';
+  });
+}
+
+function desenharRodada(d) {
+  var caixa = document.getElementById('rodada');
+  caixa.innerHTML = '';
+  if (!rodada) return;
+
+  var desde = new Date(rodada.desde).getTime();
+  var depois = function (iso) { return iso && new Date(iso).getTime() > desde; };
+  var passos = [];
+
+  function passo(estado, texto, quando) {
+    var marca = estado === 'ok' ? '✓' : estado === 'nao' ? '✕' : null;
+    passos.push(el('div', { class: 'passo ' + (estado === 'ok' ? '' : estado) }, [
+      el('span', { class: 'marca' }, [marca ? marca : el('span', { class: 'girando' }, ['↻'])]),
+      el('span', { class: 'texto' }, [texto]),
+      quando ? el('span', { class: 'quando' }, [quando]) : null,
+    ]));
+    return estado;
+  }
+
+  var roboVivo = minutosDesde(d.status.ultima_batida) <= LIMITE.roboMin;
+  var estados = [];
+
+  // O robô: sem ele, a patrulha e as promoções não andam — e o app diz isso na hora,
+  // em vez de deixar o relógio girando pra sempre.
+  estados.push(passo(roboVivo ? 'ok' : 'nao',
+    roboVivo ? 'Robô respondeu' : 'Robô desligado — a patrulha e as promoções esperam ele voltar',
+    roboVivo ? haQuanto(d.status.ultima_batida) : null));
+
+  // Catálogo: roda no servidor, não depende do robô.
+  estados.push(passo(depois(d.catalogo) ? 'ok' : 'esperando',
+    depois(d.catalogo) ? 'Catálogo relido' : 'Relendo o catálogo das 3 lojas… (uns 3 min)',
+    depois(d.catalogo) ? haQuanto(d.catalogo) : null));
+
+  // Patrulha, e junto dela sem estoque e Flex.
+  if (roboVivo) {
+    estados.push(passo(depois(d.patrulha) ? 'ok' : 'esperando',
+      depois(d.patrulha) ? 'Patrulha feita (sem estoque e Flex conferidos)' : 'Patrulhando as 3 lojas… (uns 3 min)',
+      depois(d.patrulha) ? haQuanto(d.patrulha) : null));
+  }
+
+  // Promoções: as em dia ficam em dia; as atrasadas mostram a leitura andando.
+  if (rodada.promocoes_em_dia.length) {
+    estados.push(passo('ok', 'Promoções em dia (' + rodada.promocoes_em_dia.join(', ') + ')', null));
+  }
+  if (roboVivo) {
+    rodada.promocoes_na_fila.forEach(function (c) {
+      estados.push(passo(depois(d.promocoes[c]) ? 'ok' : 'esperando',
+        depois(d.promocoes[c]) ? 'Promoções da ' + c + ' lidas' : 'Lendo as promoções da ' + c + '… (uns 18 min)',
+        depois(d.promocoes[c]) ? haQuanto(d.promocoes[c]) : null));
+    });
+  }
+
+  var faltando = estados.filter(function (e) { return e === 'esperando'; }).length;
+  var falhou = estados.indexOf('nao') !== -1;
+  var terminou = !faltando;
+
+  var fechar = el('button', { class: 'fechar' }, ['fechar']);
+  fechar.addEventListener('click', function () { rodada = null; guardarRodada(); caixa.innerHTML = ''; });
+
+  caixa.appendChild(el('div', { class: 'rodada' + (terminou && !falhou ? ' fim' : '') }, [
+    el('div', { class: 'topo' }, [
+      el('span', { class: 'titulo' }, [
+        terminou ? (falhou ? 'Rodou, mas o robô está desligado' : '✓ Tudo rodou agora') : 'Rodando tudo…',
+      ]),
+      terminou ? fechar : el('span', { class: 'quando' }, ['desde ' + new Date(rodada.desde)
+        .toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })]),
+    ]),
+  ].concat(passos)));
+
+  // Enquanto roda, relê mais rápido que o normal pra ver cada ✓ aparecendo.
+  acompanharRodada(!terminou);
+}
+
+var relogioRodada = null;
+function acompanharRodada(ligar) {
+  if (ligar && !relogioRodada) relogioRodada = setInterval(atualizar, 8000);
+  if (!ligar && relogioRodada) { clearInterval(relogioRodada); relogioRodada = null; }
 }
 
 // Das tarefas que falharam, só o que ainda está de pé: uma linha por anúncio, e só se
@@ -528,7 +671,7 @@ function desenharAvisos() {
 }
 
 // ── Início ───────────────────────────────────────────────────────────────────
-document.getElementById('recarregar').addEventListener('click', atualizar);
+document.getElementById('rodarTudo').addEventListener('click', rodarTudo);
 atualizar();
 desenharAvisos();
 setInterval(atualizar, 60000);
