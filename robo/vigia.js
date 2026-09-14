@@ -192,6 +192,31 @@ async function levantarProblemas(sb) {
     });
   }
 
+  // 6) SESSÃO DO NAVEGADOR CAÍDA — um aviso por loja, não um por tarefa.
+  //
+  // Antes, cada tarefa que falhava por sessão caída virava um aviso "tarefa falhou". No
+  // fim de semana de 12-14/09 isso significou o mesmo problema repetido o tempo todo, e
+  // nenhuma noção de há quanto tempo a loja estava parada. Agora é um só, com a hora em
+  // que caiu e quantas tarefas estão esperando.
+  try {
+    const { data: sessoes } = await sb.from('robo_sessoes').select('*').not('caida_desde', 'is', null);
+    for (const s of sessoes || []) {
+      const { count } = await sb.from('ml_tarefas_robo')
+        .select('id', { count: 'exact', head: true })
+        .eq('conta', s.conta).eq('status', 'pendente');
+      const desde = new Date(s.caida_desde).toLocaleString('pt-BR', {
+        timeZone: 'America/Sao_Paulo', weekday: 'short', hour: '2-digit', minute: '2-digit',
+      });
+      achados.push({
+        chave: `sessao_caida:${s.conta}`, gravidade: 'grave',
+        mensagem: `A sessão da ${s.conta} caiu no navegador do robô (${desde}) — ${count || 0} tarefa(s) ` +
+                  `esperando. Entre de novo na conta ${s.conta} pelo Chrome do robô.`,
+      });
+    }
+  } catch (_e) {
+    // Conferência acessória: se falhar, não derruba o resto da vigilância.
+  }
+
   // 5) ANÚNCIO QUE PERDEU O FLEX SEM NINGUÉM PEDIR — resumo da semana.
   //
   // Nasceu da pergunta do Matheus em 11/09/2026: "estamos errando mesmo?". Tinha 254

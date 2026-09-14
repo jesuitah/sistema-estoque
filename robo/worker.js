@@ -74,8 +74,38 @@ const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 function agora() {
   return new Date().toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo' });
 }
+// O DIÁRIO DO ROBÔ, EM ARQUIVO.
+//
+// O robô roda invisível (robo-invisivel.vbs), então o console.log não vai pra lugar
+// nenhum. Em 14/09/2026 a pergunta "por que as promoções não foram lidas no fim de
+// semana?" ficou sem resposta exatamente por isso: não havia registro do que ele fez.
+// Um arquivo por dia em robo/logs, e só os últimos 14 ficam.
+const PASTA_LOGS = path.join(__dirname, 'logs');
+const DIAS_DE_LOG = 14;
+
+function arquivoDeHoje() {
+  const d = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });   // AAAA-MM-DD
+  return path.join(PASTA_LOGS, `robo-${d}.log`);
+}
+
+function limparLogsVelhos() {
+  try {
+    const limite = Date.now() - DIAS_DE_LOG * 24 * 3600 * 1000;
+    for (const nome of fs.readdirSync(PASTA_LOGS)) {
+      const cheio = path.join(PASTA_LOGS, nome);
+      if (fs.statSync(cheio).mtimeMs < limite) fs.unlinkSync(cheio);
+    }
+  } catch (_e) { /* faxina é acessória */ }
+}
+
+try { fs.mkdirSync(PASTA_LOGS, { recursive: true }); limparLogsVelhos(); } catch (_e) {}
+
 function log(msg) {
-  console.log(`  ${agora()}  ${msg}`);
+  const linha = `  ${agora()}  ${msg}`;
+  console.log(linha);
+  // Escrever o diário nunca pode derrubar o robô: disco cheio ou arquivo travado é
+  // motivo pra perder uma linha, não pra parar de trabalhar.
+  try { fs.appendFileSync(arquivoDeHoje(), linha + '\n'); } catch (_e) {}
 }
 
 
@@ -258,6 +288,96 @@ async function enfileirarSemEstoque() {
     }
   }
   return enfileirados;
+}
+
+// ── DISJUNTOR DA SESSÃO ──────────────────────────────────────────────────────
+//
+// No fim de semana de 12-14/09/2026 a sessão da KMP caiu no sábado às 12:45 e o robô
+// tentou os mesmos 30 anúncios de hora em hora até segunda de manhã: 1.030 falhas. Ele
+// sabia desde a PRIMEIRA que a sessão estava morta — a mensagem dizia isso com todas as
+// letras — e mesmo assim insistiu, porque não tinha onde guardar essa informação.
+//
+// Agora, ao cair no login, a loja é "desligada" por um tempo: as tarefas dela ficam
+// ESPERANDO na fila (não falham, não se perdem) e só voltam a ser tentadas depois da
+// pausa. Uma tentativa a cada meia hora basta pra perceber sozinho quando alguém entrar
+// de novo na conta — sem 30 tentativas por hora, sem fila entupida, sem avisos repetidos.
+const ESPERA_SESSAO_CAIDA_MS = 30 * 60 * 1000;
+const TIPOS_QUE_USAM_NAVEGADOR = new Set(['tirar_do_full', 'ligar_flex', 'desligar_flex']);
+const ERRO_SESSAO_CAIDA = 'a sessão da';
+
+let sessoesCache = {};          // conta -> linha de robo_sessoes
+let sessoesCacheQuando = 0;
+
+async function lerSessoes(forcar) {
+  if (!forcar && Date.now() - sessoesCacheQuando < 20000) return sessoesCache;
+  const { data } = await sb.from('robo_sessoes').select('*');
+  const novo = {};
+  for (const s of data || []) novo[s.conta] = s;
+  sessoesCache = novo;
+  sessoesCacheQuando = Date.now();
+  return sessoesCache;
+}
+
+// A loja está em pausa por sessão caída AGORA?
+function contaEmPausa(sessoes, conta) {
+  const s = sessoes[conta];
+  return !!(s && s.caida_desde && s.proxima_tentativa && new Date(s.proxima_tentativa) > new Date());
+}
+
+// A fila tem trabalho que o robô CONSEGUE fazer agora?
+//
+// A patrulha e a leitura das promoções só rodam com a fila vazia, pra não disputar com
+// as tarefas. Mas tarefa de loja em pausa fica pendente de propósito, esperando a sessão
+// voltar — e com ela lá a fila nunca "esvaziaria", e a patrulha das TRÊS lojas pararia
+// por causa de uma. Por isso a pergunta não é "tem alguma coisa na fila?", e sim "tem
+// alguma coisa que dá pra fazer?".
+async function temTrabalhoPossivel() {
+  const { data } = await sb.from('ml_tarefas_robo')
+    .select('conta, tipo, status').in('status', ['pendente', 'rodando']).limit(200);
+  if (!data || !data.length) return false;
+  const sessoes = await lerSessoes();
+  return data.some((t) =>
+    t.status === 'rodando'
+    || !(TIPOS_QUE_USAM_NAVEGADOR.has(t.tipo) && contaEmPausa(sessoes, t.conta)));
+}
+
+async function marcarSessaoCaida(conta) {
+  const sessoes = await lerSessoes(true);
+  const antes = sessoes[conta] || {};
+  const agoraIso = new Date().toISOString();
+  await sb.from('robo_sessoes').upsert({
+    conta,
+    caida_desde: antes.caida_desde || agoraIso,   // mantém QUANDO caiu da primeira vez
+    proxima_tentativa: new Date(Date.now() + ESPERA_SESSAO_CAIDA_MS).toISOString(),
+    tentativas: (antes.tentativas || 0) + 1,
+    atualizado_em: agoraIso,
+  }, { onConflict: 'conta' });
+  await lerSessoes(true);
+  log(`  🔌 sessão da ${conta} caída — pausando as tarefas dela por 30 min (a fila espera, nada se perde)`);
+}
+
+async function marcarSessaoDePe(conta) {
+  const sessoes = await lerSessoes();
+  if (!sessoes[conta] || !sessoes[conta].caida_desde) return;   // já estava de pé
+  await sb.from('robo_sessoes').update({
+    caida_desde: null, proxima_tentativa: null, tentativas: 0,
+    atualizado_em: new Date().toISOString(),
+  }).eq('conta', conta);
+  await lerSessoes(true);
+  log(`  🔌 sessão da ${conta} de volta — tarefas dela liberadas`);
+}
+
+// O Flex abre a página de edição do anúncio, não o painel — e nela a sessão caída se
+// disfarçava de outra coisa: a tela de login não tem a caixinha do Flex, então o erro
+// saía "não achei a caixinha", e o disjuntor acima nunca desligava a loja. Esta
+// conferência dá a esse caso o mesmo nome do outro, pra ele ser tratado igual.
+function conferirSessao(pagina, conta) {
+  const url = pagina.url();
+  if (/\/login|\/lgz\/|identification/i.test(url)) {
+    throw new Error(
+      `a sessão da ${conta} caiu no navegador do robô — a página jogou pra tela de login. ` +
+      'Abra o Chrome do robô e entre de novo nessa conta.');
+  }
 }
 
 async function obterCsrf(pagina, conta, forcar) {
@@ -544,6 +664,7 @@ async function ligarFlex(navegador, pagina, tarefa, accessToken) {
   await pagina.goto(`https://www.mercadolivre.com.br/anuncios/${itemId}/modificar/`,
     { waitUntil: 'domcontentloaded', timeout: 60000 });
   await pagina.waitForTimeout(7000);
+  conferirSessao(pagina, tarefa.conta);
 
   // A seção de envios vem RECOLHIDA — e o texto "Envios Flex" nem existe na página
   // antes de expandir. Procurar sem abrir não acha nada (perdi meia hora com isso).
@@ -634,6 +755,7 @@ async function desligarFlex(navegador, pagina, tarefa, accessToken) {
   await pagina.goto(`https://www.mercadolivre.com.br/anuncios/${itemId}/modificar/`,
     { waitUntil: 'domcontentloaded', timeout: 60000 });
   await pagina.waitForTimeout(7000);
+  conferirSessao(pagina, tarefa.conta);
   await pagina.evaluate(() => {
     document.querySelectorAll('[aria-expanded="false"]').forEach((el) => el.click());
   });
@@ -746,11 +868,18 @@ async function devoParar() {
 // próxima. Sem isso, o robô automático e um aberto na mão poderiam executar a
 // mesma ação duas vezes.
 async function reservarProximaTarefa() {
+  // Olha mais candidatas que antes (5 -> 60): se as primeiras da fila são de uma loja
+  // em pausa por sessão caída, o robô precisa enxergar além delas pra achar trabalho
+  // das outras lojas. Com 5, trinta tarefas da KMP na frente travariam a ERP e a LTS.
   const { data: candidatas } = await sb.from('ml_tarefas_robo')
-    .select('id').eq('status', 'pendente').order('criado_em', { ascending: true }).limit(5);
+    .select('id, conta, tipo').eq('status', 'pendente')
+    .order('criado_em', { ascending: true }).limit(60);
   if (!candidatas || !candidatas.length) return null;
 
-  for (const { id } of candidatas) {
+  const sessoes = await lerSessoes();
+  for (const { id, conta, tipo } of candidatas) {
+    // Loja sem sessão: a tarefa fica pendente, esperando a vez dela. Não falha.
+    if (TIPOS_QUE_USAM_NAVEGADOR.has(tipo) && contaEmPausa(sessoes, conta)) continue;
     const { data: reservada } = await sb.from('ml_tarefas_robo')
       .update({ status: 'rodando', iniciado_em: new Date().toISOString() })
       .eq('id', id)
@@ -934,6 +1063,13 @@ async function processar(tarefa, navegadores) {
         .update({ status: 'feito', resultado, concluido_em: new Date().toISOString(), erro: null })
         .eq('id', tarefa.id);
 
+      // Deu certo DE VERDADE pelo navegador: a sessão desta loja está de pé. É assim que
+      // a pausa acaba sozinha depois que alguém entra de novo na conta. "Nada a fazer"
+      // não conta — nesse caso o robô nem abriu o navegador, então não provou nada.
+      if (TIPOS_QUE_USAM_NAVEGADOR.has(tarefa.tipo) && !resultado.nada_a_fazer) {
+        await marcarSessaoDePe(tarefa.conta);
+      }
+
       // Registra no histórico que o sistema mostra na tela.
       await registrarAcao({
         conta: tarefa.conta,
@@ -956,8 +1092,24 @@ async function processar(tarefa, navegadores) {
       log(`  ⚠ #${tarefa.id} sem confirmação`);
     }
   } catch (erro) {
+    const texto = String(erro.message ?? erro);
+
+    // SESSÃO CAÍDA NÃO É FALHA DA TAREFA — é a loja inteira que está sem acesso.
+    //
+    // A tarefa volta pra fila intacta (não vira "falhou", não some do histórico) e a loja
+    // entra em pausa. Quando a sessão voltar, esta mesma tarefa roda sozinha. Foi o que
+    // faltou no fim de semana de 12-14/09: cada tentativa virava uma linha de falha
+    // nova, e em 44 horas eram 1.030.
+    if (texto.indexOf(ERRO_SESSAO_CAIDA) !== -1 && TIPOS_QUE_USAM_NAVEGADOR.has(tarefa.tipo)) {
+      await sb.from('ml_tarefas_robo')
+        .update({ status: 'pendente', iniciado_em: null, erro: texto })
+        .eq('id', tarefa.id);
+      await marcarSessaoCaida(tarefa.conta);
+      return;
+    }
+
     await sb.from('ml_tarefas_robo')
-      .update({ status: 'falhou', erro: String(erro.message ?? erro), concluido_em: new Date().toISOString() })
+      .update({ status: 'falhou', erro: texto, concluido_em: new Date().toISOString() })
       .eq('id', tarefa.id);
     await registrarAcao({
       conta: tarefa.conta,
@@ -1030,9 +1182,7 @@ async function main() {
       // Sem restrição de horário: à noite e no fim de semana é justamente quando
       // ninguém está olhando, e anúncio parado nessas horas é venda perdida igual.
       if (Date.now() >= proximaPatrulha) {
-        const { data: temFila } = await sb.from('ml_tarefas_robo')
-          .select('id').in('status', ['pendente', 'rodando']).limit(1);
-        if (!temFila || !temFila.length) {
+        if (!(await temTrabalhoPossivel())) {
           // Já marca a próxima antes de começar: se esta passada falhar no meio,
           // não fica repetindo em looping — espera a hora cheia seguinte.
           proximaPatrulha = proximaHoraCheia(Date.now());
@@ -1124,9 +1274,7 @@ async function main() {
       // O alerta é criado quando o problema aparece e só fecha quando o vigia passa de
       // novo. Sem isto, o robô conserta às 08:54 e a tarja vermelha fica na tela até
       // 09:04 falando de algo já resolvido — foi o que o Matheus viu.
-      const { data: aindaTem } = await sb.from('ml_tarefas_robo')
-        .select('id').in('status', ['pendente', 'rodando']).limit(1);
-      if (!aindaTem || !aindaTem.length) {
+      if (!(await temTrabalhoPossivel())) {
         ultimoVigia = Date.now();
         try { await vigiar({ log: (m) => log(m) }); } catch (_e) { /* silencioso */ }
       }
