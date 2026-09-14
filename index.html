@@ -591,6 +591,12 @@
       var acabouHistorico = acabouHistoricoState[0];
       var setAcabouHistorico = acabouHistoricoState[1];
 
+      // Recolhido por padrão, igual ao da "Chegou peça". Aberto, o histórico empurrava a
+      // busca pra longe e não havia como fechar.
+      var acabouHistAbertoState = useState(false);
+      var acabouHistAberto = acabouHistAbertoState[0];
+      var setAcabouHistAberto = acabouHistAbertoState[1];
+
       var paradoBuscaState = useState('');
       var paradoBusca = paradoBuscaState[0];
       var setParadoBusca = paradoBuscaState[1];
@@ -6355,15 +6361,22 @@
                         return new Date(l.quando).toDateString() === hoje;
                       });
                       return e(React.Fragment, null,
-                        e('div', {className: 'flex items-center justify-between gap-2 px-1 py-1'},
-                          e('span', {className: 'text-sm font-bold text-slate-400'}, '🕐 Histórico do que foi pausado'),
+                        e('button', {
+                          onClick: function() { setAcabouHistAberto(!acabouHistAberto); },
+                          className: 'w-full flex items-center justify-between gap-2 text-left px-1 py-1 rounded hover:bg-slate-800 transition-colors'
+                        },
+                          e('span', {className: 'text-sm font-bold text-slate-400'},
+                            (acabouHistAberto ? '▾' : '▸') + ' 🕐 Histórico do que foi pausado'),
                           e('span', {className: 'text-xs text-slate-600'},
                             doDia.length ? doDia.length + ' hoje · ' + acabouHistorico.length + ' no total'
                                          : acabouHistorico.length + ' no total')
                         ),
-                        e('div', {className: 'mt-3 space-y-1'},
+                        acabouHistAberto && e('div', {className: 'mt-3 space-y-1'},
                           acabouHistorico.slice(0, 60).map(function(l) {
-                            var deuCerto = l.acao === 'inativado';
+                            // "Full — só o flex" É o resultado certo, não um problema: o
+                            // anúncio do Full segue vendendo de propósito. Pintá-lo de laranja
+                            // como falha fazia parecer que algo tinha dado errado.
+                            var deuCerto = l.acao === 'inativado' || l.acao === 'full_so_flex';
                             return e('div', {
                               key: l.id,
                               className: 'flex items-center gap-2 text-xs px-3 py-1.5 rounded border ' +
@@ -6376,10 +6389,13 @@
                               e('span', {className: 'flex-1 truncate ' + (deuCerto ? 'text-slate-300' : 'text-amber-200'),
                                 title: l.detalhe || ''},
                                 l.title || l.item_id),
-                              deuCerto
-                                ? e('span', {className: 'text-slate-500 whitespace-nowrap'}, 'pausado')
-                                : e('span', {className: 'text-amber-300 whitespace-nowrap'},
-                                    l.acao === 'full_so_flex' ? 'Full — só o flex' : 'não pausou')
+                              l.acao === 'full_so_flex'
+                                ? e('span', {className: 'text-violet-400 whitespace-nowrap',
+                                    title: 'Está no Full: continua vendendo, só o Envios Flex foi desligado'},
+                                    'Full — só o flex')
+                                : deuCerto
+                                  ? e('span', {className: 'text-slate-500 whitespace-nowrap'}, 'pausado')
+                                  : e('span', {className: 'text-amber-300 whitespace-nowrap'}, 'não pausou')
                             );
                           }),
                           acabouHistorico.length > 60 && e('div', {className: 'text-xs text-slate-600 text-center pt-1'},
