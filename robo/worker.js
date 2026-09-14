@@ -579,8 +579,18 @@ async function enfileirarFlexDosPausados() {
     .select('params').eq('tipo', 'desligar_flex').in('status', ['pendente', 'rodando']);
   const jaEnfileirados = new Set((naFila || []).map((t) => t.params?.item_id));
 
+  // SÓ AS FALHAS RECENTES contam pra desistir.
+  //
+  // Antes contava o histórico inteiro, e desistir era pra sempre. No fim de semana de
+  // 12-14/09/2026 a sessão da KMP caiu e a página de edição passou a abrir no login —
+  // onde, claro, não existe a caixinha do Flex. Cada tentativa virou "não achei a
+  // caixinha", 18 anúncios bateram 3 falhas, e o robô desistiu deles de vez. Com a sessão
+  // de volta, se qualquer um fosse pausado, o Flex dele ficaria ligado indefinidamente.
+  // Com uma janela de 7 dias, uma desistência errada se desfaz sozinha.
+  const seteDiasAtras = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
   const { data: falhas } = await sb.from('ml_tarefas_robo')
-    .select('params').eq('tipo', 'desligar_flex').eq('status', 'falhou');
+    .select('params').eq('tipo', 'desligar_flex').eq('status', 'falhou')
+    .gte('concluido_em', seteDiasAtras);
   const quantasFalhas = new Map();
   for (const t of falhas || []) {
     const id = t.params?.item_id;
