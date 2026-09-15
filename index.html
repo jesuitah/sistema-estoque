@@ -223,6 +223,211 @@
       return !permitidas || permitidas.indexOf(aba) !== -1;
     }
 
+    // ── ABA ANÁLISE ──────────────────────────────────────────────────────────────
+    //
+    // Diagnóstico dos anúncios ATIVOS, uma loja por vez, pelo checklist de qualidade
+    // do próprio Mercado Livre (nota 0-100 + o que falta). Desenhado com o Matheus em
+    // 14-15/09/2026. Regras:
+    //   - só roda quando alguém aperta "Analisar";
+    //   - entra na lista quem tem nota abaixo de 100, no máximo 20 por vez, primeiro os
+    //     que mais recebem visita (é onde completar dá retorno mais rápido);
+    //   - promoção, Product Ads e preço são do Matheus; o resto é do Leonardo;
+    //   - clip é gargalo da Letícia: só aparece nos anúncios que mais recebem visita;
+    //   - "feito" some da lista até a próxima análise; se o ML ainda disser pendente, volta;
+    //   - título NÃO entra (pedido do Matheus).
+    var ANALISE_LIMITE = 20;
+    var ANALISE_CLIP_TOP = 30;   // clip só nos 30 anúncios com mais visitas da loja
+
+    function chamarAnalise(corpo) {
+      return fetch(supabaseUrl + '/functions/v1/ml-analise-anuncios', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', Authorization: 'Bearer ' + supabaseKey, apikey: supabaseKey},
+        body: JSON.stringify(corpo),
+      }).then(function(r) { return r.json(); });
+    }
+
+    function AbaAnalise() {
+      var contaSt = useState('ERP'); var conta = contaSt[0];
+      var linhasSt = useState(null); var linhas = linhasSt[0]; var setLinhas = linhasSt[1];
+      var progressoSt = useState(null); var progresso = progressoSt[0]; var setProgresso = progressoSt[1];
+      var filtroSt = useState('todos'); var filtro = filtroSt[0]; var setFiltro = filtroSt[1];
+      var marcadosSt = useState({}); var marcados = marcadosSt[0]; var setMarcados = marcadosSt[1];
+      var aplicandoSt = useState(false); var aplicando = aplicandoSt[0]; var setAplicando = aplicandoSt[1];
+      var avisoSt = useState(null); var aviso = avisoSt[0]; var setAviso = avisoSt[1];
+
+      function carregar() {
+        supabase.from('ml_analise').select('*').eq('conta', conta).then(function(r) {
+          setLinhas(r.data || []);
+        });
+      }
+      React.useEffect(carregar, [conta]);
+
+      function analisar() {
+        var inicio = new Date().toISOString();
+        var offset = 0;
+        setAviso(null);
+        setProgresso({feitos: 0, total: null});
+        function proximo() {
+          chamarAnalise({acao: 'lote', conta: conta, offset: offset, limite: 25}).then(function(d) {
+            if (d.erro) throw new Error(d.erro);
+            offset += d.processados;
+            setProgresso({feitos: Math.min(offset, d.total), total: d.total});
+            if (d.processados > 0 && offset < d.total) return proximo();
+            return chamarAnalise({acao: 'fim', conta: conta, inicio: inicio}).then(function() {
+              setProgresso(null);
+              setMarcados({});
+              carregar();
+            });
+          }).catch(function(err) {
+            setProgresso(null);
+            setAviso('A análise parou no meio: ' + err.message + '. O que já foi lido está salvo — pode apertar Analisar de novo.');
+            carregar();
+          });
+        }
+        proximo();
+      }
+
+      function marcarFeito(linha, key) {
+        var feito = Object.assign({}, linha.feito || {});
+        feito[key] = new Date().toISOString();
+        supabase.from('ml_analise').update({feito: feito}).eq('conta', linha.conta).eq('item_id', linha.item_id)
+          .then(function(r) {
+            if (r.error) { setAviso('Não consegui marcar como feito: ' + r.error.message); return; }
+            setLinhas(linhas.map(function(l) { return l.item_id === linha.item_id ? Object.assign({}, l, {feito: feito}) : l; }));
+          });
+      }
+
+      // Monta a lista do dia. Tudo é calculado aqui a partir do que a análise gravou.
+      var tudo = linhas || [];
+      var topVisitas = tudo.slice().sort(function(a, b) { return (b.visitas_30 || 0) - (a.visitas_30 || 0); })
+        .slice(0, ANALISE_CLIP_TOP).map(function(l) { return l.item_id; });
+      var itens = tudo.filter(function(l) { return l.nota < 100; }).map(function(l) {
+        var feito = l.feito || {};
+        var pend = (l.pendencias || []).filter(function(p) {
+          if (feito[p.key]) return false;
+          if (p.key === 'UP_SHORTS' && topVisitas.indexOf(l.item_id) === -1) return false;
+          return true;
+        });
+        // Ficha técnica com sugestão pronta vira uma pendência própria, com botão Aplicar.
+        if ((l.sugestao || []).length && !feito.FICHA_SUGERIDA) {
+          // A pendência genérica "Ficha técnica" do ML vira esta, pra não aparecer duas vezes.
+          pend = pend.filter(function(p) { return p.key !== 'UP_TECHNICAL_SPECIFICATIONS_MAIN'; });
+          pend.push({key: 'FICHA_SUGERIDA', nome: 'Ficha técnica — sugestão pronta', dono: 'Leonardo'});
+        }
+        return Object.assign({}, l, {visiveis: pend});
+      }).filter(function(l) {
+        if (!l.visiveis.length) return false;
+        if (filtro === 'todos') return true;
+        return l.visiveis.some(function(p) { return p.dono === filtro || (filtro === 'Matheus' && p.dono === 'Letícia'); });
+      }).sort(function(a, b) {
+        return (b.visitas_30 || 0) * b.visiveis.length - (a.visitas_30 || 0) * a.visiveis.length;
+      });
+      var naFila = itens.length;
+      itens = itens.slice(0, ANALISE_LIMITE);
+      var ultima = tudo.reduce(function(m, l) { return l.analisado_em > m ? l.analisado_em : m; }, '');
+      var abaixo = tudo.filter(function(l) { return l.nota < 100; }).length;
+      var comSugestaoMarcada = itens.filter(function(l) { return marcados[l.item_id] && (l.sugestao || []).length; });
+
+      function aplicar() {
+        if (!comSugestaoMarcada.length) return;
+        if (!confirm('Gravar a ficha técnica sugerida em ' + comSugestaoMarcada.length + ' anúncio(s) da ' + conta +
+          ' no Mercado Livre?\n\nConfira os valores antes: eles vêm do mesmo produto em outro anúncio nosso.')) return;
+        setAplicando(true);
+        setAviso(null);
+        var erros = [];
+        var ok = 0;
+        comSugestaoMarcada.reduce(function(p, l) {
+          return p.then(function() {
+            return chamarAnalise({acao: 'aplicar', conta: conta, item_id: l.item_id, atributos: l.sugestao})
+              .then(function(d) { if (d.ok) ok++; else erros.push(l.item_id + ': ' + (d.motivo || d.erro)); })
+              .catch(function(err) { erros.push(l.item_id + ': ' + err.message); });
+          });
+        }, Promise.resolve()).then(function() {
+          setAplicando(false);
+          setMarcados({});
+          setAviso('Ficha técnica gravada em ' + ok + ' anúncio(s).' + (erros.length ? ' Não deu em ' + erros.length + ': ' + erros.join(' | ') : ''));
+          carregar();
+        });
+      }
+
+      var corDono = {Leonardo: 'bg-sky-900 text-sky-200', Matheus: 'bg-violet-900 text-violet-200', 'Letícia': 'bg-pink-900 text-pink-200'};
+
+      return e('div', {className: 'space-y-4'},
+        e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg p-4 space-y-3'},
+          e('div', {className: 'flex flex-wrap items-center gap-3'},
+            e('h2', {className: 'text-lg font-bold'}, '📊 Análise dos anúncios — ' + conta),
+            e('button', {
+              onClick: analisar,
+              disabled: !!progresso,
+              className: 'bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg font-bold text-sm ' + (progresso ? 'opacity-60 cursor-wait' : '')
+            }, progresso
+              ? '⏳ Analisando' + (progresso.total ? ' ' + progresso.feitos + ' de ' + progresso.total : '...')
+              : '🔍 Analisar'),
+            e('span', {className: 'text-xs text-slate-400'},
+              ultima ? 'Última análise: ' + new Date(ultima).toLocaleString('pt-BR') + ' · ' + tudo.length + ' ativos, ' + abaixo + ' abaixo de 100'
+                     : 'Ainda não analisada — aperte Analisar.')
+          ),
+          e('p', {className: 'text-xs text-slate-400'},
+            'O critério é o checklist de qualidade do próprio Mercado Livre. Mostra os ' + ANALISE_LIMITE +
+            ' que mais valem a pena primeiro (mais visitas e mais pendências). Marcou "feito", sai da lista; se na próxima análise o ML ainda disser que falta, volta.'),
+          e('div', {className: 'flex flex-wrap gap-2'},
+            ['todos', 'Leonardo', 'Matheus'].map(function(f) {
+              return e('button', {
+                key: f, onClick: function() { setFiltro(f); },
+                className: 'px-3 py-1 rounded-lg text-xs font-bold ' + (filtro === f ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600')
+              }, f === 'todos' ? 'Todos' : f);
+            })
+          ),
+          aviso && e('div', {className: 'bg-amber-900 bg-opacity-40 border border-amber-700 rounded-lg px-3 py-2 text-xs text-amber-200'}, aviso)
+        ),
+
+        comSugestaoMarcada.length > 0 && e('div', {className: 'sticky top-2 z-10 flex justify-end'},
+          e('button', {
+            onClick: aplicar, disabled: aplicando,
+            className: 'bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold text-sm shadow-lg ' + (aplicando ? 'opacity-60 cursor-wait' : '')
+          }, aplicando ? '⏳ Aplicando...' : '✅ Aplicar ficha técnica (' + comSugestaoMarcada.length + ')')
+        ),
+
+        linhas === null ? e('p', {className: 'text-slate-400 text-sm'}, 'Carregando...')
+        : !itens.length ? e('p', {className: 'text-slate-400 text-sm'}, tudo.length ? '🎉 Nada pendente aqui.' : '')
+        : e('div', {className: 'space-y-2'},
+          naFila > itens.length && e('p', {className: 'text-xs text-slate-500'},
+            'Mostrando ' + itens.length + ' de ' + naFila + ' — conforme forem sendo feitos, os próximos entram.'),
+          itens.map(function(l) {
+            return e('div', {key: l.item_id, className: 'bg-slate-800 border border-slate-700 rounded-lg p-3 space-y-2'},
+              e('div', {className: 'flex flex-wrap items-start gap-2'},
+                e('span', {className: 'text-xs font-bold px-2 py-0.5 rounded ' + (l.nota >= 90 ? 'bg-emerald-900 text-emerald-200' : l.nota >= 75 ? 'bg-amber-900 text-amber-200' : 'bg-red-900 text-red-200')}, 'nota ' + l.nota),
+                e('a', {href: 'https://produto.mercadolivre.com.br/' + l.item_id.replace('MLB', 'MLB-'), target: '_blank', rel: 'noreferrer',
+                  className: 'font-bold text-sm text-white hover:text-blue-300 flex-1 min-w-0'}, l.title || l.item_id),
+                e('span', {className: 'text-xs text-slate-400 whitespace-nowrap'},
+                  (l.sku ? l.sku + ' · ' : '') + l.item_id + ' · ' + (l.visitas_30 || 0) + ' visitas/30d' + (l.no_full ? ' · FULL' : ''))
+              ),
+              e('div', {className: 'flex flex-wrap gap-2'},
+                l.visiveis.map(function(p) {
+                  return e('div', {key: p.key, className: 'flex items-center gap-1 bg-slate-900 border border-slate-700 rounded-lg pl-2 pr-1 py-1 text-xs', title: p.dica || ''},
+                    e('span', {className: 'px-1.5 rounded ' + (corDono[p.dono] || 'bg-slate-700')}, p.dono),
+                    e('span', {className: 'text-slate-200'}, p.nome),
+                    e('button', {
+                      onClick: function() { marcarFeito(l, p.key); },
+                      className: 'ml-1 bg-slate-700 hover:bg-emerald-700 text-slate-200 rounded px-1.5 py-0.5'
+                    }, '✓ feito')
+                  );
+                })
+              ),
+              (l.sugestao || []).length > 0 && !(l.feito || {}).FICHA_SUGERIDA && e('label', {className: 'flex items-start gap-2 text-xs bg-emerald-950 bg-opacity-40 border border-emerald-800 rounded-lg p-2 cursor-pointer'},
+                e('input', {type: 'checkbox', checked: !!marcados[l.item_id], className: 'mt-0.5',
+                  onChange: function() { var m = Object.assign({}, marcados); m[l.item_id] = !m[l.item_id]; setMarcados(m); }}),
+                e('span', {className: 'text-emerald-200'},
+                  'Sugestão de ficha técnica: ',
+                  l.sugestao.map(function(s) { return (s.nome || s.id) + ' = ' + s.value_name; }).join(' · '),
+                  e('span', {className: 'text-slate-500'}, '  (copiado de ' + l.sugestao[0].de + ')'))
+              )
+            );
+          })
+        )
+      );
+    }
+
     function TelaLogin(props) {
       var perfilSelState = useState(null);
       var perfilSel = perfilSelState[0];
@@ -4128,6 +4333,10 @@
               },
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'promocoes' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
             }, '🏷 Promoções'),
+            podeVerAba(perfilAtivo, 'analise') && e('button', {
+              onClick: function() { setActiveTab('analise'); },
+              className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'analise' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
+            }, '📊 Análise'),
             podeVerAba(perfilAtivo, 'tarefas') && e('button', {
               onClick: function() { setActiveTab('tarefas'); },
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'tarefas' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
@@ -7216,6 +7425,8 @@
               );
             })()
           ),
+
+          activeTab === 'analise' && e(AbaAnalise),
 
           activeTab === 'tarefas' && (function() {
             var modalItens = kanbanModalCartao ? kanbanItens.filter(function(i) { return i.cartao_id === kanbanModalCartao.id; }) : [];
