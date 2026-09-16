@@ -558,7 +558,12 @@
               ),
               (function() {
                 var n = Object.keys(marcacoes[l.item_id] || {}).length;
-                return e('div', {className: 'flex justify-end'},
+                return e('div', {className: 'flex justify-end gap-2'},
+                  n > 0 && salvando !== l.item_id && e('button', {
+                    onClick: function() { var novo = Object.assign({}, marcacoes); delete novo[l.item_id]; setMarcacoes(novo); },
+                    title: 'Desmarcar tudo sem salvar',
+                    className: 'px-4 py-2 rounded-lg font-bold text-sm bg-slate-700 hover:bg-slate-600 text-slate-200'
+                  }, '✕ Cancelar'),
                   e('button', {
                     onClick: function() { salvarCartao(l); },
                     disabled: !n || salvando === l.item_id,
