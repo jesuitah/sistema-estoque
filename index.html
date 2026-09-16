@@ -276,13 +276,19 @@
       var aplicandoSt = useState(false); var aplicando = aplicandoSt[0]; var setAplicando = aplicandoSt[1];
       var avisoSt = useState(null); var aviso = avisoSt[0]; var setAviso = avisoSt[1];
       var editandoSt = useState(null); var editando = editandoSt[0]; var setEditando = editandoSt[1];
+      var marcacoesSt = useState({}); var marcacoes = marcacoesSt[0]; var setMarcacoes = marcacoesSt[1];
+      var salvandoSt = useState(null); var salvando = salvandoSt[0]; var setSalvando = salvandoSt[1];
       var mostrarSt = useState(ANALISE_POR_VEZ); var mostrar = mostrarSt[0]; var setMostrar = mostrarSt[1];
       // Trocar filtro ou ordem volta pro começo da lista.
       React.useEffect(function() { setMostrar(ANALISE_POR_VEZ); }, [filtro, ordem, conta]);
 
       function carregar() {
         supabase.from('ml_analise').select('*').eq('conta', conta).then(function(r) {
-          setLinhas(r.data || []);
+          // feito_inicial = o retrato de quando a lista foi carregada. A lista esconde só o
+          // que JÁ estava feito ao abrir; o que for salvo agora continua na tela, em verde,
+          // até a próxima vez que a lista for carregada (pedido do Matheus: não sumir).
+          setLinhas((r.data || []).map(function(l) { return Object.assign({}, l, {feito_inicial: l.feito || {}}); }));
+          setMarcacoes({});
         });
       }
       React.useEffect(carregar, [conta]);
@@ -312,13 +318,28 @@
         proximo();
       }
 
-      function marcarFeito(linha, key) {
+      // "✓ feito" só MARCA (fica verde); grava quando aperta "Salvar alterações" no cartão.
+      function alternarMarca(itemId, key) {
+        var novo = Object.assign({}, marcacoes);
+        var doItem = Object.assign({}, novo[itemId] || {});
+        if (doItem[key]) delete doItem[key]; else doItem[key] = true;
+        novo[itemId] = doItem;
+        setMarcacoes(novo);
+      }
+
+      function salvarCartao(linha) {
+        var chaves = Object.keys(marcacoes[linha.item_id] || {});
+        if (!chaves.length) return;
         var feito = Object.assign({}, linha.feito || {});
-        feito[key] = new Date().toISOString();
+        var agora = new Date().toISOString();
+        chaves.forEach(function(k) { feito[k] = agora; });
+        setSalvando(linha.item_id);
         supabase.from('ml_analise').update({feito: feito}).eq('conta', linha.conta).eq('item_id', linha.item_id)
           .then(function(r) {
-            if (r.error) { setAviso('Não consegui marcar como feito: ' + r.error.message); return; }
+            setSalvando(null);
+            if (r.error) { setAviso('Não consegui salvar: ' + r.error.message); return; }
             setLinhas(linhas.map(function(l) { return l.item_id === linha.item_id ? Object.assign({}, l, {feito: feito}) : l; }));
+            var novo = Object.assign({}, marcacoes); delete novo[linha.item_id]; setMarcacoes(novo);
           });
       }
 
@@ -341,7 +362,7 @@
       tudo.forEach(function(l) { (l.modelos || []).forEach(function(m) { if (m.length >= 2) dicionario[semAcento(m)] = m; }); });
 
       function pendenciasDe(l) {
-        var feito = l.feito || {};
+        var feito = l.feito_inicial || {};
         var p = (l.pendencias || []).filter(function(x) {
           return !(x.key === 'UP_SHORTS' && topVisitas.indexOf(l.item_id) === -1);
         });
@@ -378,7 +399,8 @@
           p.push({key: 'SEM_VISITA', nome: 'Quase sem visita (' + v30 + ' em 30 dias)', dono: 'Matheus',
             dica: 'Ativo mas ninguém vê: características, compatibilidade e fotos costumam ser a causa.'});
 
-        return p.filter(function(x) { return !feito[x.key]; });
+        return p.filter(function(x) { return !feito[x.key]; })
+          .map(function(x) { return Object.assign({}, x, {salvo: !!(l.feito || {})[x.key]}); });
       }
 
       var itens = tudo.map(function(l) { return Object.assign({}, l, {visiveis: pendenciasDe(l)}); })
@@ -515,20 +537,34 @@
                       e('span', {className: 'text-xs font-bold px-2 py-0.5 rounded ' + (corDono[g.dono] || 'bg-slate-700')}, g.dono),
                       e('span', {className: 'text-xs text-slate-500'}, g.itens.length + (g.itens.length === 1 ? ' pendência' : ' pendências'))),
                     g.itens.map(function(p) {
-                      return e('div', {key: p.key, className: 'flex items-center gap-3 py-1.5 border-t border-slate-800 first:border-t-0', title: p.dica || ''},
-                        p.vazias
+                      var marcado = !!(marcacoes[l.item_id] || {})[p.key];
+                      var verde = marcado || p.salvo;
+                      return e('div', {key: p.key, title: p.dica || '',
+                        className: 'flex items-center gap-3 py-1.5 px-2 -mx-2 rounded-md border-t border-slate-800 first:border-t-0 ' + (verde ? 'bg-emerald-900 bg-opacity-40' : '')},
+                        p.vazias && !verde
                           ? e('button', {
                               onClick: function() { var a = Object.assign({}, aberto); a[l.item_id] = !a[l.item_id]; setAberto(a); },
                               className: 'flex-1 text-left text-sm text-blue-300 hover:text-blue-200'
                             }, p.nome + (aberto[l.item_id] ? '  ▲' : '  ▼'))
-                          : e('span', {className: 'flex-1 text-sm text-slate-200'}, p.nome),
-                        e('button', {
-                          onClick: function() { marcarFeito(l, p.key); },
-                          className: 'bg-slate-700 hover:bg-emerald-700 text-slate-200 rounded-md px-2 py-1 text-xs whitespace-nowrap'
-                        }, '✓ feito'));
+                          : e('span', {className: 'flex-1 text-sm ' + (verde ? 'text-emerald-200' : 'text-slate-200')}, p.nome),
+                        p.salvo
+                          ? e('span', {className: 'text-emerald-300 text-xs font-bold px-2 py-1 whitespace-nowrap'}, '✓ salvo')
+                          : e('button', {
+                              onClick: function() { alternarMarca(l.item_id, p.key); },
+                              className: 'rounded-md px-2 py-1 text-xs whitespace-nowrap ' + (marcado ? 'bg-emerald-600 hover:bg-emerald-500 text-white font-bold' : 'bg-slate-700 hover:bg-slate-600 text-slate-200')
+                            }, '✓ feito'));
                     }));
                 })
               ),
+              (function() {
+                var n = Object.keys(marcacoes[l.item_id] || {}).length;
+                return e('div', {className: 'flex justify-end'},
+                  e('button', {
+                    onClick: function() { salvarCartao(l); },
+                    disabled: !n || salvando === l.item_id,
+                    className: 'px-4 py-2 rounded-lg font-bold text-sm ' + (n ? 'bg-emerald-600 hover:bg-emerald-500 text-white' : 'bg-slate-700 text-slate-500 cursor-not-allowed')
+                  }, salvando === l.item_id ? '⏳ Salvando...' : n ? '💾 Salvar alterações (' + n + ')' : '💾 Salvar alterações'));
+              })(),
               mostraVazias && e('div', {className: 'bg-slate-900 border border-slate-700 rounded-lg p-3 space-y-2'},
                 e('p', {className: 'text-xs text-slate-400'}, 'Escolha o que gravar em cada uma e aperte Aplicar lá em cima. Sem escolha = não mexe. Pra digitar um valor, use ✏️ Editar aqui.'),
                 l.vazias.map(function(v) {
