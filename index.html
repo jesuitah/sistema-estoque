@@ -241,7 +241,9 @@
     //   - clip é gargalo da Letícia: só aparece nos anúncios que mais recebem visita;
     //   - "feito" some da lista até a próxima análise; se ainda faltar, volta;
     //   - título e texto da descrição NÃO entram (pedido do Matheus).
-    var ANALISE_LIMITE = 20;
+    // Poucos por vez: a tela com 20 cartões ficou poluída (Matheus, 16/09). O resto
+    // aparece no "Carregar mais".
+    var ANALISE_POR_VEZ = 5;
     var ANALISE_CLIP_TOP = 30;        // clip só nos 30 anúncios com mais visitas da loja
     var ANALISE_FOTOS_MIN = 7;
     var ANALISE_CODIGOS_MIN = 3;      // Número de peça e Código OEM
@@ -274,6 +276,9 @@
       var aplicandoSt = useState(false); var aplicando = aplicandoSt[0]; var setAplicando = aplicandoSt[1];
       var avisoSt = useState(null); var aviso = avisoSt[0]; var setAviso = avisoSt[1];
       var editandoSt = useState(null); var editando = editandoSt[0]; var setEditando = editandoSt[1];
+      var mostrarSt = useState(ANALISE_POR_VEZ); var mostrar = mostrarSt[0]; var setMostrar = mostrarSt[1];
+      // Trocar filtro ou ordem volta pro começo da lista.
+      React.useEffect(function() { setMostrar(ANALISE_POR_VEZ); }, [filtro, ordem, conta]);
 
       function carregar() {
         supabase.from('ml_analise').select('*').eq('conta', conta).then(function(r) {
@@ -389,7 +394,7 @@
           return impacto;
         });
       var naFila = itens.length;
-      itens = itens.slice(0, ANALISE_LIMITE);
+      itens = itens.slice(0, mostrar);
       var ultima = tudo.reduce(function(m, l) { return l.analisado_em > m ? l.analisado_em : m; }, '');
 
       // O que foi escolhido pra gravar, só nos anúncios que estão na tela.
@@ -446,7 +451,7 @@
           e('p', {className: 'text-xs text-slate-400'},
             'Junta o checklist do Mercado Livre com as regras da casa: mínimo ' + ANALISE_FOTOS_MIN + ' fotos, ' + ANALISE_CODIGOS_MIN +
             ' códigos no Número de peça e no OEM, nenhuma característica vazia, compatibilidade com os modelos do título, e visitas/vendas. ' +
-            'Mostra os ' + ANALISE_LIMITE + ' que mais valem a pena primeiro. Marcou "feito", sai da lista; se na próxima análise ainda faltar, volta.'),
+            'Os que mais valem a pena vêm primeiro. Marcou "feito", sai da lista; se na próxima análise ainda faltar, volta.'),
           e('div', {className: 'flex flex-wrap items-center gap-2'},
             ['todos', 'Leonardo', 'Matheus'].map(function(f) {
               return e('button', {
@@ -476,61 +481,79 @@
 
         linhas === null ? e('p', {className: 'text-slate-400 text-sm'}, 'Carregando...')
         : !itens.length ? e('p', {className: 'text-slate-400 text-sm'}, tudo.length ? '🎉 Nada pendente aqui.' : '')
-        : e('div', {className: 'space-y-2'},
-          naFila > itens.length && e('p', {className: 'text-xs text-slate-500'},
-            'Mostrando ' + itens.length + ' de ' + naFila + ' — conforme forem sendo feitos, os próximos entram.'),
+        : e('div', {className: 'space-y-4'},
+          e('p', {className: 'text-xs text-slate-500'}, 'Mostrando ' + itens.length + ' de ' + naFila + ' anúncios com pendência.'),
           itens.map(function(l) {
             var esc = escolhas[l.item_id] || {};
             var mostraVazias = aberto[l.item_id] && l.visiveis.some(function(p) { return p.vazias; });
-            return e('div', {key: l.item_id, className: 'bg-slate-800 border border-slate-700 rounded-lg p-3 space-y-2'},
-              e('div', {className: 'flex flex-wrap items-start gap-2'},
-                e('span', {className: 'text-xs font-bold px-2 py-0.5 rounded ' + (l.nota >= 90 ? 'bg-emerald-900 text-emerald-200' : l.nota >= 75 ? 'bg-amber-900 text-amber-200' : 'bg-red-900 text-red-200')}, 'nota ' + l.nota),
-                e('a', {href: 'https://produto.mercadolivre.com.br/' + l.item_id.replace('MLB', 'MLB-'), target: '_blank', rel: 'noreferrer',
-                  className: 'font-bold text-sm text-white hover:text-blue-300 flex-1 min-w-0'}, l.title || l.item_id),
-                e('span', {className: 'text-xs text-slate-400 whitespace-nowrap'},
-                  (l.sku ? l.sku + ' · ' : '') + l.item_id + ' · ' + (l.visitas_30 || 0) + ' visitas · ' + (l.pedidos_30 || 0) + ' vendas/30d' + (l.no_full ? ' · FULL' : '')),
+            // Agrupa por pessoa: cada um olha só o próprio bloco.
+            var grupos = ['Leonardo', 'Matheus', 'Letícia'].map(function(dono) {
+              return {dono: dono, itens: l.visiveis.filter(function(p) { return p.dono === dono; })};
+            }).filter(function(g) { return g.itens.length; });
+            var corNota = l.nota >= 90 ? 'border-emerald-500 text-emerald-300' : l.nota >= 75 ? 'border-amber-500 text-amber-300' : 'border-red-500 text-red-300';
+            return e('div', {key: l.item_id, className: 'bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-4'},
+              e('div', {className: 'flex flex-wrap items-center gap-4'},
+                e('div', {className: 'w-14 h-14 rounded-full border-4 flex items-center justify-center text-lg font-bold shrink-0 ' + corNota, title: 'nota de qualidade do Mercado Livre'}, l.nota),
+                e('div', {className: 'flex-1 min-w-0'},
+                  e('a', {href: 'https://produto.mercadolivre.com.br/' + l.item_id.replace('MLB', 'MLB-'), target: '_blank', rel: 'noreferrer',
+                    className: 'block font-bold text-base text-white hover:text-blue-300'}, l.title || l.item_id),
+                  e('div', {className: 'flex flex-wrap gap-x-3 gap-y-1 mt-1 text-xs text-slate-400'},
+                    l.sku && e('span', null, 'SKU ' + l.sku),
+                    e('span', null, l.item_id),
+                    e('span', null, '👁 ' + (l.visitas_30 || 0) + ' visitas'),
+                    e('span', null, '🛒 ' + (l.pedidos_30 || 0) + ' vendas (30 dias)'),
+                    l.no_full && e('span', {className: 'text-amber-300 font-bold'}, 'FULL'))),
                 e('button', {
                   onClick: function() { setEditando(l.item_id); },
-                  className: 'bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded-lg font-bold text-xs whitespace-nowrap'
+                  className: 'bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg font-bold text-sm whitespace-nowrap'
                 }, '✏️ Editar aqui')
               ),
-              e('div', {className: 'flex flex-wrap gap-2'},
-                l.visiveis.map(function(p) {
-                  return e('div', {key: p.key, className: 'flex items-center gap-1 bg-slate-900 border border-slate-700 rounded-lg pl-2 pr-1 py-1 text-xs', title: p.dica || ''},
-                    e('span', {className: 'px-1.5 rounded ' + (corDono[p.dono] || 'bg-slate-700')}, p.dono),
-                    p.vazias
-                      ? e('button', {
-                          onClick: function() { var a = Object.assign({}, aberto); a[l.item_id] = !a[l.item_id]; setAberto(a); },
-                          className: 'text-blue-300 hover:text-blue-200 underline'
-                        }, p.nome + (aberto[l.item_id] ? ' ▲' : ' ▼'))
-                      : e('span', {className: 'text-slate-200'}, p.nome),
-                    e('button', {
-                      onClick: function() { marcarFeito(l, p.key); },
-                      className: 'ml-1 bg-slate-700 hover:bg-emerald-700 text-slate-200 rounded px-1.5 py-0.5'
-                    }, '✓ feito')
-                  );
+              e('div', {className: 'grid grid-cols-1 md:grid-cols-2 gap-3'},
+                grupos.map(function(g) {
+                  return e('div', {key: g.dono, className: 'bg-slate-900 border border-slate-700 rounded-lg p-3'},
+                    e('div', {className: 'flex items-center gap-2 mb-2'},
+                      e('span', {className: 'text-xs font-bold px-2 py-0.5 rounded ' + (corDono[g.dono] || 'bg-slate-700')}, g.dono),
+                      e('span', {className: 'text-xs text-slate-500'}, g.itens.length + (g.itens.length === 1 ? ' pendência' : ' pendências'))),
+                    g.itens.map(function(p) {
+                      return e('div', {key: p.key, className: 'flex items-center gap-3 py-1.5 border-t border-slate-800 first:border-t-0', title: p.dica || ''},
+                        p.vazias
+                          ? e('button', {
+                              onClick: function() { var a = Object.assign({}, aberto); a[l.item_id] = !a[l.item_id]; setAberto(a); },
+                              className: 'flex-1 text-left text-sm text-blue-300 hover:text-blue-200'
+                            }, p.nome + (aberto[l.item_id] ? '  ▲' : '  ▼'))
+                          : e('span', {className: 'flex-1 text-sm text-slate-200'}, p.nome),
+                        e('button', {
+                          onClick: function() { marcarFeito(l, p.key); },
+                          className: 'bg-slate-700 hover:bg-emerald-700 text-slate-200 rounded-md px-2 py-1 text-xs whitespace-nowrap'
+                        }, '✓ feito'));
+                    }));
                 })
               ),
-              mostraVazias && e('div', {className: 'bg-slate-900 border border-slate-700 rounded-lg p-2 space-y-1'},
-                e('p', {className: 'text-xs text-slate-400'}, 'Escolha o que gravar em cada uma e aperte Aplicar lá em cima. Sem escolha = não mexe.'),
+              mostraVazias && e('div', {className: 'bg-slate-900 border border-slate-700 rounded-lg p-3 space-y-2'},
+                e('p', {className: 'text-xs text-slate-400'}, 'Escolha o que gravar em cada uma e aperte Aplicar lá em cima. Sem escolha = não mexe. Pra digitar um valor, use ✏️ Editar aqui.'),
                 l.vazias.map(function(v) {
-                  return e('div', {key: v.id, className: 'flex flex-wrap items-center gap-2 text-xs'},
-                    e('span', {className: 'text-slate-200 w-48'}, v.nome || v.id),
+                  return e('div', {key: v.id, className: 'flex flex-wrap items-center gap-2 text-sm'},
+                    e('span', {className: 'text-slate-200 w-56'}, v.nome || v.id),
                     e('select', {
                       value: esc[v.id] || '',
                       onChange: function(ev) { escolher(l.item_id, v.id, ev.target.value); },
-                      className: 'bg-slate-700 text-slate-200 rounded px-2 py-1 border border-slate-600'
+                      className: 'bg-slate-700 text-slate-200 rounded px-2 py-1 border border-slate-600 text-xs'
                     },
                       e('option', {value: ''}, '— não mexer —'),
                       v.sugestao && e('option', {value: 'sug'}, v.sugestao.value_name + ' (de ' + v.sugestao.de + ')'),
                       e('option', {value: 'na'}, 'Não se aplica')
                     ),
-                    !v.sugestao && e('span', {className: 'text-slate-500'}, 'sem sugestão — preencha no ML se tiver o valor')
+                    !v.sugestao && e('span', {className: 'text-xs text-slate-500'}, 'sem sugestão')
                   );
                 })
               )
             );
-          })
+          }),
+          naFila > itens.length && e('div', {className: 'flex justify-center pt-2'},
+            e('button', {
+              onClick: function() { setMostrar(mostrar + ANALISE_POR_VEZ); },
+              className: 'bg-slate-700 hover:bg-slate-600 text-slate-100 px-6 py-2.5 rounded-lg font-bold text-sm'
+            }, 'Carregar mais ' + Math.min(ANALISE_POR_VEZ, naFila - itens.length) + '  (faltam ' + (naFila - itens.length) + ')'))
         )
       );
     }
