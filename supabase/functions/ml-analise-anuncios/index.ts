@@ -198,6 +198,22 @@ Deno.serve(async (req) => {
       return json({ processados: (ativos ?? []).length, total: count ?? 0, gravados: linhas.length });
     }
 
+    // Relê UM anúncio (botão ↻ do cartão e ao fechar o editor). Diferente da análise
+    // completa, mantém os "feito" já salvos: é só uma atualização da foto daquele anúncio.
+    if (c.acao === "um") {
+      const { data: a } = await sb.from("ml_anuncios").select("conta, item_id, title, sku, marca, no_full")
+        .eq("conta", conta).eq("item_id", c.item_id).maybeSingle();
+      if (!a) return json({ erro: "anúncio não encontrado no catálogo" }, 404);
+      const linha = await analisarUm(a, await token(conta), new Map(), new Map()) as Record<string, unknown> | null;
+      if (!linha) return json({ erro: "o Mercado Livre não respondeu — tente de novo" }, 502);
+      const { data: antes } = await sb.from("ml_analise").select("feito").eq("conta", conta).eq("item_id", c.item_id).maybeSingle();
+      linha.feito = antes?.feito ?? {};
+      linha.analisado_em = new Date().toISOString();
+      const { error } = await sb.from("ml_analise").upsert(linha, { onConflict: "conta,item_id" });
+      if (error) throw new Error(error.message);
+      return json({ linha });
+    }
+
     if (c.acao === "fim") {
       await sb.from("ml_analise").delete().eq("conta", conta).lt("analisado_em", c.inicio);
       return json({ ok: true });

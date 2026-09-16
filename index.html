@@ -274,16 +274,14 @@
       var editandoSt = useState(null); var editando = editandoSt[0]; var setEditando = editandoSt[1];
       var marcacoesSt = useState({}); var marcacoes = marcacoesSt[0]; var setMarcacoes = marcacoesSt[1];
       var salvandoSt = useState(null); var salvando = salvandoSt[0]; var setSalvando = salvandoSt[1];
+      var atualizandoSt = useState(null); var atualizando = atualizandoSt[0]; var setAtualizando = atualizandoSt[1];
       var mostrarSt = useState(ANALISE_POR_VEZ); var mostrar = mostrarSt[0]; var setMostrar = mostrarSt[1];
       // Trocar filtro ou ordem volta pro começo da lista.
       React.useEffect(function() { setMostrar(ANALISE_POR_VEZ); }, [filtro, ordem, conta]);
 
       function carregar() {
         supabase.from('ml_analise').select('*').eq('conta', conta).then(function(r) {
-          // feito_inicial = o retrato de quando a lista foi carregada. A lista esconde só o
-          // que JÁ estava feito ao abrir; o que for salvo agora continua na tela, em verde,
-          // até a próxima vez que a lista for carregada (pedido do Matheus: não sumir).
-          setLinhas((r.data || []).map(function(l) { return Object.assign({}, l, {feito_inicial: l.feito || {}}); }));
+          setLinhas(r.data || []);
           setMarcacoes({});
         });
       }
@@ -311,6 +309,18 @@
           });
         }
         proximo();
+      }
+
+      // Relê um anúncio só no ML (↻ do cartão e ao fechar o editor) e troca o cartão.
+      function atualizarUm(itemId) {
+        setAtualizando(itemId);
+        chamarAnalise({acao: 'um', conta: conta, item_id: itemId}).then(function(d) {
+          setAtualizando(null);
+          if (d.erro || !d.linha) { setAviso('Não consegui reler ' + itemId + ': ' + (d.erro || 'sem resposta')); return; }
+          setLinhas(function(atuais) {
+            return (atuais || []).map(function(l) { return l.item_id === itemId ? d.linha : l; });
+          });
+        }).catch(function(err) { setAtualizando(null); setAviso('Não consegui reler ' + itemId + ': ' + err.message); });
       }
 
       // "✓ feito" só MARCA (fica verde); grava quando aperta "Salvar alterações" no cartão.
@@ -349,7 +359,8 @@
       tudo.forEach(function(l) { (l.modelos || []).forEach(function(m) { if (m.length >= 2) dicionario[semAcento(m)] = m; }); });
 
       function pendenciasDe(l) {
-        var feito = l.feito_inicial || {};
+        // Salvou, sumiu (pedido do Matheus, 17/09): só fica o que ainda não foi feito.
+        var feito = l.feito || {};
         var p = (l.pendencias || []).filter(function(x) {
           return !(x.key === 'UP_SHORTS' && topVisitas.indexOf(l.item_id) === -1);
         });
@@ -386,8 +397,7 @@
           p.push({key: 'SEM_VISITA', nome: 'Quase sem visita (' + v30 + ' em 30 dias)', dono: 'Matheus',
             dica: 'Ativo mas ninguém vê: características, compatibilidade e fotos costumam ser a causa.'});
 
-        return p.filter(function(x) { return !feito[x.key]; })
-          .map(function(x) { return Object.assign({}, x, {salvo: !!(l.feito || {})[x.key]}); });
+        return p.filter(function(x) { return !feito[x.key]; });
       }
 
       var itens = tudo.map(function(l) { return Object.assign({}, l, {visiveis: pendenciasDe(l)}); })
@@ -410,7 +420,7 @@
 
       return e('div', {className: 'space-y-4'},
         editando && e(EditorAnuncio, {conta: conta, itemId: editando.id, soVazias: !!editando.soVazias, sugestoes: editando.sugestoes || [],
-          onFechar: function() { setEditando(null); }}),
+          onFechar: function() { var id = editando.id; setEditando(null); atualizarUm(id); }}),
         e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg p-4 space-y-3'},
           e('div', {className: 'flex flex-wrap items-center gap-3'},
             e('h2', {className: 'text-lg font-bold'}, '📊 Análise dos anúncios — ' + conta),
@@ -472,6 +482,12 @@
                     e('span', null, '🛒 ' + (l.pedidos_30 || 0) + ' vendas (30 dias)'),
                     l.no_full && e('span', {className: 'text-amber-300 font-bold'}, 'FULL'))),
                 e('button', {
+                  onClick: function() { atualizarUm(l.item_id); },
+                  disabled: atualizando === l.item_id,
+                  title: 'Reler este anúncio no Mercado Livre agora',
+                  className: 'bg-slate-700 hover:bg-slate-600 text-slate-100 px-3 py-2 rounded-lg font-bold text-sm whitespace-nowrap'
+                }, atualizando === l.item_id ? '⏳' : '↻'),
+                e('button', {
                   onClick: function() { setEditando({id: l.item_id, sugestoes: l.vazias}); },
                   className: 'bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg font-bold text-sm whitespace-nowrap'
                 }, '✏️ Editar aqui')
@@ -484,7 +500,7 @@
                       e('span', {className: 'text-xs text-slate-500'}, g.itens.length + (g.itens.length === 1 ? ' pendência' : ' pendências'))),
                     g.itens.map(function(p) {
                       var marcado = !!(marcacoes[l.item_id] || {})[p.key];
-                      var verde = marcado || p.salvo;
+                      var verde = marcado;
                       return e('div', {key: p.key, title: p.dica || '',
                         className: 'flex items-center gap-3 py-1.5 px-2 -mx-2 rounded-md border-t border-slate-800 first:border-t-0 ' + (verde ? 'bg-emerald-900 bg-opacity-40' : '')},
                         p.vazias && !verde
@@ -493,9 +509,7 @@
                               className: 'flex-1 text-left text-sm text-blue-300 hover:text-blue-200 underline'
                             }, p.nome + '  — preencher ✏️')
                           : e('span', {className: 'flex-1 text-sm ' + (verde ? 'text-emerald-200' : 'text-slate-200')}, p.nome),
-                        p.salvo
-                          ? e('span', {className: 'text-emerald-300 text-xs font-bold px-2 py-1 whitespace-nowrap'}, '✓ salvo')
-                          : e('button', {
+                        e('button', {
                               onClick: function() { alternarMarca(l.item_id, p.key); },
                               className: 'rounded-md px-2 py-1 text-xs whitespace-nowrap ' + (marcado ? 'bg-emerald-600 hover:bg-emerald-500 text-white font-bold' : 'bg-slate-700 hover:bg-slate-600 text-slate-200')
                             }, '✓ feito'));
