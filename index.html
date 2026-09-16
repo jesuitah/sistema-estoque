@@ -225,18 +225,30 @@
 
     // ── ABA ANÁLISE ──────────────────────────────────────────────────────────────
     //
-    // Diagnóstico dos anúncios ATIVOS, uma loja por vez, pelo checklist de qualidade
-    // do próprio Mercado Livre (nota 0-100 + o que falta). Desenhado com o Matheus em
-    // 14-15/09/2026. Regras:
+    // Diagnóstico dos anúncios ATIVOS, uma loja por vez. Desenhado com o Matheus em
+    // 14-16/09/2026. A ideia não é só subir a nota: é deixar o anúncio completo e
+    // vendendo ("mais visibilidade, mais conversão").
+    //
+    // Duas fontes de pendência:
+    //   - o checklist de qualidade do próprio Mercado Livre (nota 0-100);
+    //   - as regras da casa, calculadas AQUI a partir dos números que a análise gravou
+    //     (os limites ficam nas constantes abaixo, num lugar só).
+    //
+    // Regras de uso:
     //   - só roda quando alguém aperta "Analisar";
-    //   - entra na lista quem tem nota abaixo de 100, no máximo 20 por vez, primeiro os
-    //     que mais recebem visita (é onde completar dá retorno mais rápido);
-    //   - promoção, Product Ads e preço são do Matheus; o resto é do Leonardo;
+    //   - no máximo 20 anúncios por vez, primeiro os que mais recebem visita;
+    //   - promoção, Product Ads, preço e venda são do Matheus; o resto é do Leonardo;
     //   - clip é gargalo da Letícia: só aparece nos anúncios que mais recebem visita;
-    //   - "feito" some da lista até a próxima análise; se o ML ainda disser pendente, volta;
-    //   - título NÃO entra (pedido do Matheus).
+    //   - "feito" some da lista até a próxima análise; se ainda faltar, volta;
+    //   - título e texto da descrição NÃO entram (pedido do Matheus).
     var ANALISE_LIMITE = 20;
-    var ANALISE_CLIP_TOP = 30;   // clip só nos 30 anúncios com mais visitas da loja
+    var ANALISE_CLIP_TOP = 30;        // clip só nos 30 anúncios com mais visitas da loja
+    var ANALISE_FOTOS_MIN = 7;
+    var ANALISE_CODIGOS_MIN = 3;      // Número de peça e Código OEM
+    var ANALISE_VISITA_SEM_VENDA = 50;   // 50+ visitas em 30 dias e nenhuma venda
+    var ANALISE_QUEDA = 0.7;          // últimos 15 dias abaixo de 70% dos 15 anteriores
+    var ANALISE_QUEDA_BASE = 20;      // ...só conta se antes tinha pelo menos 20 visitas
+    var ANALISE_SEM_VISITA = 5;       // menos de 5 visitas em 30 dias
 
     function chamarAnalise(corpo) {
       return fetch(supabaseUrl + '/functions/v1/ml-analise-anuncios', {
@@ -246,13 +258,19 @@
       }).then(function(r) { return r.json(); });
     }
 
+    function semAcento(t) {
+      return String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+    }
+
     function AbaAnalise() {
       var contaSt = useState('ERP'); var conta = contaSt[0];
       var linhasSt = useState(null); var linhas = linhasSt[0]; var setLinhas = linhasSt[1];
       var progressoSt = useState(null); var progresso = progressoSt[0]; var setProgresso = progressoSt[1];
       var filtroSt = useState('todos'); var filtro = filtroSt[0]; var setFiltro = filtroSt[1];
       var ordemSt = useState('impacto'); var ordem = ordemSt[0]; var setOrdem = ordemSt[1];
-      var marcadosSt = useState({}); var marcados = marcadosSt[0]; var setMarcados = marcadosSt[1];
+      // escolhas[item_id][attr_id] = 'sug' (valor sugerido) | 'na' (Não se aplica)
+      var escolhasSt = useState({}); var escolhas = escolhasSt[0]; var setEscolhas = escolhasSt[1];
+      var abertoSt = useState({}); var aberto = abertoSt[0]; var setAberto = abertoSt[1];
       var aplicandoSt = useState(false); var aplicando = aplicandoSt[0]; var setAplicando = aplicandoSt[1];
       var avisoSt = useState(null); var aviso = avisoSt[0]; var setAviso = avisoSt[1];
 
@@ -269,14 +287,14 @@
         setAviso(null);
         setProgresso({feitos: 0, total: null});
         function proximo() {
-          chamarAnalise({acao: 'lote', conta: conta, offset: offset, limite: 25}).then(function(d) {
+          chamarAnalise({acao: 'lote', conta: conta, offset: offset, limite: 15}).then(function(d) {
             if (d.erro) throw new Error(d.erro);
             offset += d.processados;
             setProgresso({feitos: Math.min(offset, d.total), total: d.total});
             if (d.processados > 0 && offset < d.total) return proximo();
             return chamarAnalise({acao: 'fim', conta: conta, inicio: inicio}).then(function() {
               setProgresso(null);
-              setMarcados({});
+              setEscolhas({});
               carregar();
             });
           }).catch(function(err) {
@@ -298,59 +316,110 @@
           });
       }
 
-      // Monta a lista do dia. Tudo é calculado aqui a partir do que a análise gravou.
+      function escolher(itemId, attrId, valor) {
+        var novo = Object.assign({}, escolhas);
+        var doItem = Object.assign({}, novo[itemId] || {});
+        if (valor) doItem[attrId] = valor; else delete doItem[attrId];
+        novo[itemId] = doItem;
+        setEscolhas(novo);
+      }
+
+      // ── Monta a lista. Tudo é calculado aqui a partir do que a análise gravou. ──
       var tudo = linhas || [];
       var topVisitas = tudo.slice().sort(function(a, b) { return (b.visitas_30 || 0) - (a.visitas_30 || 0); })
         .slice(0, ANALISE_CLIP_TOP).map(function(l) { return l.item_id; });
-      var itens = tudo.filter(function(l) { return l.nota < 100; }).map(function(l) {
+
+      // Dicionário de modelos de veículo: todos os que aparecem em alguma compatibilidade
+      // da loja. Modelo citado no título e ausente da compatibilidade do anúncio = furo.
+      var dicionario = {};
+      tudo.forEach(function(l) { (l.modelos || []).forEach(function(m) { if (m.length >= 2) dicionario[semAcento(m)] = m; }); });
+
+      function pendenciasDe(l) {
         var feito = l.feito || {};
-        var pend = (l.pendencias || []).filter(function(p) {
-          if (feito[p.key]) return false;
-          if (p.key === 'UP_SHORTS' && topVisitas.indexOf(l.item_id) === -1) return false;
-          return true;
+        var p = (l.pendencias || []).filter(function(x) {
+          return !(x.key === 'UP_SHORTS' && topVisitas.indexOf(l.item_id) === -1);
         });
-        // Ficha técnica com sugestão pronta vira uma pendência própria, com botão Aplicar.
-        if ((l.sugestao || []).length && !feito.FICHA_SUGERIDA) {
-          // A pendência genérica "Ficha técnica" do ML vira esta, pra não aparecer duas vezes.
-          pend = pend.filter(function(p) { return p.key !== 'UP_TECHNICAL_SPECIFICATIONS_MAIN'; });
-          pend.push({key: 'FICHA_SUGERIDA', nome: 'Ficha técnica — sugestão pronta', dono: 'Leonardo'});
+        function trocar(chaveMl, nova) {
+          p = p.filter(function(x) { return x.key !== chaveMl; });
+          p.push(nova);
         }
-        return Object.assign({}, l, {visiveis: pend});
-      }).filter(function(l) {
-        if (!l.visiveis.length) return false;
-        if (filtro === 'todos') return true;
-        return l.visiveis.some(function(p) { return p.dono === filtro || (filtro === 'Matheus' && p.dono === 'Letícia'); });
-      }).sort(function(a, b) {
-        var impacto = (b.visitas_30 || 0) * b.visiveis.length - (a.visitas_30 || 0) * a.visiveis.length;
-        if (ordem === 'nota_menor') return (a.nota - b.nota) || impacto;
-        if (ordem === 'nota_maior') return (b.nota - a.nota) || impacto;
-        if (ordem === 'visitas') return (b.visitas_30 || 0) - (a.visitas_30 || 0);
-        return impacto;
-      });
+        if (l.fotos != null && l.fotos < ANALISE_FOTOS_MIN)
+          trocar('UP_PICTURES', {key: 'FOTOS', nome: 'Fotos: tem ' + l.fotos + ', mínimo ' + ANALISE_FOTOS_MIN, dono: 'Leonardo'});
+        if (l.codigos_peca != null && l.codigos_peca < ANALISE_CODIGOS_MIN)
+          p.push({key: 'CODIGOS', nome: 'Número de peça: ' + l.codigos_peca + ' código(s), mínimo ' + ANALISE_CODIGOS_MIN, dono: 'Leonardo'});
+        if (l.oem != null && l.oem < ANALISE_CODIGOS_MIN)
+          p.push({key: 'OEM', nome: 'Código OEM: ' + l.oem + ', mínimo ' + ANALISE_CODIGOS_MIN, dono: 'Leonardo'});
+        if ((l.vazias || []).length)
+          trocar('UP_TECHNICAL_SPECIFICATIONS_MAIN', {key: 'VAZIAS', nome: 'Características vazias: ' + l.vazias.length, dono: 'Leonardo', vazias: true});
+
+        var noTitulo = semAcento(l.title).split(/[^a-z0-9]+/);
+        var temModelo = {};
+        (l.modelos || []).forEach(function(m) { temModelo[semAcento(m)] = true; });
+        var faltando = [];
+        noTitulo.forEach(function(w) {
+          if (dicionario[w] && !temModelo[w] && faltando.indexOf(dicionario[w]) === -1) faltando.push(dicionario[w]);
+        });
+        if (faltando.length && (l.modelos || []).length)
+          trocar('UP_COMPATS', {key: 'COMPAT', nome: 'Compatibilidade sem: ' + faltando.join(', ') + ' (estão no título)', dono: 'Leonardo'});
+
+        var v30 = l.visitas_30 || 0;
+        if (v30 >= ANALISE_VISITA_SEM_VENDA && !l.pedidos_30)
+          p.push({key: 'SEM_VENDA', nome: v30 + ' visitas e nenhuma venda em 30 dias', dono: 'Matheus',
+            dica: 'Muita gente vê e ninguém compra: normalmente é preço, frete ou foto.'});
+        if ((l.visitas_15_antes || 0) >= ANALISE_QUEDA_BASE && (l.visitas_15 || 0) < l.visitas_15_antes * ANALISE_QUEDA)
+          p.push({key: 'CAINDO', nome: 'Visitas caindo: ' + l.visitas_15_antes + ' → ' + l.visitas_15 + ' (15 dias)', dono: 'Matheus'});
+        if (v30 < ANALISE_SEM_VISITA)
+          p.push({key: 'SEM_VISITA', nome: 'Quase sem visita (' + v30 + ' em 30 dias)', dono: 'Matheus',
+            dica: 'Ativo mas ninguém vê: características, compatibilidade e fotos costumam ser a causa.'});
+
+        return p.filter(function(x) { return !feito[x.key]; });
+      }
+
+      var itens = tudo.map(function(l) { return Object.assign({}, l, {visiveis: pendenciasDe(l)}); })
+        .filter(function(l) {
+          if (!l.visiveis.length) return false;
+          if (filtro === 'todos') return true;
+          return l.visiveis.some(function(p) { return p.dono === filtro || (filtro === 'Matheus' && p.dono === 'Letícia'); });
+        }).sort(function(a, b) {
+          var impacto = ((b.visitas_30 || 0) + 1) * b.visiveis.length - ((a.visitas_30 || 0) + 1) * a.visiveis.length;
+          if (ordem === 'nota_menor') return (a.nota - b.nota) || impacto;
+          if (ordem === 'nota_maior') return (b.nota - a.nota) || impacto;
+          if (ordem === 'visitas') return (b.visitas_30 || 0) - (a.visitas_30 || 0);
+          return impacto;
+        });
       var naFila = itens.length;
       itens = itens.slice(0, ANALISE_LIMITE);
       var ultima = tudo.reduce(function(m, l) { return l.analisado_em > m ? l.analisado_em : m; }, '');
-      var abaixo = tudo.filter(function(l) { return l.nota < 100; }).length;
-      var comSugestaoMarcada = itens.filter(function(l) { return marcados[l.item_id] && (l.sugestao || []).length; });
+
+      // O que foi escolhido pra gravar, só nos anúncios que estão na tela.
+      var paraAplicar = itens.map(function(l) {
+        var esc = escolhas[l.item_id] || {};
+        var atributos = (l.vazias || []).filter(function(v) { return esc[v.id]; }).map(function(v) {
+          if (esc[v.id] === 'na') return {id: v.id, value_id: '-1'};
+          return {id: v.id, value_id: v.sugestao.value_id, value_name: v.sugestao.value_name};
+        });
+        return {linha: l, atributos: atributos};
+      }).filter(function(x) { return x.atributos.length; });
+      var totalEscolhido = paraAplicar.reduce(function(s, x) { return s + x.atributos.length; }, 0);
 
       function aplicar() {
-        if (!comSugestaoMarcada.length) return;
-        if (!confirm('Gravar a ficha técnica sugerida em ' + comSugestaoMarcada.length + ' anúncio(s) da ' + conta +
-          ' no Mercado Livre?\n\nConfira os valores antes: eles vêm do mesmo produto em outro anúncio nosso.')) return;
+        if (!paraAplicar.length) return;
+        if (!confirm('Gravar ' + totalEscolhido + ' característica(s) em ' + paraAplicar.length + ' anúncio(s) da ' + conta +
+          ' no Mercado Livre?')) return;
         setAplicando(true);
         setAviso(null);
         var erros = [];
         var ok = 0;
-        comSugestaoMarcada.reduce(function(p, l) {
+        paraAplicar.reduce(function(p, x) {
           return p.then(function() {
-            return chamarAnalise({acao: 'aplicar', conta: conta, item_id: l.item_id, atributos: l.sugestao})
-              .then(function(d) { if (d.ok) ok++; else erros.push(l.item_id + ': ' + (d.motivo || d.erro)); })
-              .catch(function(err) { erros.push(l.item_id + ': ' + err.message); });
+            return chamarAnalise({acao: 'aplicar', conta: conta, item_id: x.linha.item_id, atributos: x.atributos})
+              .then(function(d) { if (d.ok) ok++; else erros.push(x.linha.item_id + ': ' + (d.motivo || d.erro)); })
+              .catch(function(err) { erros.push(x.linha.item_id + ': ' + err.message); });
           });
         }, Promise.resolve()).then(function() {
           setAplicando(false);
-          setMarcados({});
-          setAviso('Ficha técnica gravada em ' + ok + ' anúncio(s).' + (erros.length ? ' Não deu em ' + erros.length + ': ' + erros.join(' | ') : ''));
+          setEscolhas({});
+          setAviso('Características gravadas em ' + ok + ' anúncio(s).' + (erros.length ? ' Não deu em ' + erros.length + ': ' + erros.join(' | ') : ''));
           carregar();
         });
       }
@@ -369,13 +438,14 @@
               ? '⏳ Analisando' + (progresso.total ? ' ' + progresso.feitos + ' de ' + progresso.total : '...')
               : '🔍 Analisar'),
             e('span', {className: 'text-xs text-slate-400'},
-              ultima ? 'Última análise: ' + new Date(ultima).toLocaleString('pt-BR') + ' · ' + tudo.length + ' ativos, ' + abaixo + ' abaixo de 100'
+              ultima ? 'Última análise: ' + new Date(ultima).toLocaleString('pt-BR') + ' · ' + tudo.length + ' ativos'
                      : 'Ainda não analisada — aperte Analisar.')
           ),
           e('p', {className: 'text-xs text-slate-400'},
-            'O critério é o checklist de qualidade do próprio Mercado Livre. Mostra os ' + ANALISE_LIMITE +
-            ' que mais valem a pena primeiro (mais visitas e mais pendências). Marcou "feito", sai da lista; se na próxima análise o ML ainda disser que falta, volta.'),
-          e('div', {className: 'flex flex-wrap gap-2'},
+            'Junta o checklist do Mercado Livre com as regras da casa: mínimo ' + ANALISE_FOTOS_MIN + ' fotos, ' + ANALISE_CODIGOS_MIN +
+            ' códigos no Número de peça e no OEM, nenhuma característica vazia, compatibilidade com os modelos do título, e visitas/vendas. ' +
+            'Mostra os ' + ANALISE_LIMITE + ' que mais valem a pena primeiro. Marcou "feito", sai da lista; se na próxima análise ainda faltar, volta.'),
+          e('div', {className: 'flex flex-wrap items-center gap-2'},
             ['todos', 'Leonardo', 'Matheus'].map(function(f) {
               return e('button', {
                 key: f, onClick: function() { setFiltro(f); },
@@ -395,11 +465,11 @@
           aviso && e('div', {className: 'bg-amber-900 bg-opacity-40 border border-amber-700 rounded-lg px-3 py-2 text-xs text-amber-200'}, aviso)
         ),
 
-        comSugestaoMarcada.length > 0 && e('div', {className: 'sticky top-2 z-10 flex justify-end'},
+        totalEscolhido > 0 && e('div', {className: 'sticky top-2 z-10 flex justify-end'},
           e('button', {
             onClick: aplicar, disabled: aplicando,
             className: 'bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold text-sm shadow-lg ' + (aplicando ? 'opacity-60 cursor-wait' : '')
-          }, aplicando ? '⏳ Aplicando...' : '✅ Aplicar ficha técnica (' + comSugestaoMarcada.length + ')')
+          }, aplicando ? '⏳ Aplicando...' : '✅ Aplicar ' + totalEscolhido + ' característica(s) em ' + paraAplicar.length + ' anúncio(s)')
         ),
 
         linhas === null ? e('p', {className: 'text-slate-400 text-sm'}, 'Carregando...')
@@ -408,19 +478,26 @@
           naFila > itens.length && e('p', {className: 'text-xs text-slate-500'},
             'Mostrando ' + itens.length + ' de ' + naFila + ' — conforme forem sendo feitos, os próximos entram.'),
           itens.map(function(l) {
+            var esc = escolhas[l.item_id] || {};
+            var mostraVazias = aberto[l.item_id] && l.visiveis.some(function(p) { return p.vazias; });
             return e('div', {key: l.item_id, className: 'bg-slate-800 border border-slate-700 rounded-lg p-3 space-y-2'},
               e('div', {className: 'flex flex-wrap items-start gap-2'},
                 e('span', {className: 'text-xs font-bold px-2 py-0.5 rounded ' + (l.nota >= 90 ? 'bg-emerald-900 text-emerald-200' : l.nota >= 75 ? 'bg-amber-900 text-amber-200' : 'bg-red-900 text-red-200')}, 'nota ' + l.nota),
                 e('a', {href: 'https://produto.mercadolivre.com.br/' + l.item_id.replace('MLB', 'MLB-'), target: '_blank', rel: 'noreferrer',
                   className: 'font-bold text-sm text-white hover:text-blue-300 flex-1 min-w-0'}, l.title || l.item_id),
                 e('span', {className: 'text-xs text-slate-400 whitespace-nowrap'},
-                  (l.sku ? l.sku + ' · ' : '') + l.item_id + ' · ' + (l.visitas_30 || 0) + ' visitas/30d' + (l.no_full ? ' · FULL' : ''))
+                  (l.sku ? l.sku + ' · ' : '') + l.item_id + ' · ' + (l.visitas_30 || 0) + ' visitas · ' + (l.pedidos_30 || 0) + ' vendas/30d' + (l.no_full ? ' · FULL' : ''))
               ),
               e('div', {className: 'flex flex-wrap gap-2'},
                 l.visiveis.map(function(p) {
                   return e('div', {key: p.key, className: 'flex items-center gap-1 bg-slate-900 border border-slate-700 rounded-lg pl-2 pr-1 py-1 text-xs', title: p.dica || ''},
                     e('span', {className: 'px-1.5 rounded ' + (corDono[p.dono] || 'bg-slate-700')}, p.dono),
-                    e('span', {className: 'text-slate-200'}, p.nome),
+                    p.vazias
+                      ? e('button', {
+                          onClick: function() { var a = Object.assign({}, aberto); a[l.item_id] = !a[l.item_id]; setAberto(a); },
+                          className: 'text-blue-300 hover:text-blue-200 underline'
+                        }, p.nome + (aberto[l.item_id] ? ' ▲' : ' ▼'))
+                      : e('span', {className: 'text-slate-200'}, p.nome),
                     e('button', {
                       onClick: function() { marcarFeito(l, p.key); },
                       className: 'ml-1 bg-slate-700 hover:bg-emerald-700 text-slate-200 rounded px-1.5 py-0.5'
@@ -428,13 +505,23 @@
                   );
                 })
               ),
-              (l.sugestao || []).length > 0 && !(l.feito || {}).FICHA_SUGERIDA && e('label', {className: 'flex items-start gap-2 text-xs bg-emerald-950 bg-opacity-40 border border-emerald-800 rounded-lg p-2 cursor-pointer'},
-                e('input', {type: 'checkbox', checked: !!marcados[l.item_id], className: 'mt-0.5',
-                  onChange: function() { var m = Object.assign({}, marcados); m[l.item_id] = !m[l.item_id]; setMarcados(m); }}),
-                e('span', {className: 'text-emerald-200'},
-                  'Sugestão de ficha técnica: ',
-                  l.sugestao.map(function(s) { return (s.nome || s.id) + ' = ' + s.value_name; }).join(' · '),
-                  e('span', {className: 'text-slate-500'}, '  (copiado de ' + l.sugestao[0].de + ')'))
+              mostraVazias && e('div', {className: 'bg-slate-900 border border-slate-700 rounded-lg p-2 space-y-1'},
+                e('p', {className: 'text-xs text-slate-400'}, 'Escolha o que gravar em cada uma e aperte Aplicar lá em cima. Sem escolha = não mexe.'),
+                l.vazias.map(function(v) {
+                  return e('div', {key: v.id, className: 'flex flex-wrap items-center gap-2 text-xs'},
+                    e('span', {className: 'text-slate-200 w-48'}, v.nome || v.id),
+                    e('select', {
+                      value: esc[v.id] || '',
+                      onChange: function(ev) { escolher(l.item_id, v.id, ev.target.value); },
+                      className: 'bg-slate-700 text-slate-200 rounded px-2 py-1 border border-slate-600'
+                    },
+                      e('option', {value: ''}, '— não mexer —'),
+                      v.sugestao && e('option', {value: 'sug'}, v.sugestao.value_name + ' (de ' + v.sugestao.de + ')'),
+                      e('option', {value: 'na'}, 'Não se aplica')
+                    ),
+                    !v.sugestao && e('span', {className: 'text-slate-500'}, 'sem sugestão — preencha no ML se tiver o valor')
+                  );
+                })
               )
             );
           })
