@@ -251,6 +251,7 @@
       var linhasSt = useState(null); var linhas = linhasSt[0]; var setLinhas = linhasSt[1];
       var progressoSt = useState(null); var progresso = progressoSt[0]; var setProgresso = progressoSt[1];
       var filtroSt = useState('todos'); var filtro = filtroSt[0]; var setFiltro = filtroSt[1];
+      var ordemSt = useState('impacto'); var ordem = ordemSt[0]; var setOrdem = ordemSt[1];
       var marcadosSt = useState({}); var marcados = marcadosSt[0]; var setMarcados = marcadosSt[1];
       var aplicandoSt = useState(false); var aplicando = aplicandoSt[0]; var setAplicando = aplicandoSt[1];
       var avisoSt = useState(null); var aviso = avisoSt[0]; var setAviso = avisoSt[1];
@@ -320,7 +321,11 @@
         if (filtro === 'todos') return true;
         return l.visiveis.some(function(p) { return p.dono === filtro || (filtro === 'Matheus' && p.dono === 'Letícia'); });
       }).sort(function(a, b) {
-        return (b.visitas_30 || 0) * b.visiveis.length - (a.visitas_30 || 0) * a.visiveis.length;
+        var impacto = (b.visitas_30 || 0) * b.visiveis.length - (a.visitas_30 || 0) * a.visiveis.length;
+        if (ordem === 'nota_menor') return (a.nota - b.nota) || impacto;
+        if (ordem === 'nota_maior') return (b.nota - a.nota) || impacto;
+        if (ordem === 'visitas') return (b.visitas_30 || 0) - (a.visitas_30 || 0);
+        return impacto;
       });
       var naFila = itens.length;
       itens = itens.slice(0, ANALISE_LIMITE);
@@ -376,7 +381,16 @@
                 key: f, onClick: function() { setFiltro(f); },
                 className: 'px-3 py-1 rounded-lg text-xs font-bold ' + (filtro === f ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600')
               }, f === 'todos' ? 'Todos' : f);
-            })
+            }),
+            e('select', {
+              value: ordem, onChange: function(ev) { setOrdem(ev.target.value); },
+              className: 'ml-auto bg-slate-700 text-slate-200 text-xs rounded-lg px-2 py-1 border border-slate-600'
+            },
+              e('option', {value: 'impacto'}, 'Ordem: mais importante primeiro'),
+              e('option', {value: 'nota_menor'}, 'Ordem: menor nota primeiro'),
+              e('option', {value: 'nota_maior'}, 'Ordem: maior nota primeiro'),
+              e('option', {value: 'visitas'}, 'Ordem: mais visitas primeiro')
+            )
           ),
           aviso && e('div', {className: 'bg-amber-900 bg-opacity-40 border border-amber-700 rounded-lg px-3 py-2 text-xs text-amber-200'}, aviso)
         ),
