@@ -273,6 +273,7 @@
       var abertoSt = useState({}); var aberto = abertoSt[0]; var setAberto = abertoSt[1];
       var aplicandoSt = useState(false); var aplicando = aplicandoSt[0]; var setAplicando = aplicandoSt[1];
       var avisoSt = useState(null); var aviso = avisoSt[0]; var setAviso = avisoSt[1];
+      var editandoSt = useState(null); var editando = editandoSt[0]; var setEditando = editandoSt[1];
 
       function carregar() {
         supabase.from('ml_analise').select('*').eq('conta', conta).then(function(r) {
@@ -427,6 +428,7 @@
       var corDono = {Leonardo: 'bg-sky-900 text-sky-200', Matheus: 'bg-violet-900 text-violet-200', 'Letícia': 'bg-pink-900 text-pink-200'};
 
       return e('div', {className: 'space-y-4'},
+        editando && e(EditorAnuncio, {conta: conta, itemId: editando, onFechar: function() { setEditando(null); }}),
         e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg p-4 space-y-3'},
           e('div', {className: 'flex flex-wrap items-center gap-3'},
             e('h2', {className: 'text-lg font-bold'}, '📊 Análise dos anúncios — ' + conta),
@@ -486,7 +488,11 @@
                 e('a', {href: 'https://produto.mercadolivre.com.br/' + l.item_id.replace('MLB', 'MLB-'), target: '_blank', rel: 'noreferrer',
                   className: 'font-bold text-sm text-white hover:text-blue-300 flex-1 min-w-0'}, l.title || l.item_id),
                 e('span', {className: 'text-xs text-slate-400 whitespace-nowrap'},
-                  (l.sku ? l.sku + ' · ' : '') + l.item_id + ' · ' + (l.visitas_30 || 0) + ' visitas · ' + (l.pedidos_30 || 0) + ' vendas/30d' + (l.no_full ? ' · FULL' : ''))
+                  (l.sku ? l.sku + ' · ' : '') + l.item_id + ' · ' + (l.visitas_30 || 0) + ' visitas · ' + (l.pedidos_30 || 0) + ' vendas/30d' + (l.no_full ? ' · FULL' : '')),
+                e('button', {
+                  onClick: function() { setEditando(l.item_id); },
+                  className: 'bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded-lg font-bold text-xs whitespace-nowrap'
+                }, '✏️ Editar aqui')
               ),
               e('div', {className: 'flex flex-wrap gap-2'},
                 l.visiveis.map(function(p) {
@@ -525,6 +531,421 @@
               )
             );
           })
+        )
+      );
+    }
+
+    // ── EDITOR DE ANÚNCIO ────────────────────────────────────────────────────────
+    //
+    // Alterar pelo sistema o que hoje se faz no painel do Mercado Livre (pedido do
+    // Matheus, 16/09/2026). Tudo que a API permite: características, compatibilidade,
+    // fotos, preço, frete grátis, tipo de anúncio, Product Ads e promoções. Clip e Flex
+    // ficam de fora porque a API não deixa.
+    //
+    // Sempre lê o anúncio direto do ML ao abrir, e relê depois de cada gravação: a tela
+    // nunca mostra o que "achamos" que ficou, só o que o ML diz que ficou.
+    function chamarEditor(corpo) {
+      return fetch(supabaseUrl + '/functions/v1/ml-editar-anuncio', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', Authorization: 'Bearer ' + supabaseKey, apikey: supabaseKey},
+        body: JSON.stringify(corpo),
+      }).then(function(r) { return r.json(); });
+    }
+
+    function lerPreco(texto) {
+      var n = parseFloat(String(texto || '').replace(/\./g, '').replace(',', '.'));
+      return isNaN(n) ? null : n;
+    }
+
+    function EditorAnuncio(props) {
+      var conta = props.conta, itemId = props.itemId;
+      var dadosSt = useState(null); var dados = dadosSt[0]; var setDados = dadosSt[1];
+      var parteSt = useState('carac'); var parte = parteSt[0]; var setParte = parteSt[1];
+      var ocupadoSt = useState(null); var ocupado = ocupadoSt[0]; var setOcupado = ocupadoSt[1];
+      var recadoSt = useState(null); var recado = recadoSt[0]; var setRecado = recadoSt[1];
+      // Características: edições pendentes por id
+      var edicoesSt = useState({}); var edicoes = edicoesSt[0]; var setEdicoes = edicoesSt[1];
+      // Fotos: ordem em edição
+      var fotosSt = useState(null); var fotos = fotosSt[0]; var setFotos = fotosSt[1];
+      // Venda
+      var precoSt = useState(''); var preco = precoSt[0]; var setPreco = precoSt[1];
+      var campanhaSt = useState(''); var campanha = campanhaSt[0]; var setCampanha = campanhaSt[1];
+      var pctSt = useState({}); var pct = pctSt[0]; var setPct = pctSt[1];
+      // Compatibilidade
+      var marcasSt = useState(null); var marcas = marcasSt[0]; var setMarcas = marcasSt[1];
+      var marcaSt = useState(''); var marca = marcaSt[0]; var setMarca = marcaSt[1];
+      var modelosSt = useState([]); var modelos = modelosSt[0]; var setModelos = modelosSt[1];
+      var modeloSt = useState(''); var modelo = modeloSt[0]; var setModelo = modeloSt[1];
+      var anosSt = useState([]); var anos = anosSt[0]; var setAnos = anosSt[1];
+      var anoSt = useState(''); var ano = anoSt[0]; var setAno = anoSt[1];
+      var achadosSt = useState(null); var achados = achadosSt[0]; var setAchados = achadosSt[1];
+      var marcadosSt = useState({}); var marcados = marcadosSt[0]; var setMarcados = marcadosSt[1];
+      var removerSt = useState({}); var remover = removerSt[0]; var setRemover = removerSt[1];
+      var copiarDeSt = useState(''); var copiarDe = copiarDeSt[0]; var setCopiarDe = copiarDeSt[1];
+
+      function ler() {
+        return chamarEditor({acao: 'ler', conta: conta, item_id: itemId}).then(function(d) {
+          if (d.erro) { setRecado({erro: true, texto: d.erro}); return; }
+          setDados(d);
+          setEdicoes({});
+          setFotos(d.fotos);
+          setPreco(String(d.preco).replace('.', ','));
+          setCampanha(d.ads && d.ads.campaign_id ? String(d.ads.campaign_id) : (d.campanhas[0] ? String(d.campanhas[0].id) : ''));
+          setRemover({});
+        });
+      }
+      React.useEffect(function() { ler(); }, [itemId]);
+
+      // Executa uma gravação, mostra o resultado e relê o anúncio do ML.
+      function gravar(nome, corpo, textoOk) {
+        setOcupado(nome);
+        setRecado(null);
+        return chamarEditor(Object.assign({conta: conta, item_id: itemId}, corpo)).then(function(d) {
+          if (d.erro || !d.ok) setRecado({erro: true, texto: 'Não deu: ' + (d.motivo || d.erro || 'o Mercado Livre não confirmou a alteração')});
+          else setRecado({erro: false, texto: '✓ ' + (typeof textoOk === 'function' ? textoOk(d) : textoOk) + ' — conferido no Mercado Livre.'});
+          return ler();
+        }).catch(function(err) {
+          setRecado({erro: true, texto: 'Não deu: ' + err.message});
+        }).then(function() { setOcupado(null); });
+      }
+
+      var botao = 'px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ';
+      var campo = 'bg-slate-700 text-slate-100 rounded px-2 py-1 border border-slate-600 text-xs';
+
+      if (!dados) {
+        return e('div', {className: 'fixed inset-0 z-50 bg-black bg-opacity-70 flex items-center justify-center p-4'},
+          e('div', {className: 'bg-slate-800 rounded-lg p-6 text-slate-300 text-sm space-y-3'},
+            recado ? e('p', {className: 'text-red-300'}, recado.texto) : e('p', null, '⏳ Lendo o anúncio no Mercado Livre...'),
+            e('button', {onClick: props.onFechar, className: botao + 'bg-slate-700 text-slate-200'}, 'Fechar')));
+      }
+
+      // ── Características ──
+      function valorEditado(c) { return edicoes[c.id] || null; }
+      function editar(c, mudanca) {
+        var novo = Object.assign({}, edicoes);
+        novo[c.id] = Object.assign({id: c.id}, valorEditado(c) || {}, mudanca);
+        setEdicoes(novo);
+      }
+      function campoDe(c) {
+        var ed = valorEditado(c);
+        var na = ed ? !!ed.nao_se_aplica : c.nao_se_aplica;
+        var entrada;
+        if (c.multivalor) {
+          var linhas = ed && ed.values ? ed.values.join('\n') : (c.valores.length ? c.valores : (c.valor ? [c.valor] : [])).join('\n');
+          entrada = e('textarea', {value: linhas, disabled: na, rows: Math.max(2, linhas.split('\n').length),
+            placeholder: 'um por linha',
+            onChange: function(ev) { editar(c, {values: ev.target.value.split('\n'), nao_se_aplica: false}); },
+            className: campo + ' w-full font-mono'});
+        } else if (c.opcoes.length) {
+          // O valor gravado nem sempre está na lista do ML (valor antigo ou digitado):
+          // entra como primeira opção, senão a tela diria "vazio" pra campo preenchido.
+          var ATUAL = '__atual__';
+          var noCatalogo = c.opcoes.some(function(o) { return o.id === c.valor_id; });
+          var temForaDaLista = c.valor && !noCatalogo;
+          var atualId = ed ? ed.value_id : (temForaDaLista ? ATUAL : c.valor_id);
+          entrada = e('select', {value: atualId || '', disabled: na,
+            onChange: function(ev) {
+              if (ev.target.value === ATUAL) { var n = Object.assign({}, edicoes); delete n[c.id]; setEdicoes(n); return; }
+              var op = c.opcoes.filter(function(o) { return o.id === ev.target.value; })[0];
+              editar(c, {value_id: ev.target.value, value_name: op ? op.nome : null, nao_se_aplica: false});
+            }, className: campo + ' w-full'},
+            temForaDaLista ? e('option', {value: ATUAL}, c.valor) : e('option', {value: ''}, '— vazio —'),
+            c.opcoes.map(function(o) { return e('option', {key: o.id, value: o.id}, o.nome); }));
+        } else if (c.tipo === 'number_unit') {
+          var atual = ed && ed.value_name != null ? ed.value_name : (c.valor || '');
+          var partes = String(atual).split(' ');
+          var numero = partes[0] || '', unidade = partes[1] || c.unidade_padrao || (c.unidades[0] || '');
+          entrada = e('div', {className: 'flex gap-1'},
+            e('input', {value: numero, disabled: na, inputMode: 'decimal',
+              onChange: function(ev) { editar(c, {value_id: null, value_name: ev.target.value ? ev.target.value.replace(',', '.') + ' ' + unidade : '', nao_se_aplica: false}); },
+              className: campo + ' w-24'}),
+            e('select', {value: unidade, disabled: na,
+              onChange: function(ev) { editar(c, {value_id: null, value_name: numero ? numero + ' ' + ev.target.value : '', nao_se_aplica: false}); },
+              className: campo}, c.unidades.map(function(u) { return e('option', {key: u, value: u}, u); })));
+        } else {
+          entrada = e('input', {value: ed && ed.value_name != null ? ed.value_name : (c.valor || ''), disabled: na,
+            onChange: function(ev) { editar(c, {value_id: null, value_name: ev.target.value, nao_se_aplica: false}); },
+            className: campo + ' w-full'});
+        }
+        var vazio = !na && !c.valor && !c.valor_id && !c.valores.length && !ed;
+        return e('div', {key: c.id, className: 'grid grid-cols-1 sm:grid-cols-3 gap-2 items-start py-2 border-b border-slate-700 ' + (ed ? 'bg-blue-950 bg-opacity-40' : '')},
+          e('div', {className: 'text-xs text-slate-300 pt-1'}, vazio && e('span', {className: 'text-orange-400 mr-1', title: 'vazio'}, '●'),
+            c.nome, c.obrigatorio && e('span', {className: 'text-slate-500'}, ' (obrigatório)'),
+            c.multivalor && e('span', {className: 'text-slate-500'}, ' · vários')),
+          e('div', {className: 'sm:col-span-2 space-y-1'},
+            entrada,
+            !c.obrigatorio && e('label', {className: 'flex items-center gap-1 text-xs text-slate-400'},
+              e('input', {type: 'checkbox', checked: na, onChange: function(ev) { editar(c, {nao_se_aplica: ev.target.checked}); }}),
+              'Não se aplica')));
+      }
+      var qtdEdicoes = Object.keys(edicoes).length;
+      function salvarCaracteristicas() {
+        var lista = Object.keys(edicoes).map(function(k) {
+          var x = edicoes[k];
+          if (x.nao_se_aplica) return {id: x.id, nao_se_aplica: true};
+          if (x.values) return {id: x.id, values: x.values.map(function(v) { return v.trim(); }).filter(Boolean)};
+          if (x.value_id) return {id: x.id, value_id: x.value_id};
+          return {id: x.id, value_name: x.value_name};
+        });
+        gravar('carac', {acao: 'atributos', atributos: lista}, qtdEdicoes + ' característica(s) gravada(s)');
+      }
+
+      // ── Compatibilidade ──
+      function abrirCompat() {
+        setParte('compat');
+        if (!marcas) chamarEditor({acao: 'compat_marcas', conta: conta}).then(function(d) { setMarcas(d.valores || []); });
+      }
+      function escolherMarca(id) {
+        setMarca(id); setModelo(''); setAno(''); setModelos([]); setAnos([]); setAchados(null);
+        if (id) chamarEditor({acao: 'compat_valores', conta: conta, atributo: 'MODEL', conhecidos: [{id: 'BRAND', value_id: id}]})
+          .then(function(d) { setModelos(d.valores || []); });
+      }
+      function escolherModelo(id) {
+        setModelo(id); setAno(''); setAnos([]); setAchados(null);
+        if (id) chamarEditor({acao: 'compat_valores', conta: conta, atributo: 'VEHICLE_YEAR',
+          conhecidos: [{id: 'BRAND', value_id: marca}, {id: 'MODEL', value_id: id}]}).then(function(d) { setAnos(d.valores || []); });
+      }
+      function buscarVeiculos() {
+        var conhecidos = [{id: 'BRAND', value_ids: [marca]}, {id: 'MODEL', value_ids: [modelo]}];
+        if (ano) conhecidos.push({id: 'VEHICLE_YEAR', value_ids: [ano]});
+        setOcupado('buscar'); setAchados(null); setMarcados({});
+        chamarEditor({acao: 'compat_buscar', conta: conta, conhecidos: conhecidos}).then(function(d) {
+          var jaTem = {};
+          dados.compatibilidade.forEach(function(v) { jaTem[v.produto] = true; });
+          setAchados((d.veiculos || []).map(function(v) { return Object.assign({}, v, {ja: !!jaTem[v.id]}); })
+            .sort(function(a, b) { return a.nome.localeCompare(b.nome); }));
+          setOcupado(null);
+        });
+      }
+      var idsMarcados = Object.keys(marcados).filter(function(k) { return marcados[k]; });
+      var idsRemover = Object.keys(remover).filter(function(k) { return remover[k]; });
+      var modelosNoAnuncio = {};
+      dados.compatibilidade.forEach(function(v) { var m = v.nome.split(' ').slice(0, 2).join(' '); modelosNoAnuncio[m] = (modelosNoAnuncio[m] || 0) + 1; });
+
+      // ── Fotos ──
+      function moverFoto(i, passo) {
+        var l = fotos.slice(); var j = i + passo;
+        if (j < 0 || j >= l.length) return;
+        var t = l[i]; l[i] = l[j]; l[j] = t; setFotos(l);
+      }
+      function subirFotos(arquivos) {
+        var lista = Array.prototype.slice.call(arquivos || []);
+        if (!lista.length) return;
+        setOcupado('upload'); setRecado(null);
+        var novas = fotos.slice(); var erros = [];
+        lista.reduce(function(p, arq) {
+          return p.then(function() {
+            var form = new FormData(); form.append('file', arq);
+            return fetch(supabaseUrl + '/functions/v1/ml-editar-anuncio?acao=foto_upload&conta=' + conta, {
+              method: 'POST', headers: {Authorization: 'Bearer ' + supabaseKey, apikey: supabaseKey}, body: form,
+            }).then(function(r) { return r.json(); }).then(function(d) {
+              if (d.ok) novas.push({id: d.picture_id, url: d.url || URL.createObjectURL(arq), nova: true});
+              else erros.push(arq.name + ': ' + (d.motivo || d.erro));
+            });
+          });
+        }, Promise.resolve()).then(function() {
+          setFotos(novas); setOcupado(null);
+          setRecado(erros.length ? {erro: true, texto: 'Não subiu: ' + erros.join(' | ')}
+            : {erro: false, texto: lista.length + ' foto(s) enviada(s). Confira a ordem e aperte "Salvar fotos" pra ir pro anúncio.'});
+        });
+      }
+      var fotosMudaram = fotos && JSON.stringify(fotos.map(function(f) { return f.id; })) !== JSON.stringify(dados.fotos.map(function(f) { return f.id; }));
+
+      // ── Promoções (usa a função de promoções que já existe) ──
+      function promo(acao, p) {
+        var corpo = {conta: conta, promocao_id: p.promocao_id, promocao_tipo: p.promocao_tipo, itens: [itemId]};
+        if (acao === 'ativar' && ['SELLER_CAMPAIGN', 'DEAL', 'PRICE_DISCOUNT', 'DOD'].indexOf(p.promocao_tipo) !== -1) {
+          var n = lerPreco(pct[p.promocao_id]);
+          if (!n) { setRecado({erro: true, texto: 'Digite o % de desconto pra entrar em « ' + (p.promocao_nome || p.promocao_tipo) + ' ».'}); return; }
+          corpo.percentual = n;
+        }
+        if (acao === 'sair' && !confirm('Tirar este anúncio da promoção "' + (p.promocao_nome || p.promocao_tipo) + '"? Ele perde o desconto na hora.')) return;
+        setOcupado('promo' + p.promocao_id); setRecado(null);
+        fetch(supabaseUrl + '/functions/v1/ml-promocoes?acao=' + acao, {
+          method: 'POST', headers: {'Content-Type': 'application/json', Authorization: 'Bearer ' + supabaseKey, apikey: supabaseKey},
+          body: JSON.stringify(corpo),
+        }).then(function(r) { return r.json(); }).then(function(d) {
+          var recusa = (d.recusados || [])[0];
+          if (d.erro || recusa) setRecado({erro: true, texto: 'Não deu: ' + (d.erro || recusa.motivo)});
+          else setRecado({erro: false, texto: acao === 'ativar' ? '✓ Entrou na promoção.' : '✓ Saiu da promoção.'});
+          return ler();
+        }).then(function() { setOcupado(null); });
+      }
+
+      var abas = [['carac', 'Características'], ['compat', 'Compatibilidade (' + dados.compatibilidade.length + ')'],
+        ['fotos', 'Fotos (' + dados.fotos.length + ')'], ['venda', 'Preço e venda']];
+
+      return e('div', {className: 'fixed inset-0 z-50 bg-black bg-opacity-70 flex items-start justify-center p-2 sm:p-6 overflow-y-auto'},
+        e('div', {className: 'bg-slate-800 border border-slate-600 rounded-lg w-full max-w-4xl'},
+          e('div', {className: 'sticky top-0 z-10 bg-slate-800 border-b border-slate-700 p-4 space-y-3 rounded-t-lg'},
+            e('div', {className: 'flex items-start gap-3'},
+              e('div', {className: 'flex-1 min-w-0'},
+                e('p', {className: 'text-xs text-slate-400'}, '✏️ Editando no Mercado Livre · ' + conta + ' · ' + itemId + (dados.no_full ? ' · FULL' : '')),
+                e('a', {href: 'https://produto.mercadolivre.com.br/' + itemId.replace('MLB', 'MLB-'), target: '_blank', rel: 'noreferrer',
+                  className: 'font-bold text-white hover:text-blue-300'}, dados.titulo)),
+              e('button', {onClick: props.onFechar, className: botao + 'bg-slate-700 hover:bg-slate-600 text-slate-200'}, '✕ Fechar')),
+            e('div', {className: 'flex flex-wrap gap-2'},
+              abas.map(function(a) {
+                return e('button', {key: a[0], onClick: function() { a[0] === 'compat' ? abrirCompat() : setParte(a[0]); },
+                  className: botao + (parte === a[0] ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600')}, a[1]);
+              })),
+            recado && e('div', {className: 'rounded-lg px-3 py-2 text-xs ' + (recado.erro ? 'bg-red-900 bg-opacity-50 text-red-200 border border-red-700' : 'bg-emerald-900 bg-opacity-50 text-emerald-200 border border-emerald-700')}, recado.texto)
+          ),
+
+          e('div', {className: 'p-4'},
+            parte === 'carac' && e('div', null,
+              e('p', {className: 'text-xs text-slate-400 mb-2'}, '● laranja = vazio. Altere o que quiser; só o que foi mexido (fundo azul) é gravado.'),
+              dados.caracteristicas.map(campoDe),
+              e('div', {className: 'flex justify-end gap-2 pt-3'},
+                qtdEdicoes > 0 && e('button', {onClick: function() { setEdicoes({}); }, className: botao + 'bg-slate-700 text-slate-300'}, 'Desfazer'),
+                e('button', {onClick: salvarCaracteristicas, disabled: !qtdEdicoes || !!ocupado,
+                  className: botao + 'bg-emerald-600 hover:bg-emerald-500 text-white ' + (!qtdEdicoes || ocupado ? 'opacity-50 cursor-not-allowed' : '')},
+                  ocupado === 'carac' ? '⏳ Gravando...' : 'Salvar ' + qtdEdicoes + ' característica(s)'))),
+
+            parte === 'compat' && e('div', {className: 'space-y-4'},
+              e('div', {className: 'bg-slate-900 border border-slate-700 rounded-lg p-3 space-y-2'},
+                e('p', {className: 'text-sm font-bold text-slate-200'}, '➕ Adicionar veículos'),
+                e('div', {className: 'flex flex-wrap gap-2'},
+                  e('select', {value: marca, onChange: function(ev) { escolherMarca(ev.target.value); }, className: campo},
+                    e('option', {value: ''}, marcas ? 'Marca...' : 'carregando...'),
+                    (marcas || []).map(function(m) { return e('option', {key: m.id, value: m.id}, m.nome); })),
+                  e('select', {value: modelo, disabled: !marca, onChange: function(ev) { escolherModelo(ev.target.value); }, className: campo},
+                    e('option', {value: ''}, 'Modelo...'),
+                    modelos.map(function(m) { return e('option', {key: m.id, value: m.id}, m.nome); })),
+                  e('select', {value: ano, disabled: !modelo, onChange: function(ev) { setAno(ev.target.value); }, className: campo},
+                    e('option', {value: ''}, 'Todos os anos'),
+                    anos.map(function(m) { return e('option', {key: m.id, value: m.id}, m.nome); })),
+                  e('button', {onClick: buscarVeiculos, disabled: !modelo || !!ocupado,
+                    className: botao + 'bg-blue-600 hover:bg-blue-500 text-white ' + (!modelo ? 'opacity-50' : '')},
+                    ocupado === 'buscar' ? '⏳ Buscando...' : 'Buscar versões')),
+                achados && e('div', {className: 'space-y-1'},
+                  e('div', {className: 'flex items-center gap-3 text-xs'},
+                    e('span', {className: 'text-slate-400'}, achados.length + ' versões'),
+                    e('button', {onClick: function() { var m = {}; achados.forEach(function(v) { if (!v.ja) m[v.id] = true; }); setMarcados(m); },
+                      className: 'text-blue-300 underline'}, 'marcar todas'),
+                    e('button', {onClick: function() { setMarcados({}); }, className: 'text-blue-300 underline'}, 'desmarcar')),
+                  e('div', {className: 'max-h-64 overflow-y-auto bg-slate-800 rounded p-2'},
+                    achados.map(function(v) {
+                      return e('label', {key: v.id, className: 'flex items-center gap-2 text-xs py-0.5 ' + (v.ja ? 'text-slate-500' : 'text-slate-200')},
+                        e('input', {type: 'checkbox', disabled: v.ja, checked: v.ja || !!marcados[v.id],
+                          onChange: function(ev) { var m = Object.assign({}, marcados); m[v.id] = ev.target.checked; setMarcados(m); }}),
+                        v.nome, v.ja && ' (já está)');
+                    })),
+                  e('button', {disabled: !idsMarcados.length || !!ocupado,
+                    onClick: function() { gravar('compat', {acao: 'compat_adicionar', ids: idsMarcados}, function(d) { return d.adicionados + ' veículo(s) adicionado(s), total ' + d.total; })
+                      .then(function() { setAchados(null); setMarcados({}); }); },
+                    className: botao + 'bg-emerald-600 hover:bg-emerald-500 text-white ' + (!idsMarcados.length ? 'opacity-50' : '')},
+                    ocupado === 'compat' ? '⏳ Adicionando...' : 'Adicionar ' + idsMarcados.length + ' versão(ões)'))),
+
+              e('div', {className: 'bg-slate-900 border border-slate-700 rounded-lg p-3 space-y-2'},
+                e('p', {className: 'text-sm font-bold text-slate-200'}, '📋 Copiar de outro anúncio nosso'),
+                e('p', {className: 'text-xs text-slate-400'}, 'Traz todos os veículos do outro anúncio (de qualquer loja). O que já existe aqui não duplica.'),
+                e('div', {className: 'flex gap-2'},
+                  e('input', {value: copiarDe, placeholder: 'MLB...', onChange: function(ev) { setCopiarDe(ev.target.value.trim().toUpperCase()); }, className: campo + ' w-48'}),
+                  e('button', {disabled: !/^MLB\d+$/.test(copiarDe) || !!ocupado,
+                    onClick: function() { gravar('copiar', {acao: 'compat_copiar', de_item: copiarDe}, function(d) { return d.adicionados + ' veículo(s) copiado(s), total ' + d.total; }); },
+                    className: botao + 'bg-emerald-600 hover:bg-emerald-500 text-white ' + (!/^MLB\d+$/.test(copiarDe) ? 'opacity-50' : '')},
+                    ocupado === 'copiar' ? '⏳ Copiando...' : 'Copiar'))),
+
+              e('div', {className: 'space-y-2'},
+                e('div', {className: 'flex items-center gap-3'},
+                  e('p', {className: 'text-sm font-bold text-slate-200'}, 'No anúncio agora: ' + dados.compatibilidade.length + ' versão(ões)'),
+                  idsRemover.length > 0 && e('button', {disabled: !!ocupado,
+                    onClick: function() { if (confirm('Remover ' + idsRemover.length + ' veículo(s) da compatibilidade?')) gravar('remover', {acao: 'compat_remover', ids: idsRemover}, function(d) { return d.removidos + ' veículo(s) removido(s)'; }); },
+                    className: botao + 'bg-red-700 hover:bg-red-600 text-white'}, ocupado === 'remover' ? '⏳ Removendo...' : 'Remover ' + idsRemover.length)),
+                e('p', {className: 'text-xs text-slate-400'}, Object.keys(modelosNoAnuncio).map(function(m) { return m + ' (' + modelosNoAnuncio[m] + ')'; }).join(' · ') || 'nenhum veículo'),
+                e('div', {className: 'max-h-64 overflow-y-auto bg-slate-900 rounded p-2'},
+                  dados.compatibilidade.slice().sort(function(a, b) { return a.nome.localeCompare(b.nome); }).map(function(v) {
+                    return e('label', {key: v.id, className: 'flex items-center gap-2 text-xs text-slate-300 py-0.5'},
+                      e('input', {type: 'checkbox', checked: !!remover[v.id], onChange: function(ev) { var r = Object.assign({}, remover); r[v.id] = ev.target.checked; setRemover(r); }}),
+                      v.nome);
+                  })))),
+
+            parte === 'fotos' && fotos && e('div', {className: 'space-y-3'},
+              e('p', {className: 'text-xs text-slate-400'}, 'A primeira é a capa. Use ◀ ▶ pra mudar a ordem, ✕ pra tirar, e aperte "Salvar fotos" pra gravar no anúncio. Mínimo da casa: 7.'),
+              e('div', {className: 'grid grid-cols-2 sm:grid-cols-4 gap-3'},
+                fotos.map(function(f, i) {
+                  return e('div', {key: f.id, className: 'bg-slate-900 border rounded-lg p-1 space-y-1 ' + (i === 0 ? 'border-blue-500' : f.nova ? 'border-emerald-600' : 'border-slate-700')},
+                    e('img', {src: f.url, className: 'w-full aspect-square object-contain bg-white rounded'}),
+                    e('div', {className: 'flex items-center justify-between text-xs'},
+                      e('button', {onClick: function() { moverFoto(i, -1); }, className: 'px-2 text-slate-300 hover:text-white'}, '◀'),
+                      e('span', {className: 'text-slate-400'}, i === 0 ? 'capa' : (i + 1) + (f.nova ? ' · nova' : '')),
+                      e('button', {onClick: function() { moverFoto(i, 1); }, className: 'px-2 text-slate-300 hover:text-white'}, '▶'),
+                      e('button', {onClick: function() { setFotos(fotos.filter(function(x) { return x.id !== f.id; })); }, className: 'px-2 text-red-400 hover:text-red-300'}, '✕')));
+                })),
+              e('div', {className: 'flex flex-wrap items-center gap-2 justify-between'},
+                e('label', {className: botao + 'bg-slate-700 hover:bg-slate-600 text-slate-200 cursor-pointer'},
+                  ocupado === 'upload' ? '⏳ Enviando...' : '➕ Adicionar fotos do computador',
+                  e('input', {type: 'file', accept: 'image/*', multiple: true, className: 'hidden', disabled: !!ocupado,
+                    onChange: function(ev) { subirFotos(ev.target.files); ev.target.value = ''; }})),
+                e('div', {className: 'flex gap-2'},
+                  fotosMudaram && e('button', {onClick: function() { setFotos(dados.fotos); }, className: botao + 'bg-slate-700 text-slate-300'}, 'Desfazer'),
+                  e('button', {disabled: !fotosMudaram || !!ocupado,
+                    onClick: function() { gravar('fotos', {acao: 'fotos', ids: fotos.map(function(f) { return f.id; })}, fotos.length + ' foto(s) gravada(s)'); },
+                    className: botao + 'bg-emerald-600 hover:bg-emerald-500 text-white ' + (!fotosMudaram ? 'opacity-50 cursor-not-allowed' : '')},
+                    ocupado === 'fotos' ? '⏳ Gravando...' : 'Salvar fotos')))),
+
+            parte === 'venda' && e('div', {className: 'space-y-3'},
+              e('div', {className: 'bg-slate-900 border border-slate-700 rounded-lg p-3 flex flex-wrap items-center gap-3'},
+                e('span', {className: 'text-sm font-bold text-slate-200 w-40'}, '💰 Preço'),
+                e('span', {className: 'text-xs text-slate-400'}, 'R$'),
+                e('input', {value: preco, inputMode: 'decimal', onChange: function(ev) { setPreco(ev.target.value); }, className: campo + ' w-28'}),
+                e('button', {disabled: !!ocupado || lerPreco(preco) === dados.preco || !lerPreco(preco),
+                  onClick: function() { var n = lerPreco(preco); if (confirm('Mudar o preço de R$ ' + dados.preco.toFixed(2) + ' para R$ ' + n.toFixed(2) + '?')) gravar('preco', {acao: 'preco', preco: n}, 'Preço gravado'); },
+                  className: botao + 'bg-emerald-600 hover:bg-emerald-500 text-white ' + (lerPreco(preco) === dados.preco ? 'opacity-50' : '')},
+                  ocupado === 'preco' ? '⏳...' : 'Salvar preço'),
+                e('span', {className: 'text-xs text-slate-500'}, 'Com promoção ativa, o ML pode recusar ou tirar o anúncio dela.')),
+
+              e('div', {className: 'bg-slate-900 border border-slate-700 rounded-lg p-3 flex flex-wrap items-center gap-3'},
+                e('span', {className: 'text-sm font-bold text-slate-200 w-40'}, '🚚 Frete grátis'),
+                e('span', {className: 'text-xs ' + (dados.frete_gratis ? 'text-emerald-300' : 'text-slate-400')}, dados.frete_gratis ? 'ligado' : 'desligado'),
+                e('button', {disabled: !!ocupado,
+                  onClick: function() { gravar('frete', {acao: 'frete_gratis', ligado: !dados.frete_gratis}, dados.frete_gratis ? 'Frete grátis desligado' : 'Frete grátis ligado'); },
+                  className: botao + 'bg-slate-700 hover:bg-slate-600 text-slate-200'},
+                  ocupado === 'frete' ? '⏳...' : dados.frete_gratis ? 'Desligar' : 'Ligar')),
+
+              e('div', {className: 'bg-slate-900 border border-slate-700 rounded-lg p-3 flex flex-wrap items-center gap-3'},
+                e('span', {className: 'text-sm font-bold text-slate-200 w-40'}, '💳 Tipo de anúncio'),
+                ['gold_special', 'gold_pro'].map(function(tp) {
+                  var ativo = dados.tipo_anuncio === tp;
+                  return e('button', {key: tp, disabled: ativo || !!ocupado,
+                    onClick: function() { if (confirm(tp === 'gold_pro' ? 'Passar para PREMIUM? Tem parcelamento sem juros e tarifa maior.' : 'Passar para CLÁSSICO? Tarifa menor, sem parcelamento sem juros.')) gravar('tipo', {acao: 'tipo_anuncio', tipo: tp}, 'Tipo de anúncio alterado'); },
+                    className: botao + (ativo ? 'bg-blue-600 text-white' : 'bg-slate-700 hover:bg-slate-600 text-slate-300')},
+                    tp === 'gold_pro' ? 'Premium (parcela sem juros)' : 'Clássico');
+                }),
+                ocupado === 'tipo' && e('span', {className: 'text-xs text-slate-400'}, '⏳...')),
+
+              e('div', {className: 'bg-slate-900 border border-slate-700 rounded-lg p-3 flex flex-wrap items-center gap-3'},
+                e('span', {className: 'text-sm font-bold text-slate-200 w-40'}, '📣 Product Ads'),
+                dados.ads
+                  ? e('span', {className: 'text-xs ' + (dados.ads.status === 'active' ? 'text-emerald-300' : 'text-slate-400')},
+                      dados.ads.status === 'active' ? 'ativo' : dados.ads.status === 'paused' ? 'pausado' : 'fora de campanha')
+                  : e('span', {className: 'text-xs text-slate-500'}, 'não consegui ler'),
+                dados.ads && dados.ads.status !== 'active' && e('select', {value: campanha, onChange: function(ev) { setCampanha(ev.target.value); }, className: campo},
+                  dados.campanhas.map(function(cp) { return e('option', {key: cp.id, value: cp.id}, cp.nome + (cp.status !== 'active' ? ' (' + cp.status + ')' : '')); })),
+                dados.ads && e('button', {disabled: !!ocupado,
+                  onClick: function() { gravar('ads', {acao: 'ads', ligado: dados.ads.status !== 'active', campaign_id: campanha}, dados.ads.status === 'active' ? 'Product Ads pausado' : 'Product Ads ligado'); },
+                  className: botao + 'bg-slate-700 hover:bg-slate-600 text-slate-200'},
+                  ocupado === 'ads' ? '⏳...' : dados.ads.status === 'active' ? 'Pausar' : 'Ligar na campanha')),
+
+              e('div', {className: 'bg-slate-900 border border-slate-700 rounded-lg p-3 space-y-2'},
+                e('p', {className: 'text-sm font-bold text-slate-200'}, '🏷 Promoções'),
+                !dados.promocoes.length && e('p', {className: 'text-xs text-slate-500'}, 'Nenhuma promoção disponível pra este anúncio na última leitura das promoções.'),
+                dados.promocoes.map(function(p) {
+                  var dentro = p.status === 'started' || p.status === 'pending';
+                  var precoLivre = ['SELLER_CAMPAIGN', 'DEAL', 'PRICE_DISCOUNT', 'DOD'].indexOf(p.promocao_tipo) !== -1;
+                  return e('div', {key: p.promocao_id, className: 'flex flex-wrap items-center gap-2 text-xs border-t border-slate-800 pt-2'},
+                    e('span', {className: 'text-slate-200 flex-1 min-w-0'}, (p.promocao_nome || p.promocao_tipo) + ' · ' + p.promocao_tipo),
+                    e('span', {className: dentro ? 'text-emerald-300' : 'text-slate-400'},
+                      dentro ? 'participando' + (p.preco_promo ? ' · R$ ' + Number(p.preco_promo).toFixed(2) : '') : 'pode entrar'),
+                    !dentro && precoLivre && e('input', {value: pct[p.promocao_id] || '', placeholder: '%', inputMode: 'decimal',
+                      onChange: function(ev) { var n = Object.assign({}, pct); n[p.promocao_id] = ev.target.value; setPct(n); }, className: campo + ' w-14'}),
+                    e('button', {disabled: !!ocupado, onClick: function() { promo(dentro ? 'sair' : 'ativar', p); },
+                      className: botao + (dentro ? 'bg-slate-700 hover:bg-red-700 text-slate-200' : 'bg-emerald-700 hover:bg-emerald-600 text-white')},
+                      ocupado === 'promo' + p.promocao_id ? '⏳...' : dentro ? 'Sair' : 'Entrar'));
+                }))
+            )
+          )
         )
       );
     }
