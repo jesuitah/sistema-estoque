@@ -521,6 +521,274 @@
           r.id && e('button', {onClick: props.onApagar, className: 'px-3 py-1 rounded text-xs font-bold bg-slate-700 hover:bg-red-700 text-slate-200'}, 'Apagar')));
     }
 
+    // ── CRIAR ANÚNCIOS DO ESTOQUE PARADO (em fila) ───────────────────────────────
+    //
+    // Combinado com o Matheus em 17/09/2026:
+    //   - ele digita o título de cada um (não sugerimos título);
+    //   - cria numa loja só; depois clona pras outras pela aba "Clonar anúncios";
+    //   - preço vem da aba Preços quando há custo cadastrado (ele pode mudar);
+    //   - quantidade sempre 89;
+    //   - qualquer foto serve pra começar — depois trocam pela certa. Toda foto sobe em
+    //     1200x1200 (o tamanho que o ML pede), centralizada em fundo branco pra não cortar;
+    //   - as fotos de template da loja entram no fim sozinhas (KMP 3, ERP 3, LTS 2), pela
+    //     função ml-criar-anuncio, que já fazia isso;
+    //   - tudo nasce PAUSADO pra revisão. E, como sempre, primeiro 1 de teste.
+    var CRIAR_URL = 'https://pylkufhziohxvwbbaued.supabase.co/functions/v1/ml-criar-anuncio';
+
+    // Qualquer foto -> JPEG 1200x1200, a peça inteira centralizada em fundo branco.
+    function fotoPara1200(arquivo) {
+      return new Promise(function(ok, falhou) {
+        var url = URL.createObjectURL(arquivo);
+        var img = new Image();
+        img.onload = function() {
+          var lado = 1200;
+          var tela = document.createElement('canvas');
+          tela.width = lado; tela.height = lado;
+          var ctx = tela.getContext('2d');
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, lado, lado);
+          var escala = Math.min(lado / img.width, lado / img.height);
+          var w = img.width * escala, h = img.height * escala;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(img, (lado - w) / 2, (lado - h) / 2, w, h);
+          URL.revokeObjectURL(url);
+          tela.toBlob(function(blob) {
+            if (!blob) { falhou(new Error('não consegui converter a foto')); return; }
+            ok(new window.File([blob], (arquivo.name || 'foto').replace(/\.[^.]+$/, '') + '-1200.jpg', {type: 'image/jpeg'}));
+          }, 'image/jpeg', 0.92);
+        };
+        img.onerror = function() { URL.revokeObjectURL(url); falhou(new Error('arquivo não é uma imagem: ' + arquivo.name)); };
+        img.src = url;
+      });
+    }
+
+    function CartaoCriacao(props) {
+      var it = props.item, conta = props.conta, estado = props.estado || {};
+      var d = props.dados, setD = props.setDados;
+
+      // Sempre pelo estado ATUAL: foto convertendo e categoria chegando podem voltar
+      // depois de você já ter mexido em outro campo.
+      function mudar(campos) { setD(function(cur) { return Object.assign({}, cur, campos); }); }
+
+      function buscarCategoria() {
+        var titulo = (d.titulo || '').trim();
+        if (!titulo || titulo === d.tituloBuscado) return;
+        mudar({buscandoCat: true, tituloBuscado: titulo});
+        fetch(CRIAR_URL + '?acao=sugerir_categoria&conta=' + conta + '&titulo=' + encodeURIComponent(titulo))
+          .then(function(r) { return r.json(); })
+          .then(function(lista) {
+            var cats = Array.isArray(lista) ? lista : [];
+            mudar({buscandoCat: false, categorias: cats});
+            if (cats[0]) escolherCategoria(cats[0]);
+          }).catch(function() { mudar({buscandoCat: false}); });
+      }
+
+      function escolherCategoria(cat) {
+        fetch(CRIAR_URL + '?acao=atributos&conta=' + conta + '&categoria_id=' + cat.category_id)
+          .then(function(r) { return r.json(); })
+          .then(function(attrs) {
+            var lista = Array.isArray(attrs) ? attrs : [];
+            setD(function(cur) {
+              // Marca e número de peça já vêm do estoque.
+              var valores = Object.assign({}, cur.valores || {});
+              lista.forEach(function(a) {
+                if (valores[a.id]) return;
+                if (a.id === 'BRAND') valores[a.id] = it.marca.charAt(0) + it.marca.slice(1).toLowerCase();
+                if (a.id === 'PART_NUMBER') valores[a.id] = it.sku;
+              });
+              return Object.assign({}, cur, {categoria: cat, atributos: lista, valores: valores});
+            });
+          });
+      }
+
+      function escolherFotos(arquivos) {
+        var lista = Array.prototype.slice.call(arquivos || []);
+        if (!lista.length) return;
+        mudar({convertendo: true});
+        Promise.all(lista.map(fotoPara1200)).then(function(fotos) {
+          setD(function(cur) { return Object.assign({}, cur, {convertendo: false, fotos: (cur.fotos || []).concat(fotos)}); });
+        }).catch(function(err) { mudar({convertendo: false}); alert(err.message); });
+      }
+
+      var faltando = [];
+      if (!d.titulo || !d.titulo.trim()) faltando.push('título');
+      if (!d.categoria) faltando.push('categoria');
+      if (!(d.fotos || []).length) faltando.push('foto');
+      if (!(precoParaNumeroGlobal(d.preco) > 0)) faltando.push('preço');
+      (d.atributos || []).forEach(function(a) { if (!(d.valores || {})[a.id]) faltando.push(a.nome); });
+
+      var campo = 'w-full bg-slate-900 text-slate-100 rounded px-2 py-1.5 border border-slate-600 text-sm';
+      var cor = estado.ok ? 'border-emerald-600' : estado.erro ? 'border-red-600' : 'border-slate-700';
+
+      return e('div', {className: 'bg-slate-800 border rounded-xl p-4 space-y-3 ' + cor},
+        e('div', {className: 'flex flex-wrap items-center gap-3'},
+          e('span', {className: 'text-xs font-bold text-slate-400'}, it.marca),
+          e('span', {className: 'text-sm font-bold text-white'}, it.sku),
+          e('span', {className: 'text-xs text-amber-400'}, it.unidades + ' un. paradas'),
+          e('span', {className: 'ml-auto text-xs ' + (faltando.length ? 'text-slate-500' : 'text-emerald-400')},
+            estado.ok ? '' : faltando.length ? 'falta: ' + faltando.join(', ') : '✓ pronto pra criar'),
+          !estado.ok && !props.criando && e('button', {onClick: props.onTirar, title: 'tirar da fila',
+            className: 'text-slate-500 hover:text-red-400 text-sm px-1'}, '✕')),
+
+        estado.ok
+          ? e('div', {className: 'text-sm text-emerald-300 flex flex-wrap items-center gap-3'},
+              '✅ Criado pausado: ' + estado.ok,
+              e('a', {href: 'https://www.mercadolivre.com.br/anuncios/' + estado.ok + '/modificar/', target: '_blank', rel: 'noreferrer',
+                className: 'underline text-blue-300'}, 'abrir no ML ↗'))
+          : e('div', {className: 'grid grid-cols-1 md:grid-cols-2 gap-3'},
+              e('div', {className: 'space-y-2'},
+                e('label', {className: 'text-xs text-slate-400 block'}, 'Título (' + (d.titulo || '').length + '/60)'),
+                e('input', {value: d.titulo || '', maxLength: 60, disabled: props.criando,
+                  onChange: function(ev) { mudar({titulo: ev.target.value}); }, onBlur: buscarCategoria, className: campo}),
+                e('label', {className: 'text-xs text-slate-400 block'}, 'Categoria'),
+                d.buscandoCat ? e('div', {className: 'text-xs text-slate-500'}, '⏳ procurando categoria...')
+                : (d.categorias || []).length
+                  ? e('select', {value: d.categoria ? d.categoria.category_id : '', disabled: props.criando,
+                      onChange: function(ev) {
+                        var c = d.categorias.filter(function(x) { return x.category_id === ev.target.value; })[0];
+                        if (c) escolherCategoria(c);
+                      }, className: campo},
+                      d.categorias.map(function(c) { return e('option', {key: c.category_id, value: c.category_id}, c.category_name + ' (' + c.domain_name + ')'); }))
+                  : e('div', {className: 'text-xs text-slate-500'}, 'digite o título e saia do campo pra achar a categoria'),
+                (d.atributos || []).map(function(a) {
+                  var val = (d.valores || {})[a.id] || '';
+                  return e('div', {key: a.id},
+                    e('label', {className: 'text-xs text-slate-400 block'}, a.nome + ' (obrigatório)'),
+                    (a.valores || []).length
+                      ? e('select', {value: val, disabled: props.criando,
+                          onChange: function(ev) { var v = Object.assign({}, d.valores); v[a.id] = ev.target.value; mudar({valores: v}); }, className: campo},
+                          e('option', {value: ''}, '— escolha —'),
+                          a.valores.map(function(o) { return e('option', {key: o.id, value: o.nome}, o.nome); }))
+                      : e('input', {value: val, disabled: props.criando,
+                          onChange: function(ev) { var v = Object.assign({}, d.valores); v[a.id] = ev.target.value; mudar({valores: v}); }, className: campo}));
+                })),
+              e('div', {className: 'space-y-2'},
+                e('label', {className: 'text-xs text-slate-400 block'}, 'Preço (R$)' + (d.precoOrigem ? ' — ' + d.precoOrigem : '')),
+                e('input', {value: d.preco || '', inputMode: 'decimal', disabled: props.criando,
+                  onChange: function(ev) { mudar({preco: ev.target.value, precoOrigem: 'digitado'}); }, className: campo}),
+                e('label', {className: 'text-xs text-slate-400 block'}, 'Fotos (sobem em 1200×1200; o template da ' + conta + ' entra no fim)'),
+                e('div', {className: 'flex flex-wrap gap-2 items-center'},
+                  (d.fotos || []).map(function(f, i) {
+                    return e('div', {key: i, className: 'relative'},
+                      e('img', {src: URL.createObjectURL(f), className: 'w-16 h-16 object-contain bg-white rounded'}),
+                      !props.criando && e('button', {onClick: function() { mudar({fotos: d.fotos.filter(function(_x, j) { return j !== i; })}); },
+                        className: 'absolute -top-1 -right-1 bg-red-600 text-white rounded-full w-5 h-5 text-xs'}, '✕'));
+                  }),
+                  !props.criando && e('label', {className: 'w-16 h-16 border-2 border-dashed border-slate-600 rounded flex items-center justify-center text-slate-400 text-xs cursor-pointer hover:border-blue-400'},
+                    d.convertendo ? '⏳' : '+ foto',
+                    e('input', {type: 'file', accept: 'image/*', multiple: true, className: 'hidden',
+                      onChange: function(ev) { escolherFotos(ev.target.files); ev.target.value = ''; }}))),
+                e('div', {className: 'text-xs text-slate-500'}, 'Quantidade: 89 · Premium · embalagem 15×10×10 cm, 0,3 kg (ajuste depois no ML se precisar)'),
+                estado.rodando && e('div', {className: 'text-xs text-blue-300'}, '⏳ ' + estado.rodando),
+                estado.erro && e('div', {className: 'text-xs text-red-300'}, '⚠ ' + estado.erro))));
+    }
+
+    // Aceita "1.234,56", "1234,56" e "1234.56".
+    function precoParaNumeroGlobal(v) {
+      if (v == null) return 0;
+      var s = String(v).trim();
+      if (s.indexOf(',') !== -1) s = s.replace(/\./g, '').replace(',', '.');
+      var n = parseFloat(s);
+      return isNaN(n) ? 0 : n;
+    }
+
+    function FilaCriacao(props) {
+      var contaSt = useState('KMP'); var conta = contaSt[0]; var setConta = contaSt[1];
+      var dadosSt = useState(function() {
+        var o = {};
+        props.itens.forEach(function(it) {
+          o[it.chave] = {preco: it.preco ? it.preco.toFixed(2).replace('.', ',') : '', precoOrigem: it.preco ? 'da aba Preços' : 'sem custo — digite'};
+        });
+        return o;
+      });
+      var dados = dadosSt[0]; var setDados = dadosSt[1];
+      var estadosSt = useState({}); var estados = estadosSt[0]; var setEstados = estadosSt[1];
+      var criandoSt = useState(false); var criando = criandoSt[0]; var setCriando = criandoSt[1];
+
+      function prontos() {
+        return props.itens.filter(function(it) {
+          var d = dados[it.chave] || {};
+          if ((estados[it.chave] || {}).ok) return false;
+          if (!d.titulo || !d.titulo.trim() || !d.categoria || !(d.fotos || []).length || !(precoParaNumeroGlobal(d.preco) > 0)) return false;
+          return (d.atributos || []).every(function(a) { return (d.valores || {})[a.id]; });
+        });
+      }
+
+      function marcar(chave, est) {
+        setEstados(function(atual) { var n = Object.assign({}, atual); n[chave] = est; return n; });
+      }
+
+      function criarUm(it) {
+        var d = dados[it.chave];
+        marcar(it.chave, {rodando: 'subindo ' + d.fotos.length + ' foto(s)...'});
+        return Promise.all(d.fotos.map(function(f) {
+          var fd = new FormData(); fd.append('file', f);
+          return fetch(CRIAR_URL + '?acao=upload_foto&conta=' + conta, {method: 'POST', body: fd}).then(function(r) { return r.json(); });
+        })).then(function(res) {
+          var ruim = res.filter(function(r) { return !r.picture_id; })[0];
+          if (ruim) throw new Error('uma foto não subiu: ' + JSON.stringify(ruim.detalhe || ruim.erro || ruim).slice(0, 150));
+          marcar(it.chave, {rodando: 'criando o anúncio...'});
+          return fetch(CRIAR_URL + '?acao=criar', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+              conta: conta, titulo: d.titulo.trim(), categoria_id: d.categoria.category_id,
+              preco: precoParaNumeroGlobal(d.preco), quantidade: 89,
+              sku: it.marca + ': ' + it.sku,
+              atributos: (d.atributos || []).map(function(a) {
+                var val = d.valores[a.id];
+                var op = (a.valores || []).filter(function(v) { return v.nome === val; })[0];
+                return op ? {id: a.id, value_name: op.nome, value_id: op.id} : {id: a.id, value_name: val};
+              }),
+              picture_ids: res.map(function(r) { return r.picture_id; }),
+              comprimento: 15, largura: 10, altura: 10, peso: 300,
+            }),
+          }).then(function(r) { return r.json(); });
+        }).then(function(r) {
+          if (r.erro || !r.item_id) {
+            var causa = r.detalhe && r.detalhe.cause ? r.detalhe.cause.map(function(c) { return c.message; }).join(' · ') : '';
+            throw new Error((r.erro || 'falhou') + (causa ? ': ' + causa : r.detalhe ? ': ' + JSON.stringify(r.detalhe).slice(0, 200) : ''));
+          }
+          marcar(it.chave, {ok: r.item_id});
+        }).catch(function(err) { marcar(it.chave, {erro: err.message}); });
+      }
+
+      function criarTodos() {
+        var lista = prontos();
+        if (!lista.length) return;
+        if (!confirm('Criar ' + lista.length + ' anúncio(s) na ' + conta + '?\n\nTodos nascem PAUSADOS, com 89 unidades, pra você revisar antes de ativar.')) return;
+        setCriando(true);
+        lista.reduce(function(p, it) { return p.then(function() { return criarUm(it); }); }, Promise.resolve())
+          .then(function() { setCriando(false); if (props.onCriados) props.onCriados(); });
+      }
+
+      var n = prontos().length;
+      var feitos = props.itens.filter(function(it) { return (estados[it.chave] || {}).ok; }).length;
+
+      return e('div', {className: 'bg-slate-900 border-2 border-blue-700 rounded-xl p-4 space-y-4'},
+        e('div', {className: 'flex flex-wrap items-center gap-3'},
+          e('h3', {className: 'text-base font-bold'}, '🛠 Criar anúncios — ' + props.itens.length + ' na fila'),
+          e('label', {className: 'text-sm text-slate-300'}, 'Loja: '),
+          e('select', {value: conta, disabled: criando || feitos > 0, onChange: function(ev) { setConta(ev.target.value); },
+            className: 'bg-slate-700 text-white rounded px-2 py-1 border border-slate-600 text-sm'},
+            ['KMP', 'ERP', 'LTS'].map(function(c) { return e('option', {key: c, value: c}, c); })),
+          e('button', {onClick: props.onFechar, disabled: criando,
+            className: 'ml-auto px-3 py-1.5 rounded-lg text-sm font-bold bg-slate-700 hover:bg-slate-600 text-slate-200'}, feitos ? 'Fechar' : '✕ Cancelar')),
+        e('p', {className: 'text-xs text-slate-400'},
+          'Digite o título, confira a categoria e os campos obrigatórios, coloque pelo menos 1 foto e confira o preço. ' +
+          'Os anúncios nascem pausados. Recomendado: crie 1 primeiro e confira no ML antes dos outros.'),
+        props.itens.map(function(it) {
+          return e(CartaoCriacao, {key: it.chave, item: it, conta: conta, estado: estados[it.chave], criando: criando,
+            dados: dados[it.chave] || {},
+            setDados: function(fn) { setDados(function(atual) { var o = Object.assign({}, atual); o[it.chave] = fn(atual[it.chave] || {}); return o; }); },
+            onTirar: function() { props.onTirar(it.chave); }});
+        }),
+        e('div', {className: 'sticky bottom-0 bg-slate-900 py-3 flex justify-end items-center gap-3 border-t border-slate-700'},
+          feitos > 0 && e('span', {className: 'text-sm text-emerald-300'}, '✅ ' + feitos + ' criado(s)'),
+          e('button', {onClick: criarTodos, disabled: !n || criando,
+            className: 'px-5 py-2.5 rounded-lg font-bold text-sm ' + (n && !criando ? 'bg-emerald-600 hover:bg-emerald-500 text-white' : 'bg-slate-700 text-slate-500 cursor-not-allowed')},
+            criando ? '⏳ Criando...' : '🚀 Criar ' + n + ' anúncio(s) pausado(s)')));
+    }
+
     function TelaLogin(props) {
       var perfilSelState = useState(null);
       var perfilSel = perfilSelState[0];
@@ -894,6 +1162,14 @@
       var acabouHistAbertoState = useState(false);
       var acabouHistAberto = acabouHistAbertoState[0];
       var setAcabouHistAberto = acabouHistAbertoState[1];
+
+      // Criar anúncios a partir do Estoque parado: o que está marcado e se a fila está aberta.
+      var paradoMarcadosState = useState({});
+      var paradoMarcados = paradoMarcadosState[0];
+      var setParadoMarcados = paradoMarcadosState[1];
+      var paradoFilaState = useState(null);   // lista de itens na fila, ou null
+      var paradoFila = paradoFilaState[0];
+      var setParadoFila = paradoFilaState[1];
 
       var paradoBuscaState = useState('');
       var paradoBusca = paradoBuscaState[0];
@@ -6807,9 +7083,19 @@
                 }
 
                 var custoPor = {};
+                var precoMLPor = {};
                 (precos || []).forEach(function(p) {
                   if (p.custo != null && Number(p.custo) > 0) {
-                    custoPor[normMarca(p.marca) + '|' + normStr(p.sku)] = Number(p.custo);
+                    var ch = normMarca(p.marca) + '|' + normStr(p.sku);
+                    custoPor[ch] = Number(p.custo);
+                    // Mesma conta do "Preço ML" da aba Preços — preço fixado vence o calculado.
+                    var custoML = p.custo_ml ? Number(p.custo_ml) : Number(p.custo);
+                    var cfg = markupsML[p.marca] || {};
+                    var mk = cfg.markup !== undefined ? cfg.markup : 60;
+                    var taxa = cfg.taxa !== undefined ? cfg.taxa : 23;
+                    var freteMarca = (cfg.frete !== null && cfg.frete !== undefined) ? cfg.frete : (custoML <= 32.64 ? 12 : 30);
+                    var frete = (p.frete_ml_override !== null && p.frete_ml_override !== undefined) ? Number(p.frete_ml_override) : freteMarca;
+                    precoMLPor[ch] = p.preco_ml ? Number(p.preco_ml) : (custoML * (1 + mk / 100) + frete) * (1 + taxa / 100);
                   }
                 });
 
@@ -6821,6 +7107,7 @@
                   return {
                     id: x.id, marca: (x.marca || '').toUpperCase(), sku: x.sku,
                     unidades: Number(x.unidades),
+                    preco: precoMLPor[normMarca(x.marca) + '|' + normStr(x.sku)] || null,
                     custo: custo == null ? null : custo,
                     total: custo == null ? null : custo * Number(x.unidades),
                   };
@@ -6908,6 +7195,29 @@
                     })()
                   ),
 
+                  // Fila de criação: marque as peças e monte os anúncios (FilaCriacao).
+                  paradoFila
+                    ? e(FilaCriacao, {
+                        itens: paradoFila,
+                        onTirar: function(chave) {
+                          setParadoFila(paradoFila.filter(function(x) { return x.chave !== chave; }));
+                          var m = Object.assign({}, paradoMarcados); delete m[chave]; setParadoMarcados(m);
+                        },
+                        onFechar: function() { setParadoFila(null); setParadoMarcados({}); },
+                      })
+                    : Object.keys(paradoMarcados).length > 0 && e('div', {className: 'sticky top-2 z-10 flex items-center gap-3 bg-blue-950 border border-blue-700 rounded-lg px-4 py-2'},
+                        e('span', {className: 'text-sm text-blue-200'}, Object.keys(paradoMarcados).length + ' peça(s) marcada(s)'),
+                        e('button', {onClick: function() { setParadoMarcados({}); }, className: 'text-xs text-blue-300 underline'}, 'desmarcar'),
+                        e('button', {
+                          onClick: function() {
+                            setParadoFila(Object.keys(paradoMarcados).map(function(ch) {
+                              var p = paradoMarcados[ch];
+                              return {chave: ch, marca: p.marca, sku: p.sku, unidades: p.unidades, preco: p.preco};
+                            }));
+                          },
+                          className: 'ml-auto bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold text-sm'
+                        }, '🛠 Criar anúncios (' + Object.keys(paradoMarcados).length + ')')),
+
                   visiveis.length === 0
                     ? e('div', {className: 'text-center text-slate-500 py-10 bg-slate-800 border border-slate-700 rounded-lg'},
                         parados.length === 0 ? '✅ Tudo que tem estoque já está anunciado.' : 'Nenhum resultado com esse filtro.')
@@ -6918,7 +7228,8 @@
                     // acompanha a ORDEM DA TELA, então muda quando você filtra — é
                     // posição na lista, não identidade do produto.
                     : e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg overflow-hidden'},
-                        e('div', {className: 'grid gap-2 pl-2 pr-3 py-2 text-[10px] uppercase tracking-wide text-slate-500 border-b-2 border-slate-600 grid-cols-[34px_110px_1fr_70px_90px_100px_28px]'},
+                        e('div', {className: 'grid gap-2 pl-2 pr-3 py-2 text-[10px] uppercase tracking-wide text-slate-500 border-b-2 border-slate-600 grid-cols-[24px_34px_110px_1fr_70px_90px_100px_28px]'},
+                          e('div', null),
                           e('div', {className: 'text-left'}, '#'),
                           e('div', null, 'Marca'),
                           e('div', null, 'SKU'),
@@ -6937,12 +7248,19 @@
                             // vista. Com 300 linhas na tela, o olho precisa de trilho
                             // pra não pular de uma linha pra outra sem perceber.
                             className: 'group grid gap-2 pl-2 pr-3 py-2 text-xs border-b border-slate-700 last:border-0 items-center '
-                              + 'grid-cols-[34px_110px_1fr_70px_90px_100px_28px] hover:bg-slate-700 '
+                              + 'grid-cols-[24px_34px_110px_1fr_70px_90px_100px_28px] hover:bg-slate-700 '
                               + (i % 2 === 1 ? 'bg-slate-800/40' : '')
                           },
                             // Encostado na borda esquerda: a numeração é referência, não
                             // dado. Alinhada à direita e com respiro ela brigava com a
                             // marca ao lado e parecia uma coluna de valor.
+                            e('input', {type: 'checkbox', title: 'marcar pra criar anúncio',
+                              checked: !!paradoMarcados[p.marca + '|' + p.sku],
+                              onChange: function(ev) {
+                                var m = Object.assign({}, paradoMarcados);
+                                if (ev.target.checked) m[p.marca + '|' + p.sku] = p; else delete m[p.marca + '|' + p.sku];
+                                setParadoMarcados(m);
+                              }}),
                             e('div', {className: 'text-left text-slate-600 tabular-nums'}, i + 1),
                             e('div', {className: 'text-slate-500 font-semibold truncate'}, p.marca),
                             e('div', {className: 'text-white font-bold truncate'}, p.sku),
