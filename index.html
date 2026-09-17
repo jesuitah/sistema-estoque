@@ -1422,6 +1422,21 @@
       //
       // Sem isso, clicar no X seria inútil — o vigia reescreve o alerta a cada 15 min
       // enquanto o problema existir, e ele voltaria sozinho.
+      // O "Como resolver" de um aviso: o que aconteceu, o que fazer e os botões. Usado na
+      // tarja do topo e na Vigilância da aba Robô.
+      function guiaDoAlerta(a) {
+        return e('div', {className: 'mt-2 space-y-2 text-slate-200'},
+          e('p', null, e('b', null, 'O que aconteceu: '), a.explicacao),
+          a.o_que_fazer && e('p', null, e('b', null, 'O que fazer: '), a.o_que_fazer),
+          (a.acoes || []).length > 0 && e('div', {className: 'flex flex-wrap gap-2 pt-1'},
+            a.acoes.map(function(ac, i) {
+              var classe = 'px-3 py-1.5 rounded-lg text-xs font-bold ' +
+                (ac.tipo === 'abrir' ? 'bg-slate-700 hover:bg-slate-600 text-slate-100' : 'bg-blue-600 hover:bg-blue-500 text-white');
+              if (ac.tipo === 'abrir') return e('a', {key: i, href: ac.url, target: '_blank', rel: 'noreferrer', className: classe}, ac.rotulo + ' ↗');
+              return e('button', {key: i, onClick: function() { executarAcaoDoAlerta(a, ac); }, className: classe}, ac.rotulo);
+            })));
+      }
+
       // Botões do "Como resolver" de cada aviso.
       function executarAcaoDoAlerta(a, ac) {
         if (ac.tipo === 'tentar_de_novo') {
@@ -4297,16 +4312,7 @@
                     }, alertaAberto === a.id ? 'fechar ▲' : 'Como resolver ▼')),
                   // O guia: o que aconteceu, o que fazer e os botões pra resolver sem
                   // precisar chamar o Claude (Matheus, 17/09/2026). Vem do robo/guia-alertas.js.
-                  alertaAberto === a.id && e('div', {className: 'mt-2 space-y-2 text-slate-200'},
-                    e('p', null, e('b', null, 'O que aconteceu: '), a.explicacao),
-                    a.o_que_fazer && e('p', null, e('b', null, 'O que fazer: '), a.o_que_fazer),
-                    (a.acoes || []).length > 0 && e('div', {className: 'flex flex-wrap gap-2 pt-1'},
-                      a.acoes.map(function(ac, i) {
-                        var classe = 'px-3 py-1.5 rounded-lg text-xs font-bold ' +
-                          (ac.tipo === 'abrir' ? 'bg-slate-700 hover:bg-slate-600 text-slate-100' : 'bg-blue-600 hover:bg-blue-500 text-white');
-                        if (ac.tipo === 'abrir') return e('a', {key: i, href: ac.url, target: '_blank', rel: 'noreferrer', className: classe}, ac.rotulo + ' ↗');
-                        return e('button', {key: i, onClick: function() { executarAcaoDoAlerta(a, ac); }, className: classe}, ac.rotulo);
-                      })))),
+                  alertaAberto === a.id && guiaDoAlerta(a)),
                 e('span', {className: 'text-xs opacity-60 whitespace-nowrap'},
                   'desde ' + new Date(a.criado_em).toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})),
                 e('button', {
@@ -4953,7 +4959,14 @@
                               ? 'bg-red-900 bg-opacity-30 border-red-700 text-red-200'
                               : 'bg-amber-900 bg-opacity-25 border-amber-700 text-amber-200')
                         },
-                          e('span', {className: 'flex-1'}, a.mensagem),
+                          e('div', {className: 'flex-1 min-w-0'},
+                            e('div', {className: 'flex flex-wrap items-center gap-x-3 gap-y-1'},
+                              e('span', null, a.mensagem),
+                              a.explicacao && e('button', {
+                                onClick: function() { setAlertaAberto(alertaAberto === a.id ? null : a.id); },
+                                className: 'text-xs font-bold underline whitespace-nowrap'
+                              }, alertaAberto === a.id ? 'fechar ▲' : 'Como resolver ▼')),
+                            alertaAberto === a.id && guiaDoAlerta(a)),
                           a.dispensado_em && e('span', {
                             className: 'text-xs opacity-60 whitespace-nowrap',
                             title: 'Você tirou este aviso da tarja. Ele volta se o problema mudar.',
