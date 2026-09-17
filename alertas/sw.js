@@ -8,6 +8,17 @@
 // um que não abre: daria um "tudo rodando" falso justo quando não dá pra conferir.
 
 self.addEventListener('install', () => self.skipWaiting());
+
+// SEMPRE buscar a página nova ao abrir o app.
+//
+// O GitHub Pages manda o navegador guardar a página por 10 minutos, e o iPhone respeita
+// isso mesmo fechando o app. Em 17/09/2026 o botão "Apagar pergunta" foi publicado e o
+// Matheus fechou e abriu o app várias vezes sem ver — era a cópia guardada. Aqui a
+// abertura do app pede a página pulando essa cópia; sem internet, usa a guardada.
+self.addEventListener('fetch', (evento) => {
+  if (evento.request.mode !== 'navigate') return;
+  evento.respondWith(fetch(evento.request, { cache: 'no-store' }).catch(() => fetch(evento.request)));
+});
 self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
 
 self.addEventListener('push', (evento) => {
