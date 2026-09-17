@@ -136,6 +136,22 @@
   .ativar li { margin: 6px 0; }
 
   .carregando { text-align: center; color: var(--fraco); padding: 60px 0; }
+
+  /* Perguntas: a única coisa que se faz "na mão" pelo app (Matheus, 17/09/2026) */
+  .pergunta { background: var(--cartao); border: 1px solid rgba(59,130,246,.45); border-radius: 16px;
+    padding: 14px 16px; margin-bottom: 12px; }
+  .pergunta .anuncio { display: flex; gap: 10px; align-items: center; padding-bottom: 10px; border-bottom: 1px solid var(--borda); }
+  .pergunta .anuncio img { width: 44px; height: 44px; border-radius: 8px; object-fit: contain; background: #fff; flex-shrink: 0; }
+  .pergunta .anuncio .t { font-size: 13px; color: var(--fraco); line-height: 1.3; }
+  .pergunta .anuncio .t b { color: var(--texto); font-weight: 600; }
+  .pergunta .texto { font-weight: 700; font-size: 17px; margin: 10px 0 2px; }
+  .pergunta .quem { color: var(--apagado); font-size: 13px; }
+  .pergunta textarea { width: 100%; margin-top: 10px; font: inherit; font-size: 15px; color: var(--texto);
+    background: #0f1729; border: 1px solid var(--borda); border-radius: 12px; padding: 10px 12px; min-height: 90px; resize: vertical; }
+  .rapidas { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .rapidas button { font: inherit; font-size: 13px; font-weight: 700; color: #93c5fd; background: rgba(59,130,246,.15);
+    border: 0; border-radius: 999px; padding: 7px 11px; cursor: pointer; }
+  .pergunta .conta-letras { text-align: right; color: var(--apagado); font-size: 12px; }
 </style>
 </head>
 <body>
@@ -145,6 +161,7 @@
   </header>
 
   <div id="rodada"></div>
+  <section id="perguntas"></section>
   <main id="painel"><div class="carregando">Conferindo o sistema…</div></main>
   <div id="avisos"></div>
   <div class="rodape" id="atualizado"></div>
@@ -661,7 +678,7 @@ function desenharAvisos() {
         });
         caixa.appendChild(el('div', { class: 'ativar' }, [
           el('h2', {}, ['🔔 Receber avisos neste celular']),
-          el('p', {}, ['Robô desligado ou loja desconectada: chega na hora, mesmo com o app fechado. Nada de aviso à toa.']),
+          el('p', {}, ['Perguntas novas, robô desligado ou loja desconectada: chega na hora, mesmo com o app fechado.']),
           b, msg,
         ]));
       });
@@ -670,8 +687,107 @@ function desenharAvisos() {
   });
 }
 
+// ── PERGUNTAS ────────────────────────────────────────────────────────────────
+//
+// Pedido do Matheus (17/09/2026): notificação a cada pergunta das 3 lojas, 24h, e
+// responder pelo próprio app — fora da empresa, à noite, no fim de semana. O servidor
+// (ml-perguntas) lê o ML a cada minuto; aqui só se mostra e responde.
+//
+// Os cartões NÃO são redesenhados a cada leitura: quem está no meio de uma resposta
+// perderia o texto. Só entram as novas e saem as respondidas.
+var cartoesPergunta = {};
+var rapidas = [];
+
+function responderPergunta(id, texto) {
+  return fetch(SUPA + '/functions/v1/ml-perguntas', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', apikey: ANON, Authorization: 'Bearer ' + ANON },
+    body: JSON.stringify({ acao: 'responder', id: id, texto: texto }),
+  }).then(function (r) { return r.json(); });
+}
+
+function cartaoPergunta(p) {
+  var area = el('textarea', { placeholder: 'Escreva a resposta ou toque numa resposta rápida' });
+  var letras = el('div', { class: 'conta-letras' }, ['0 / 2000']);
+  area.addEventListener('input', function () { letras.textContent = area.value.length + ' / 2000'; });
+  var chips = el('div', { class: 'rapidas' }, rapidas.map(function (r) {
+    var b = el('button', {}, ['#' + r.nome]);
+    b.addEventListener('click', function () { area.value = r.texto; letras.textContent = area.value.length + ' / 2000'; });
+    return b;
+  }));
+  var enviar = el('button', { class: 'acao' }, ['Responder']);
+  var msg = el('div', { class: 'erro' });
+  var cartao = el('div', { class: 'pergunta' }, [
+    el('div', { class: 'anuncio' }, [
+      p.foto ? el('img', { src: String(p.foto).replace('http://', 'https://') }) : null,
+      el('div', { class: 't' }, [
+        el('b', {}, [p.conta]), ' · ' + (p.estoque != null ? p.estoque + ' un · ' : '') +
+          (p.preco != null ? 'R$ ' + Number(p.preco).toFixed(2).replace('.', ',') : ''),
+        el('br'), p.titulo || p.item_id,
+      ]),
+    ]),
+    el('div', { class: 'texto' }, [p.texto]),
+    el('div', { class: 'quem' }, [(p.comprador || 'comprador') + ' · ' + haQuanto(p.perguntado_em)]),
+    chips, area, letras, enviar, msg,
+  ]);
+  enviar.addEventListener('click', function () {
+    var texto = area.value.trim();
+    if (!texto) { msg.textContent = 'Escreva a resposta primeiro.'; return; }
+    enviar.disabled = true; enviar.textContent = 'Enviando…'; msg.textContent = '';
+    responderPergunta(p.id, texto).then(function (d) {
+      if (d.ok || d.ja_respondida) {
+        enviar.textContent = d.ok ? '✓ Respondida' : 'Já tinha sido respondida';
+        setTimeout(function () { cartao.remove(); delete cartoesPergunta[p.id]; tituloPerguntas(); }, 1200);
+        return;
+      }
+      enviar.disabled = false; enviar.textContent = 'Responder';
+      msg.textContent = 'Não deu: ' + (d.motivo || d.erro || 'erro');
+    }).catch(function (e) {
+      enviar.disabled = false; enviar.textContent = 'Responder'; msg.textContent = 'Não deu: ' + e.message;
+    });
+  });
+  return cartao;
+}
+
+function tituloPerguntas() {
+  var caixa = document.getElementById('perguntas');
+  var n = Object.keys(cartoesPergunta).length;
+  var t = caixa.querySelector('.secao');
+  if (!n) { if (t) t.remove(); return; }
+  if (!t) { t = el('div', { class: 'secao' }); caixa.insertBefore(t, caixa.firstChild); }
+  t.textContent = n === 1 ? '❓ 1 pergunta sem resposta' : '❓ ' + n + ' perguntas sem resposta';
+}
+
+function atualizarPerguntas() {
+  Promise.all([
+    ler('ml_perguntas', 'select=*&status=eq.UNANSWERED&order=perguntado_em.desc'),
+    rapidas.length ? Promise.resolve(rapidas) : ler('respostas_rapidas', 'select=*&order=ordem,id'),
+  ]).then(function (r) {
+    rapidas = r[1];
+    var caixa = document.getElementById('perguntas');
+    var abertas = {};
+    r[0].forEach(function (p) { abertas[p.id] = true; });
+    Object.keys(cartoesPergunta).forEach(function (id) {
+      if (!abertas[id]) { cartoesPergunta[id].remove(); delete cartoesPergunta[id]; }
+    });
+    // Mais nova em cima: percorre de trás pra frente inserindo logo depois do título.
+    r[0].slice().reverse().forEach(function (p) {
+      if (cartoesPergunta[p.id]) return;
+      var c = cartaoPergunta(p);
+      cartoesPergunta[p.id] = c;
+      var t = caixa.querySelector('.secao');
+      caixa.insertBefore(c, t ? t.nextSibling : caixa.firstChild);
+    });
+    tituloPerguntas();
+    if (location.hash === '#perguntas' && r[0].length) caixa.scrollIntoView({ behavior: 'smooth' });
+  }).catch(function () { /* sem internet: tenta na próxima */ });
+}
+
 // ── Início ───────────────────────────────────────────────────────────────────
 document.getElementById('rodarTudo').addEventListener('click', rodarTudo);
+atualizarPerguntas();
+setInterval(atualizarPerguntas, 30000);
+document.addEventListener('visibilitychange', function () { if (!document.hidden) atualizarPerguntas(); });
 atualizar();
 desenharAvisos();
 setInterval(atualizar, 60000);
