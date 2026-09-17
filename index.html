@@ -335,6 +335,168 @@
       );
     }
 
+    // ── ABA PERGUNTAS ────────────────────────────────────────────────────────────
+    //
+    // Perguntas sem resposta das 3 lojas num lugar só, no formato do painel do ML
+    // (Matheus, 17/09/2026). O servidor (função ml-perguntas) lê o ML a cada minuto e
+    // manda notificação pro celular; o app de Alertas também responde.
+    // Respostas rápidas: tabela respostas_rapidas — botão "# Respostas rápidas" ou
+    // digitar # no campo, igual ao painel.
+    function chamarPerguntas(corpo) {
+      return fetch(supabaseUrl + '/functions/v1/ml-perguntas', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', Authorization: 'Bearer ' + supabaseKey, apikey: supabaseKey},
+        body: JSON.stringify(corpo),
+      }).then(function(r) { return r.json(); });
+    }
+
+    function haQuanto(quando) {
+      var min = Math.floor((Date.now() - new Date(quando).getTime()) / 60000);
+      if (min < 1) return 'agora';
+      if (min < 60) return 'há ' + min + ' min';
+      var h = Math.floor(min / 60);
+      if (h < 24) return 'há ' + h + ' h';
+      return 'há ' + Math.floor(h / 24) + ' dia(s)';
+    }
+
+    function CartaoPergunta(props) {
+      var p = props.pergunta, rapidas = props.rapidas;
+      var textoSt = useState(''); var texto = textoSt[0]; var setTexto = textoSt[1];
+      var listaSt = useState(false); var lista = listaSt[0]; var setLista = listaSt[1];
+      var enviandoSt = useState(false); var enviando = enviandoSt[0]; var setEnviando = enviandoSt[1];
+      var erroSt = useState(null); var erro = erroSt[0]; var setErro = erroSt[1];
+
+      // Digitou "#": abre a lista filtrando pelo que vem depois, como no painel do ML.
+      var busca = (texto.match(/#([^\s#]*)$/) || [])[1];
+      var mostrarLista = lista || busca !== undefined;
+      var filtro = (busca || '').toUpperCase();
+      var opcoes = rapidas.filter(function(r) { return !filtro || r.nome.toUpperCase().indexOf(filtro) !== -1; });
+
+      function usar(r) {
+        setTexto(busca !== undefined ? texto.replace(/#[^\s#]*$/, '') + r.texto : r.texto);
+        setLista(false);
+      }
+      function responder() {
+        setEnviando(true); setErro(null);
+        chamarPerguntas({acao: 'responder', id: p.id, texto: texto}).then(function(d) {
+          setEnviando(false);
+          if (d.ok || d.ja_respondida) { props.onRespondida(p.id, d.ja_respondida); return; }
+          setErro(d.motivo || d.erro || 'não deu');
+        }).catch(function(err) { setEnviando(false); setErro(err.message); });
+      }
+
+      return e('div', {className: 'bg-slate-800 border border-slate-700 rounded-xl overflow-hidden'},
+        e('div', {className: 'flex items-center gap-4 px-5 py-3 border-b border-slate-700'},
+          p.foto && e('img', {src: String(p.foto).replace('http://', 'https://'), className: 'w-12 h-12 rounded object-contain bg-white shrink-0'}),
+          e('div', {className: 'flex-1 min-w-0'},
+            e('div', {className: 'text-xs text-slate-400'},
+              e('span', {className: 'font-bold text-slate-200 mr-2'}, p.conta), p.sku ? 'SKU ' + p.sku : ''),
+            e('a', {href: 'https://www.mercadolivre.com.br/anuncios/' + p.item_id + '/modificar/', target: '_blank', rel: 'noreferrer',
+              className: 'block text-sm text-white hover:text-blue-300 truncate'}, p.titulo || p.item_id)),
+          e('div', {className: 'text-sm font-bold text-slate-200 whitespace-nowrap'}, (p.estoque != null ? p.estoque : '?') + ' unidades'),
+          e('div', {className: 'text-sm font-bold text-slate-200 whitespace-nowrap'}, p.preco != null ? 'R$ ' + Number(p.preco).toFixed(2).replace('.', ',') : '')),
+        e('div', {className: 'px-5 py-4 space-y-2'},
+          e('div', {className: 'text-xs text-slate-400'}, p.comprador || 'comprador'),
+          e('div', {className: 'flex items-start gap-2'},
+            e('span', {className: 'mt-1.5 w-2 h-2 rounded-full bg-blue-500 shrink-0'}),
+            e('p', {className: 'text-base font-bold text-white'}, p.texto)),
+          e('div', {className: 'text-xs text-slate-500'}, haQuanto(p.perguntado_em)),
+          e('button', {onClick: function() { setLista(!lista); },
+            className: 'text-xs font-bold bg-blue-950 text-blue-300 hover:bg-blue-900 rounded px-2 py-1'}, '# Respostas rápidas'),
+          e('div', {className: 'relative flex flex-wrap items-start gap-3'},
+            e('div', {className: 'flex-1 min-w-[16rem]'},
+              e('textarea', {value: texto, rows: texto.length > 120 ? 5 : 2, maxLength: 2000,
+                placeholder: 'Você pode enviar apenas 1 resposta. Não inclua dados de contato.',
+                onChange: function(ev) { setTexto(ev.target.value); },
+                className: 'w-full bg-slate-900 text-slate-100 rounded-lg px-3 py-2 border border-slate-600 focus:border-blue-400 outline-none text-sm'}),
+              e('div', {className: 'flex justify-between text-xs text-slate-500'},
+                e('span', null, 'Digite # para acessar suas respostas rápidas.'),
+                e('span', null, texto.length + ' / 2000')),
+              mostrarLista && opcoes.length > 0 && e('div', {className: 'absolute z-20 mt-1 bg-slate-900 border border-slate-600 rounded-lg shadow-xl p-1 max-h-56 overflow-y-auto'},
+                opcoes.map(function(r) {
+                  return e('button', {key: r.id, onClick: function() { usar(r); },
+                    className: 'block w-full text-left px-3 py-2 rounded hover:bg-slate-700 text-sm font-bold text-blue-300'}, '#' + r.nome);
+                }))),
+            e('button', {onClick: responder, disabled: !texto.trim() || enviando,
+              className: 'px-6 py-2.5 rounded-lg font-bold text-sm ' + (texto.trim() && !enviando ? 'bg-blue-600 hover:bg-blue-500 text-white' : 'bg-slate-700 text-slate-500 cursor-not-allowed')},
+              enviando ? '⏳ Enviando...' : 'Responder')),
+          erro && e('div', {className: 'text-xs text-red-300'}, 'Não deu: ' + erro)));
+    }
+
+    function AbaPerguntas() {
+      var perguntasSt = useState(null); var perguntas = perguntasSt[0]; var setPerguntas = perguntasSt[1];
+      var rapidasSt = useState([]); var rapidas = rapidasSt[0]; var setRapidas = rapidasSt[1];
+      var editarSt = useState(false); var editar = editarSt[0]; var setEditar = editarSt[1];
+      var recadoSt = useState(null); var recado = recadoSt[0]; var setRecado = recadoSt[1];
+
+      function carregar() {
+        supabase.from('ml_perguntas').select('*').eq('status', 'UNANSWERED').order('perguntado_em', {ascending: false})
+          .then(function(r) { if (!r.error) setPerguntas(r.data || []); });
+        supabase.from('respostas_rapidas').select('*').order('ordem').order('id')
+          .then(function(r) { if (!r.error) setRapidas(r.data || []); });
+      }
+      React.useEffect(function() {
+        carregar();
+        var t = setInterval(carregar, 30000);   // o servidor lê o ML a cada minuto
+        return function() { clearInterval(t); };
+      }, []);
+
+      function respondida(id, jaEstava) {
+        setPerguntas((perguntas || []).filter(function(p) { return p.id !== id; }));
+        setRecado(jaEstava ? 'Essa pergunta já tinha sido respondida (por outro aparelho ou pelo painel).' : '✓ Resposta enviada ao Mercado Livre.');
+      }
+
+      function salvarRapida(r, campos) {
+        var q = r.id ? supabase.from('respostas_rapidas').update(campos).eq('id', r.id) : supabase.from('respostas_rapidas').insert(campos);
+        q.then(function(res) { if (res.error) alert('Não salvou: ' + res.error.message); carregar(); });
+      }
+
+      return e('div', {className: 'space-y-4 max-w-5xl'},
+        e('div', {className: 'flex flex-wrap items-center gap-3'},
+          e('h2', {className: 'text-lg font-bold'}, '❓ Perguntas sem resposta'),
+          e('span', {className: 'text-xs text-slate-400'}, 'KMP, ERP e LTS · atualiza sozinho a cada minuto'),
+          e('button', {onClick: function() { setEditar(!editar); },
+            className: 'ml-auto px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-700 hover:bg-slate-600 text-slate-200'},
+            editar ? 'Fechar respostas rápidas' : '✏️ Editar respostas rápidas')),
+        recado && e('div', {className: 'bg-emerald-900 bg-opacity-40 border border-emerald-700 rounded-lg px-3 py-2 text-sm text-emerald-200'}, recado),
+
+        editar && e('div', {className: 'bg-slate-800 border border-slate-700 rounded-xl p-4 space-y-3'},
+          rapidas.concat([{id: null, nome: '', texto: ''}]).map(function(r) {
+            return e(EditorRapida, {key: r.id || 'nova' + rapidas.length, rapida: r, onSalvar: salvarRapida,
+              onApagar: function() {
+                if (confirm('Apagar a resposta rápida #' + r.nome + '?'))
+                  supabase.from('respostas_rapidas').delete().eq('id', r.id).then(carregar);
+              }});
+          })),
+
+        perguntas === null ? e('p', {className: 'text-slate-400 text-sm'}, 'Carregando...')
+        : !perguntas.length ? e('p', {className: 'text-emerald-300 text-sm'}, '🎉 Nenhuma pergunta sem resposta.')
+        : perguntas.map(function(p) {
+            return e(CartaoPergunta, {key: p.id, pergunta: p, rapidas: rapidas, onRespondida: respondida});
+          }));
+    }
+
+    function EditorRapida(props) {
+      var r = props.rapida;
+      var nomeSt = useState(r.nome); var nome = nomeSt[0]; var setNome = nomeSt[1];
+      var textoSt = useState(r.texto); var texto = textoSt[0]; var setTexto = textoSt[1];
+      var mudou = nome !== r.nome || texto !== r.texto;
+      return e('div', {className: 'flex flex-wrap gap-2 items-start border-t border-slate-700 pt-3 first:border-t-0 first:pt-0'},
+        e('div', {className: 'flex items-center'},
+          e('span', {className: 'text-blue-300 font-bold'}, '#'),
+          e('input', {value: nome, placeholder: r.id ? '' : 'NOVA', onChange: function(ev) { setNome(ev.target.value.toUpperCase().replace(/\s/g, '')); },
+            className: 'w-40 bg-slate-900 text-blue-300 font-bold rounded px-2 py-1 border border-slate-600 text-sm'})),
+        e('textarea', {value: texto, rows: 3, placeholder: r.id ? '' : 'texto da nova resposta rápida',
+          onChange: function(ev) { setTexto(ev.target.value); },
+          className: 'flex-1 min-w-[16rem] bg-slate-900 text-slate-100 rounded px-2 py-1 border border-slate-600 text-sm'}),
+        e('div', {className: 'flex flex-col gap-1'},
+          e('button', {disabled: !mudou || !nome.trim() || !texto.trim(),
+            onClick: function() { props.onSalvar(r, {nome: nome.trim(), texto: texto.trim()}); },
+            className: 'px-3 py-1 rounded text-xs font-bold ' + (mudou && nome.trim() && texto.trim() ? 'bg-emerald-600 text-white' : 'bg-slate-700 text-slate-500')},
+            r.id ? 'Salvar' : 'Adicionar'),
+          r.id && e('button', {onClick: props.onApagar, className: 'px-3 py-1 rounded text-xs font-bold bg-slate-700 hover:bg-red-700 text-slate-200'}, 'Apagar')));
+    }
+
     function TelaLogin(props) {
       var perfilSelState = useState(null);
       var perfilSel = perfilSelState[0];
@@ -881,6 +1043,19 @@
       var alertasState = useState([]);
       var alertas = alertasState[0];
       var setAlertas = alertasState[1];
+      // Quantas perguntas sem resposta — o número vermelho na aba Perguntas.
+      var perguntasAbertasState = useState(0);
+      var perguntasAbertas = perguntasAbertasState[0];
+      var setPerguntasAbertas = perguntasAbertasState[1];
+      useEffect(function() {
+        function contar() {
+          supabase.from('ml_perguntas').select('id', {count: 'exact', head: true}).eq('status', 'UNANSWERED')
+            .then(function(r) { if (!r.error) setPerguntasAbertas(r.count || 0); });
+        }
+        contar();
+        var t = setInterval(contar, 60000);
+        return function() { clearInterval(t); };
+      }, []);
       var alertaAbertoState = useState(null);   // id do aviso com o "Como resolver" aberto
       var alertaAberto = alertaAbertoState[0];
       var setAlertaAberto = alertaAbertoState[1];
@@ -4287,6 +4462,10 @@
               },
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'promocoes' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
             }, '🏷 Promoções'),
+            podeVerAba(perfilAtivo, 'perguntas') && e('button', {
+              onClick: function() { setActiveTab('perguntas'); },
+              className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'perguntas' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
+            }, '❓ Perguntas', perguntasAbertas > 0 && e('span', {className: 'ml-1 bg-red-600 text-white text-xs rounded-full px-1.5 py-0.5'}, perguntasAbertas)),
             podeVerAba(perfilAtivo, 'tarefas') && e('button', {
               onClick: function() { setActiveTab('tarefas'); },
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'tarefas' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
@@ -7398,6 +7577,8 @@
               );
             })()
           ),
+
+          activeTab === 'perguntas' && e(AbaPerguntas),
 
           activeTab === 'tarefas' && (function() {
             var modalItens = kanbanModalCartao ? kanbanItens.filter(function(i) { return i.cartao_id === kanbanModalCartao.id; }) : [];
