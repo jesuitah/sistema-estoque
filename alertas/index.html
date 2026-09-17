@@ -716,7 +716,24 @@ function cartaoPergunta(p) {
     return b;
   }));
   var enviar = el('button', { class: 'acao' }, ['Responder']);
+  var apagar = el('button', { class: 'acao neutro' }, ['🗑 Apagar pergunta']);
   var msg = el('div', { class: 'erro' });
+  apagar.addEventListener('click', function () {
+    if (!confirm('Apagar esta pergunta no Mercado Livre? Não dá pra desfazer.')) return;
+    apagar.disabled = true; apagar.textContent = 'Apagando…'; msg.textContent = '';
+    fetch(SUPA + '/functions/v1/ml-perguntas', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', apikey: ANON, Authorization: 'Bearer ' + ANON },
+      body: JSON.stringify({ acao: 'apagar', id: p.id }),
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      if (d.ok) {
+        apagar.textContent = '✓ Apagada';
+        setTimeout(function () { cartao.remove(); delete cartoesPergunta[p.id]; tituloPerguntas(); }, 1000);
+        return;
+      }
+      apagar.disabled = false; apagar.textContent = '🗑 Apagar pergunta';
+      msg.textContent = 'Não deu: ' + (d.motivo || d.erro || 'erro');
+    }).catch(function (e) { apagar.disabled = false; apagar.textContent = '🗑 Apagar pergunta'; msg.textContent = 'Não deu: ' + e.message; });
+  });
   var cartao = el('div', { class: 'pergunta' }, [
     el('div', { class: 'anuncio' }, [
       p.foto ? el('img', { src: String(p.foto).replace('http://', 'https://') }) : null,
@@ -728,7 +745,7 @@ function cartaoPergunta(p) {
     ]),
     el('div', { class: 'texto' }, [p.texto]),
     el('div', { class: 'quem' }, [(p.comprador || 'comprador') + ' · ' + haQuanto(p.perguntado_em)]),
-    chips, area, letras, enviar, msg,
+    chips, area, letras, enviar, apagar, msg,
   ]);
   enviar.addEventListener('click', function () {
     var texto = area.value.trim();

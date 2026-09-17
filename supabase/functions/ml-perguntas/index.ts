@@ -167,6 +167,20 @@ Deno.serve(async (req) => {
       return json({ ok: true });
     }
 
+    // Apagar a pergunta, igual ao "Excluir" do painel do ML (Matheus, 17/09/2026).
+    if (c.acao === "apagar") {
+      const { data: p } = await sb.from("ml_perguntas").select("id, conta").eq("id", c.id).maybeSingle();
+      if (!p) return json({ ok: false, motivo: "pergunta não encontrada" }, 404);
+      const t = await token(p.conta);
+      const r = await fetch(`${API}/questions/${p.id}`, { method: "DELETE", headers: { Authorization: t.auth } });
+      if (!r.ok && r.status !== 404) {
+        const corpo = await r.json().catch(() => ({}));
+        return json({ ok: false, motivo: corpo.message || `o Mercado Livre respondeu ${r.status}` });
+      }
+      await sb.from("ml_perguntas").update({ status: "DELETED", respondida_em: new Date().toISOString() }).eq("id", p.id);
+      return json({ ok: true });
+    }
+
     return json({ erro: "ação desconhecida" }, 400);
   } catch (e) {
     return json({ erro: String((e as Error).message ?? e) }, 500);
