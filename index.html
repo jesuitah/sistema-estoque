@@ -385,7 +385,9 @@
         }).catch(function(err) { setEnviando(false); setErro(err.message); });
       }
 
-      return e('div', {className: 'bg-slate-800 border border-slate-700 rounded-xl overflow-hidden'},
+      // Sem overflow-hidden no cartão: ele cortava a lista de respostas rápidas, que abre
+      // por cima, e ela aparecia como uma caixinha vazia.
+      return e('div', {className: 'bg-slate-800 border border-slate-700 rounded-xl'},
         e('div', {className: 'flex items-center gap-4 px-5 py-3 border-b border-slate-700'},
           p.foto && e('img', {src: String(p.foto).replace('http://', 'https://'), className: 'w-12 h-12 rounded object-contain bg-white shrink-0'}),
           e('div', {className: 'flex-1 min-w-0'},
@@ -412,7 +414,7 @@
               e('div', {className: 'flex justify-between text-xs text-slate-500'},
                 e('span', null, 'Digite # para acessar suas respostas rápidas.'),
                 e('span', null, texto.length + ' / 2000')),
-              mostrarLista && opcoes.length > 0 && e('div', {className: 'absolute z-20 mt-1 bg-slate-900 border border-slate-600 rounded-lg shadow-xl p-1 max-h-56 overflow-y-auto'},
+              mostrarLista && opcoes.length > 0 && e('div', {className: 'absolute z-30 left-0 w-72 mt-1 bg-slate-900 border border-slate-600 rounded-lg shadow-xl p-1 max-h-56 overflow-y-auto'},
                 opcoes.map(function(r) {
                   return e('button', {key: r.id, onClick: function() { usar(r); },
                     className: 'block w-full text-left px-3 py-2 rounded hover:bg-slate-700 text-sm font-bold text-blue-300'}, '#' + r.nome);
