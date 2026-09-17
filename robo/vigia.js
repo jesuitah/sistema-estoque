@@ -22,6 +22,7 @@
 const fs = require('fs');
 const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
+const { guiaTarefasFalhas, guiaPorChave } = require('./guia-alertas');
 
 function conectar() {
   const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
@@ -182,14 +183,18 @@ async function levantarProblemas(sb) {
     });
   }
 
-  // 4) tarefas que falharam
+  // 4) tarefas que falharam — um aviso por loja + tipo, com os anúncios e o guia
   const { data: falhas } = await sb.from('ml_tarefas_robo')
-    .select('conta, tipo, erro').eq('status', 'falhou').gte('criado_em', desde);
+    .select('id, conta, tipo, erro, resultado, params').eq('status', 'falhou').gte('criado_em', desde);
+  const grupos = new Map();
   for (const f of falhas || []) {
-    achados.push({
-      chave: `tarefa_falhou:${f.conta}:${f.tipo}`, gravidade: 'grave',
-      mensagem: `${f.conta}: a tarefa "${f.tipo}" falhou — ${(f.erro || '').slice(0, 120)}`,
-    });
+    const k = `${f.conta}:${f.tipo}`;
+    if (!grupos.has(k)) grupos.set(k, []);
+    grupos.get(k).push(f);
+  }
+  for (const [k, lista] of grupos) {
+    const [conta, tipo] = k.split(':');
+    achados.push({ chave: `tarefa_falhou:${k}`, gravidade: 'grave', ...guiaTarefasFalhas(conta, tipo, lista) });
   }
 
   // 6) SESSÃO DO NAVEGADOR CAÍDA — um aviso por loja, não um por tarefa.
@@ -267,7 +272,10 @@ async function levantarProblemas(sb) {
 // Esse fechamento automático é o que impede a tela de acumular alarme velho.
 async function vigiar({ log = () => {} } = {}) {
   const sb = conectar();
-  const problemas = await levantarProblemas(sb);
+  // Todo aviso sai com explicação e passo a passo (guia-alertas.js). Quem já trouxe o
+  // próprio guia (tarefas que falharam) mantém o seu.
+  const problemas = (await levantarProblemas(sb)).map((p) =>
+    p.explicacao ? p : { ...guiaPorChave(p.chave), ...p });
   const agora = new Date().toISOString();
 
   const { data: abertos } = await sb.from('robo_alertas')
@@ -286,6 +294,7 @@ async function vigiar({ log = () => {} } = {}) {
       await sb.from('robo_alertas')
         .update({
           mensagem: p.mensagem, gravidade: p.gravidade, visto_em: agora,
+          explicacao: p.explicacao, o_que_fazer: p.o_que_fazer, acoes: p.acoes || [],
           dispensado_em: mudou ? null : antigo.dispensado_em,
         })
         .eq('id', antigo.id);
