@@ -1137,18 +1137,28 @@ async function processar(tarefa, navegadores) {
       }
 
       // Registra no histórico que o sistema mostra na tela.
-      await registrarAcao({
-        conta: tarefa.conta,
-        item_id: tarefa.params?.item_id,
-        title: resultado.titulo || tarefa.params?.title,
-        sku_bruto: tarefa.params?.sku_bruto,
-        acao: 'tirado_do_full',
-        detalhe: resultado.nada_a_fazer
-          ? 'já não estava no Full'
+      //
+      // O texto depende do TIPO da tarefa. Antes todo sucesso era gravado como "saiu do
+      // Full" — inclusive desligar o Flex —, e em 17/09 o histórico do CAP-4012 mostrou
+      // "saiu do Full" em anúncios que só tinham perdido o Flex.
+      const detalhes = {
+        tirar_do_full: resultado.nada_a_fazer ? 'já não estava no Full'
           : `saiu do Full${resultado.seguimento
               ? (resultado.seguimento.ficou === 'ativo' ? ' e voltou a vender' : ' e foi pra inativos')
               : ''}`,
-      });
+        ligar_flex: resultado.nada_a_fazer ? 'Flex já estava ligado' : 'Flex ligado',
+        desligar_flex: resultado.nada_a_fazer ? 'Flex já estava desligado' : 'Flex desligado',
+      };
+      if (detalhes[tarefa.tipo]) {
+        await registrarAcao({
+          conta: tarefa.conta,
+          item_id: tarefa.params?.item_id,
+          title: resultado.titulo || tarefa.params?.title,
+          sku_bruto: tarefa.params?.sku_bruto,
+          acao: tarefa.tipo === 'tirar_do_full' ? 'tirado_do_full' : tarefa.tipo,
+          detalhe: detalhes[tarefa.tipo],
+        });
+      }
 
       log(`  ✅ #${tarefa.id} concluída${resultado.para ? ` (${resultado.de} → ${resultado.para})` : ''}`);
     } else {
