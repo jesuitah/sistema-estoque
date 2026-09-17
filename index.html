@@ -620,7 +620,30 @@
       var campo = 'w-full bg-slate-900 text-slate-100 rounded px-2 py-1.5 border border-slate-600 text-sm';
       var cor = estado.ok ? 'border-emerald-600' : estado.erro ? 'border-red-600' : 'border-slate-700';
 
-      return e('div', {className: 'bg-slate-800 border rounded-xl p-4 space-y-3 ' + cor},
+      // Colar (Ctrl+V) ou arrastar uma foto em qualquer lugar do cartão: dá pra usar
+      // "Copiar imagem" no site do fabricante ou no Google, sem salvar arquivo antes.
+      function fotosDoEvento(lista) {
+        return Array.prototype.slice.call(lista || []).filter(function(x) { return x && /^image\//.test(x.type); });
+      }
+      function colar(ev) {
+        if (props.criando || estado.ok) return;
+        var itens = Array.prototype.slice.call((ev.clipboardData && ev.clipboardData.items) || []);
+        var arquivos = itens.filter(function(x) { return x.kind === 'file' && /^image\//.test(x.type); })
+          .map(function(x) { return x.getAsFile(); });
+        if (!arquivos.length) return;
+        ev.preventDefault();
+        escolherFotos(arquivos);
+      }
+      function soltar(ev) {
+        ev.preventDefault();
+        if (props.criando || estado.ok) return;
+        var arquivos = fotosDoEvento(ev.dataTransfer && ev.dataTransfer.files);
+        if (arquivos.length) escolherFotos(arquivos);
+      }
+
+      return e('div', {className: 'bg-slate-800 border rounded-xl p-4 space-y-3 ' + cor,
+        tabIndex: -1,   // clicar no cartão já faz o Ctrl+V cair aqui
+        onPaste: colar, onDragOver: function(ev) { ev.preventDefault(); }, onDrop: soltar},
         e('div', {className: 'flex flex-wrap items-center gap-3'},
           e('span', {className: 'text-xs font-bold text-slate-400'}, it.marca),
           e('span', {className: 'text-sm font-bold text-white'}, it.sku),
@@ -667,6 +690,7 @@
                 e('input', {value: d.preco || '', inputMode: 'decimal', disabled: props.criando,
                   onChange: function(ev) { mudar({preco: ev.target.value, precoOrigem: 'digitado'}); }, className: campo}),
                 e('label', {className: 'text-xs text-slate-400 block'}, 'Fotos (sobem em 1200×1200; o template da ' + conta + ' entra no fim)'),
+                e('div', {className: 'text-xs text-blue-300'}, '💡 Copie uma imagem (site do fabricante, Google...) e aperte Ctrl+V aqui no cartão — ou arraste a foto pra cá.'),
                 e('div', {className: 'flex flex-wrap gap-2 items-center'},
                   (d.fotos || []).map(function(f, i) {
                     return e('div', {key: i, className: 'relative'},
