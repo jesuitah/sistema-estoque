@@ -292,7 +292,7 @@
 
       return e('div', {className: 'space-y-4'},
         e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg p-4 flex flex-wrap items-center gap-3'},
-          e('h2', {className: 'text-lg font-bold'}, '📊 Análise dos anúncios — ' + conta),
+          e('h2', {className: 'text-lg font-bold'}, '📊 Pontuação dos anúncios — ' + conta),
           e('button', {
             onClick: analisar, disabled: !!progresso,
             className: 'bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg font-bold text-sm ' + (progresso ? 'opacity-60 cursor-wait' : '')
@@ -4240,10 +4240,6 @@
               },
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'promocoes' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
             }, '🏷 Promoções'),
-            podeVerAba(perfilAtivo, 'analise') && e('button', {
-              onClick: function() { setActiveTab('analise'); },
-              className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'analise' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
-            }, '📊 Análise'),
             podeVerAba(perfilAtivo, 'tarefas') && e('button', {
               onClick: function() { setActiveTab('tarefas'); },
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'tarefas' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
@@ -5239,12 +5235,19 @@
                   onClick: function() { setAnunciosSubTab('criar'); },
                   className: 'px-4 py-2 rounded-lg text-sm font-bold transition-colors ' + (anunciosSubTab === 'criar' ? 'bg-blue-600 text-white' : 'bg-slate-800 border border-slate-600 text-slate-300 hover:border-slate-400')
                 }, '➕ Criar novo anúncio'),
+                // Era a aba "Análise" do topo; virou sub-aba aqui (Matheus, 17/09/2026).
+                e('button', {
+                  onClick: function() { setAnunciosSubTab('pontuacao'); },
+                  className: 'px-4 py-2 rounded-lg text-sm font-bold transition-colors ' + (anunciosSubTab === 'pontuacao' ? 'bg-blue-600 text-white' : 'bg-slate-800 border border-slate-600 text-slate-300 hover:border-slate-400')
+                }, '📊 Pontuação'),
 
                 // O estado do robô e o botão de parar saíram daqui: viraram duplicata da
                 // aba Robô, que mostra bem mais (o que ele está fazendo, próxima
                 // patrulha, último sinal de vida). O pontinho colorido no nome da aba
                 // 🤖 Robô continua dando o estado de qualquer lugar do sistema.
               ),
+
+              anunciosSubTab === 'pontuacao' && e(AbaAnalise),
 
               anunciosSubTab === 'criar' && e('div', {className: 'space-y-4 max-w-2xl'},
                 e('div', {className: 'bg-slate-800 border border-slate-700 p-5 rounded-lg space-y-4'},
@@ -7332,8 +7335,6 @@
               );
             })()
           ),
-
-          activeTab === 'analise' && e(AbaAnalise),
 
           activeTab === 'tarefas' && (function() {
             var modalItens = kanbanModalCartao ? kanbanItens.filter(function(i) { return i.cartao_id === kanbanModalCartao.id; }) : [];
