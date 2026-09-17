@@ -20,7 +20,7 @@ Confirme os dados do seu veículo como ANO / MODELO / MOTORIZAÇÃO nos campos d
 VANTAGENS DE COMPRAR CONOSCO:
 
 - Frete com ENVIO IMEDIATO FULL para todo o Brasil. (Chega muito mais rápido que o frete convencional).
-- Mangueiras TOP DE LINHA, ORIGINAL JAMAICA PRONTA ENTREGA.
+- MODELO TOP DE LINHA, PRONTA ENTREGA.
 - Parcelamento sem juros com o melhor preço!
 - Nota Fiscal
 
