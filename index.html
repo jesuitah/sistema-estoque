@@ -1444,6 +1444,12 @@
             .update({ status: 'pendente', erro: null, resultado: null, iniciado_em: null, concluido_em: null })
             .in('id', ac.tarefas || [])
             .then(function(r) {
+              // 23505 = já existe outra tarefa igual esperando na fila: o robô já vai fazer.
+              if (r.error && r.error.code === '23505') {
+                alert('Essa tarefa já está na fila do robô de novo — não precisa fazer nada.');
+                dispensarAlerta(a);
+                return;
+              }
               if (r.error) { alert('Não consegui mandar de novo: ' + r.error.message); return; }
               alert('Pronto: ' + (ac.tarefas || []).length + ' tarefa(s) voltaram pra fila do robô. Se der certo, o aviso some sozinho em até 15 minutos.');
               dispensarAlerta(a);
