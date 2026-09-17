@@ -741,7 +741,9 @@ function cartaoPergunta(p) {
         return;
       }
       enviar.disabled = false; enviar.textContent = 'Responder';
-      msg.textContent = 'Não deu: ' + (d.motivo || d.erro || 'erro');
+      var motivo = d.motivo || d.erro || 'erro';
+      if (/must be active/i.test(motivo)) motivo = 'o anúncio não está ativo (pausado ou encerrado). O Mercado Livre só deixa responder com o anúncio ativo.';
+      msg.textContent = 'Não deu: ' + motivo;
     }).catch(function (e) {
       enviar.disabled = false; enviar.textContent = 'Responder'; msg.textContent = 'Não deu: ' + e.message;
     });
