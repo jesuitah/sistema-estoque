@@ -562,9 +562,98 @@
       });
     }
 
+    var EDITAR_URL = 'https://pylkufhziohxvwbbaued.supabase.co/functions/v1/ml-editar-anuncio';
+    function chamarEditor(corpo) {
+      return fetch(EDITAR_URL, {method: 'POST', body: JSON.stringify(corpo),
+        headers: {'Content-Type': 'application/json', Authorization: 'Bearer ' + supabaseKey, apikey: supabaseKey}})
+        .then(function(r) { return r.json(); });
+    }
+
+    // Compatibilidade: Marca -> Modelo -> (Ano) -> versões; marca as que servem.
+    function SeletorCompat(props) {
+      var conta = props.conta, marcados = props.marcados || [], travado = props.travado;
+      var st = useState({marcas: [], modelos: [], anos: [], marca: '', modelo: '', ano: '', achados: null, carregando: ''});
+      var s = st[0], setS = st[1];
+      function mudar(c) { setS(function(cur) { return Object.assign({}, cur, c); }); }
+
+      useEffect(function() {
+        chamarEditor({acao: 'compat_marcas', conta: conta}).then(function(r) { mudar({marcas: r.valores || []}); });
+      }, [conta]);
+
+      function conhecidos(marca, modelo, ano) {
+        var k = [];
+        if (marca) k.push({id: 'BRAND', value_id: marca});
+        if (modelo) k.push({id: 'MODEL', value_id: modelo});
+        if (ano) k.push({id: 'VEHICLE_YEAR', value_id: ano});
+        return k;
+      }
+      function escolherMarca(v) {
+        mudar({marca: v, modelo: '', ano: '', modelos: [], anos: [], achados: null});
+        if (!v) return;
+        chamarEditor({acao: 'compat_valores', conta: conta, atributo: 'MODEL', conhecidos: conhecidos(v)})
+          .then(function(r) { mudar({modelos: r.valores || []}); });
+      }
+      function escolherModelo(v) {
+        mudar({modelo: v, ano: '', anos: [], achados: null});
+        if (!v) return;
+        chamarEditor({acao: 'compat_valores', conta: conta, atributo: 'VEHICLE_YEAR', conhecidos: conhecidos(s.marca, v)})
+          .then(function(r) { mudar({anos: r.valores || []}); });
+      }
+      function buscar() {
+        mudar({carregando: 'buscando versões...', achados: null});
+        // A busca de versões pede lista (value_ids); a de marcas/modelos/anos, valor único.
+        var k = conhecidos(s.marca, s.modelo, s.ano).map(function(x) { return {id: x.id, value_ids: [x.value_id]}; });
+        chamarEditor({acao: 'compat_buscar', conta: conta, conhecidos: k})
+          .then(function(r) { mudar({carregando: '', achados: r.veiculos || []}); })
+          .catch(function() { mudar({carregando: 'falhou, tente de novo'}); });
+      }
+      var idsMarcados = {};
+      marcados.forEach(function(v) { idsMarcados[v.id] = true; });
+      function alternar(v) {
+        props.onMudar(idsMarcados[v.id] ? marcados.filter(function(x) { return x.id !== v.id; }) : marcados.concat([v]));
+      }
+      function marcarTodos() {
+        var novos = (s.achados || []).filter(function(v) { return !idsMarcados[v.id]; });
+        props.onMudar(marcados.concat(novos));
+      }
+      var sel = 'bg-slate-900 text-slate-100 rounded px-2 py-1.5 border border-slate-600 text-sm';
+
+      return e('div', {className: 'space-y-2'},
+        !travado && e('div', {className: 'flex flex-wrap gap-2 items-center'},
+          e('select', {value: s.marca, onChange: function(ev) { escolherMarca(ev.target.value); }, className: sel},
+            e('option', {value: ''}, 'Marca'),
+            s.marcas.map(function(m) { return e('option', {key: m.id, value: m.id}, m.nome); })),
+          e('select', {value: s.modelo, disabled: !s.marca, onChange: function(ev) { escolherModelo(ev.target.value); }, className: sel},
+            e('option', {value: ''}, 'Modelo'),
+            s.modelos.map(function(m) { return e('option', {key: m.id, value: m.id}, m.nome); })),
+          e('select', {value: s.ano, disabled: !s.modelo, onChange: function(ev) { mudar({ano: ev.target.value, achados: null}); }, className: sel},
+            e('option', {value: ''}, 'Todos os anos'),
+            s.anos.map(function(m) { return e('option', {key: m.id, value: m.id}, m.nome); })),
+          e('button', {onClick: buscar, disabled: !s.modelo,
+            className: 'px-3 py-1.5 rounded text-sm font-bold ' + (s.modelo ? 'bg-blue-600 hover:bg-blue-500 text-white' : 'bg-slate-700 text-slate-500')}, 'Ver versões')),
+        s.carregando && e('div', {className: 'text-xs text-slate-400'}, '⏳ ' + s.carregando),
+        s.achados && e('div', {className: 'bg-slate-900 rounded border border-slate-700 p-2 space-y-1'},
+          e('div', {className: 'flex items-center gap-3 text-xs text-slate-400'},
+            s.achados.length + ' versão(ões)',
+            s.achados.length > 0 && e('button', {onClick: marcarTodos, className: 'text-blue-300 underline'}, 'marcar todas'),
+            e('button', {onClick: function() { mudar({achados: null}); }, className: 'ml-auto text-slate-500'}, 'fechar')),
+          e('div', {className: 'max-h-48 overflow-y-auto space-y-0.5'},
+            s.achados.map(function(v) {
+              return e('label', {key: v.id, className: 'flex items-center gap-2 text-xs text-slate-200 cursor-pointer'},
+                e('input', {type: 'checkbox', checked: !!idsMarcados[v.id], onChange: function() { alternar(v); }}), v.nome);
+            }))),
+        marcados.length > 0 && e('div', {className: 'text-xs text-slate-300'},
+          e('div', {className: 'text-emerald-300 mb-1'}, '✓ ' + marcados.length + ' veículo(s) compatível(is)',
+            !travado && e('button', {onClick: function() { props.onMudar([]); }, className: 'ml-3 text-slate-500 underline'}, 'limpar')),
+          e('div', {className: 'max-h-24 overflow-y-auto text-slate-400'},
+            marcados.map(function(v) { return e('div', {key: v.id}, '• ' + v.nome); }))));
+    }
+
     function CartaoCriacao(props) {
       var it = props.item, conta = props.conta, estado = props.estado || {};
       var d = props.dados, setD = props.setDados;
+      var maisSt = useState(false); var mais = maisSt[0]; var setMais = maisSt[1];
+      var outraSt = useState(''); var outra = outraSt[0]; var setOutra = outraSt[1];
 
       // Sempre pelo estado ATUAL: foto convertendo e categoria chegando podem voltar
       // depois de você já ter mexido em outro campo.
@@ -583,7 +672,41 @@
           }).catch(function() { mudar({buscandoCat: false}); });
       }
 
+      // Outra categoria: aceita o código (MLB193399) ou palavras ("radiador de água").
+      function procurarOutra() {
+        var q = outra.trim();
+        if (!q) return;
+        mudar({buscandoCat: true});
+        if (/^MLB\d+$/i.test(q)) {
+          fetch(CRIAR_URL + '?acao=categoria&categoria_id=' + q)
+            .then(function(r) { return r.json(); })
+            .then(function(c) {
+              if (!c.category_id) { mudar({buscandoCat: false}); alert('Não achei a categoria ' + q); return; }
+              mudar({buscandoCat: false, categorias: [c].concat((d.categorias || []).filter(function(x) { return x.category_id !== c.category_id; }))});
+              escolherCategoria(c);
+              setOutra('');
+            });
+          return;
+        }
+        fetch(CRIAR_URL + '?acao=sugerir_categoria&conta=' + conta + '&titulo=' + encodeURIComponent(q))
+          .then(function(r) { return r.json(); })
+          .then(function(lista) {
+            var novas = Array.isArray(lista) ? lista : [];
+            setD(function(cur) {
+              var ja = {};
+              var todas = novas.concat(cur.categorias || []).filter(function(c) { if (ja[c.category_id]) return false; ja[c.category_id] = 1; return true; });
+              return Object.assign({}, cur, {buscandoCat: false, categorias: todas});
+            });
+            if (novas[0]) escolherCategoria(novas[0]);
+            setOutra('');
+          }).catch(function() { mudar({buscandoCat: false}); });
+      }
+
       function escolherCategoria(cat) {
+        mudar({caminho: '', filhas: []});
+        fetch(CRIAR_URL + '?acao=categoria&categoria_id=' + cat.category_id)
+          .then(function(r) { return r.json(); })
+          .then(function(c) { if (c.caminho) mudar({caminho: c.caminho, filhas: c.filhas || []}); });
         fetch(CRIAR_URL + '?acao=atributos&conta=' + conta + '&categoria_id=' + cat.category_id)
           .then(function(r) { return r.json(); })
           .then(function(attrs) {
@@ -615,9 +738,24 @@
       if (!d.categoria) faltando.push('categoria');
       if (!(d.fotos || []).length) faltando.push('foto');
       if (!(precoParaNumeroGlobal(d.preco) > 0)) faltando.push('preço');
-      (d.atributos || []).forEach(function(a) { if (!(d.valores || {})[a.id]) faltando.push(a.nome); });
+      (d.atributos || []).forEach(function(a) { if (a.obrigatorio && !(d.valores || {})[a.id]) faltando.push(a.nome); });
+      if (!medidasOk(d)) faltando.push('medidas/peso');
+      if (!(d.descricao || '').trim()) faltando.push('descrição');
 
       var campo = 'w-full bg-slate-900 text-slate-100 rounded px-2 py-1.5 border border-slate-600 text-sm';
+      function campoAtributo(a, sufixo) {
+        var val = (d.valores || {})[a.id] || '';
+        function por(v) { var n = Object.assign({}, d.valores); n[a.id] = v; mudar({valores: n}); }
+        return e('div', {key: a.id},
+          e('label', {className: 'text-xs text-slate-400 block'}, a.nome + (a.unidade ? ' (' + a.unidade + ')' : '') + sufixo),
+          (a.valores || []).length
+            ? e('select', {value: val, disabled: props.criando, onChange: function(ev) { por(ev.target.value); }, className: campo},
+                e('option', {value: ''}, '— escolha —'),
+                a.valores.map(function(o) { return e('option', {key: o.id, value: o.nome}, o.nome); }))
+            : e('input', {value: val, disabled: props.criando, inputMode: a.tipo === 'number_unit' ? 'decimal' : undefined,
+                onChange: function(ev) { por(ev.target.value); }, className: campo}));
+      }
+
       var cor = estado.ok ? 'border-emerald-600' : estado.erro ? 'border-red-600' : 'border-slate-700';
 
       // Colar (Ctrl+V) ou arrastar uma foto em qualquer lugar do cartão: dá pra usar
@@ -655,7 +793,8 @@
 
         estado.ok
           ? e('div', {className: 'text-sm text-emerald-300 flex flex-wrap items-center gap-3'},
-              '✅ Criado pausado: ' + estado.ok,
+              '✅ Criado pausado: ' + estado.ok + (estado.compat ? ' · ' + estado.compat + ' veículo(s)' : ''),
+              (estado.avisos || []).length > 0 && e('span', {className: 'text-amber-300'}, '⚠ ' + estado.avisos.join(' · ')),
               e('a', {href: 'https://www.mercadolivre.com.br/anuncios/' + estado.ok + '/modificar/', target: '_blank', rel: 'noreferrer',
                 className: 'underline text-blue-300'}, 'abrir no ML ↗'))
           : e('div', {className: 'grid grid-cols-1 md:grid-cols-2 gap-3'},
@@ -673,18 +812,31 @@
                       }, className: campo},
                       d.categorias.map(function(c) { return e('option', {key: c.category_id, value: c.category_id}, c.category_name + ' (' + c.domain_name + ')'); }))
                   : e('div', {className: 'text-xs text-slate-500'}, 'digite o título e saia do campo pra achar a categoria'),
-                (d.atributos || []).map(function(a) {
-                  var val = (d.valores || {})[a.id] || '';
-                  return e('div', {key: a.id},
-                    e('label', {className: 'text-xs text-slate-400 block'}, a.nome + ' (obrigatório)'),
-                    (a.valores || []).length
-                      ? e('select', {value: val, disabled: props.criando,
-                          onChange: function(ev) { var v = Object.assign({}, d.valores); v[a.id] = ev.target.value; mudar({valores: v}); }, className: campo},
-                          e('option', {value: ''}, '— escolha —'),
-                          a.valores.map(function(o) { return e('option', {key: o.id, value: o.nome}, o.nome); }))
-                      : e('input', {value: val, disabled: props.criando,
-                          onChange: function(ev) { var v = Object.assign({}, d.valores); v[a.id] = ev.target.value; mudar({valores: v}); }, className: campo}));
-                })),
+                d.caminho && e('div', {className: 'text-xs text-slate-400'}, '📂 ' + d.caminho),
+                (d.filhas || []).length > 0 && e('select', {value: '', disabled: props.criando,
+                    onChange: function(ev) {
+                      var f = d.filhas.filter(function(x) { return x.category_id === ev.target.value; })[0];
+                      if (!f) return;
+                      mudar({categorias: [f].concat(d.categorias || [])});
+                      escolherCategoria(f);
+                    }, className: campo + ' border-amber-600'},
+                  e('option', {value: ''}, '⚠ essa categoria tem subcategorias — escolha uma'),
+                  d.filhas.map(function(f) { return e('option', {key: f.category_id, value: f.category_id}, f.category_name); })),
+                !props.criando && e('div', {className: 'flex gap-2'},
+                  e('input', {value: outra, placeholder: 'outra categoria: código (MLB193399) ou palavras',
+                    onChange: function(ev) { setOutra(ev.target.value); },
+                    onKeyDown: function(ev) { if (ev.key === 'Enter') procurarOutra(); }, className: campo}),
+                  e('button', {onClick: procurarOutra, className: 'px-3 rounded text-sm bg-slate-700 hover:bg-slate-600 text-slate-200'}, 'Trocar')),
+                (d.atributos || []).filter(function(a) { return a.obrigatorio; }).map(function(a) { return campoAtributo(a, ' (obrigatório)'); }),
+                (d.atributos || []).some(function(a) { return !a.obrigatorio; }) && e('button', {onClick: function() { setMais(!mais); },
+                    className: 'text-xs text-blue-300 underline block'},
+                  (mais ? '▾ ' : '▸ ') + 'Mais características (sobem a nota) — ' +
+                  (d.atributos || []).filter(function(a) { return !a.obrigatorio && (d.valores || {})[a.id]; }).length + ' de ' +
+                  (d.atributos || []).filter(function(a) { return !a.obrigatorio; }).length + ' preenchidas'),
+                mais && (d.atributos || []).filter(function(a) { return !a.obrigatorio; }).map(function(a) { return campoAtributo(a, ''); }),
+                e('label', {className: 'text-xs text-slate-400 block pt-2'}, 'Compatibilidade (carros em que a peça serve)'),
+                e(SeletorCompat, {conta: conta, marcados: d.compat || [], travado: props.criando,
+                  onMudar: function(lista) { mudar({compat: lista}); }})),
               e('div', {className: 'space-y-2'},
                 e('label', {className: 'text-xs text-slate-400 block'}, 'Preço (R$)' + (d.precoOrigem ? ' — ' + d.precoOrigem : '')),
                 e('input', {value: d.preco || '', inputMode: 'decimal', disabled: props.criando,
@@ -702,7 +854,24 @@
                     d.convertendo ? '⏳' : '+ foto',
                     e('input', {type: 'file', accept: 'image/*', multiple: true, className: 'hidden',
                       onChange: function(ev) { escolherFotos(ev.target.files); ev.target.value = ''; }}))),
-                e('div', {className: 'text-xs text-slate-500'}, 'Quantidade: 89 · Premium · embalagem 15×10×10 cm, 0,3 kg (ajuste depois no ML se precisar)'),
+                e('label', {className: 'text-xs text-slate-400 block'}, 'Embalagem (medidas da expedição)'),
+                e('div', {className: 'grid grid-cols-4 gap-2'},
+                  [['comprimento', 'Compr. cm'], ['largura', 'Larg. cm'], ['altura', 'Alt. cm'], ['peso', 'Peso g']].map(function(m) {
+                    return e('div', {key: m[0]},
+                      e('div', {className: 'text-[10px] text-slate-500'}, m[1]),
+                      e('input', {value: d[m[0]] || '', inputMode: 'decimal', disabled: props.criando,
+                        onChange: function(ev) { var c = {}; c[m[0]] = ev.target.value; mudar(c); }, className: campo}));
+                  })),
+                e('label', {className: 'text-xs text-slate-400 block'}, 'Descrição (complete aplicações, códigos e conteúdo da caixa)'),
+                e('textarea', {value: d.descricao || '', rows: 12, disabled: props.criando,
+                  onChange: function(ev) { mudar({descricao: ev.target.value}); }, className: campo + ' font-mono text-xs'}),
+                e('div', {className: 'text-xs text-slate-500'}, 'Quantidade: 89 · Premium · garantia do vendedor 3 meses'),
+                (props.duplicados || []).length > 0 && e('div', {className: 'text-xs text-amber-300'},
+                  '⚠ Esse SKU já tem anúncio na ' + conta + ': ',
+                  props.duplicados.map(function(id) {
+                    return e('a', {key: id, href: 'https://www.mercadolivre.com.br/anuncios/' + id + '/modificar/', target: '_blank', rel: 'noreferrer',
+                      className: 'underline text-blue-300 mr-2'}, id);
+                  })),
                 estado.rodando && e('div', {className: 'text-xs text-blue-300'}, '⏳ ' + estado.rodando),
                 estado.erro && e('div', {className: 'text-xs text-red-300'}, '⚠ ' + estado.erro))));
     }
@@ -714,6 +883,10 @@
       if (s.indexOf(',') !== -1) s = s.replace(/\./g, '').replace(',', '.');
       var n = parseFloat(s);
       return isNaN(n) ? 0 : n;
+    }
+
+    function medidasOk(d) {
+      return ['comprimento', 'largura', 'altura', 'peso'].every(function(k) { return precoParaNumeroGlobal(d[k]) > 0; });
     }
 
     function FilaCriacao(props) {
@@ -728,13 +901,44 @@
       var dados = dadosSt[0]; var setDados = dadosSt[1];
       var estadosSt = useState({}); var estados = estadosSt[0]; var setEstados = estadosSt[1];
       var criandoSt = useState(false); var criando = criandoSt[0]; var setCriando = criandoSt[1];
+      var dupSt = useState({}); var duplicados = dupSt[0]; var setDuplicados = dupSt[1];
+
+      // Descrição padrão já no cartão, pra completar ali mesmo.
+      useEffect(function() {
+        fetch(CRIAR_URL + '?acao=descricao_padrao').then(function(r) { return r.json(); }).then(function(r) {
+          if (!r.texto) return;
+          setDados(function(atual) {
+            var o = Object.assign({}, atual);
+            props.itens.forEach(function(it) {
+              var d = o[it.chave] || {};
+              if (!d.descricao) o[it.chave] = Object.assign({}, d, {descricao: r.texto});
+            });
+            return o;
+          });
+        });
+      }, [props.itens.length]);
+
+      // Já existe anúncio desse SKU na loja escolhida? (com e sem a marca na frente)
+      useEffect(function() {
+        setDuplicados({});
+        props.itens.forEach(function(it) {
+          Promise.all([it.marca + ': ' + it.sku, it.sku].map(function(s) {
+            return fetch(CRIAR_URL + '?acao=duplicado&conta=' + conta + '&sku=' + encodeURIComponent(s))
+              .then(function(r) { return r.json(); }).then(function(r) { return r.itens || []; }).catch(function() { return []; });
+          })).then(function(listas) {
+            var ids = listas[0].concat(listas[1]).filter(function(x, i, a) { return a.indexOf(x) === i; });
+            setDuplicados(function(atual) { var n = Object.assign({}, atual); n[it.chave] = ids; return n; });
+          });
+        });
+      }, [conta, props.itens.length]);
 
       function prontos() {
         return props.itens.filter(function(it) {
           var d = dados[it.chave] || {};
           if ((estados[it.chave] || {}).ok) return false;
           if (!d.titulo || !d.titulo.trim() || !d.categoria || !(d.fotos || []).length || !(precoParaNumeroGlobal(d.preco) > 0)) return false;
-          return (d.atributos || []).every(function(a) { return (d.valores || {})[a.id]; });
+          if (!medidasOk(d) || !(d.descricao || '').trim()) return false;
+          return (d.atributos || []).every(function(a) { return !a.obrigatorio || (d.valores || {})[a.id]; });
         });
       }
 
@@ -758,13 +962,19 @@
               conta: conta, titulo: d.titulo.trim(), categoria_id: d.categoria.category_id,
               preco: precoParaNumeroGlobal(d.preco), quantidade: 89,
               sku: it.marca + ': ' + it.sku,
-              atributos: (d.atributos || []).map(function(a) {
-                var val = d.valores[a.id];
+              atributos: (d.atributos || []).filter(function(a) { return (d.valores || {})[a.id]; }).map(function(a) {
+                var val = String(d.valores[a.id]).trim();
                 var op = (a.valores || []).filter(function(v) { return v.nome === val; })[0];
-                return op ? {id: a.id, value_name: op.nome, value_id: op.id} : {id: a.id, value_name: val};
+                if (op) return {id: a.id, value_name: op.nome, value_id: op.id};
+                // Medida digitada só com o número: completa com a unidade da categoria ("45" -> "45 cm").
+                if (a.tipo === 'number_unit' && a.unidade && /^[\d.,]+$/.test(val)) val = val.replace(',', '.') + ' ' + a.unidade;
+                return {id: a.id, value_name: val};
               }),
               picture_ids: res.map(function(r) { return r.picture_id; }),
-              comprimento: 15, largura: 10, altura: 10, peso: 300,
+              comprimento: precoParaNumeroGlobal(d.comprimento), largura: precoParaNumeroGlobal(d.largura),
+              altura: precoParaNumeroGlobal(d.altura), peso: precoParaNumeroGlobal(d.peso),
+              descricao: d.descricao,
+              compat_ids: (d.compat || []).map(function(v) { return v.id; }),
             }),
           }).then(function(r) { return r.json(); });
         }).then(function(r) {
@@ -772,7 +982,7 @@
             var causa = r.detalhe && r.detalhe.cause ? r.detalhe.cause.map(function(c) { return c.message; }).join(' · ') : '';
             throw new Error((r.erro || 'falhou') + (causa ? ': ' + causa : r.detalhe ? ': ' + JSON.stringify(r.detalhe).slice(0, 200) : ''));
           }
-          marcar(it.chave, {ok: r.item_id});
+          marcar(it.chave, {ok: r.item_id, compat: r.compat, avisos: r.avisos});
         }).catch(function(err) { marcar(it.chave, {erro: err.message}); });
       }
 
@@ -798,11 +1008,11 @@
           e('button', {onClick: props.onFechar, disabled: criando,
             className: 'ml-auto px-3 py-1.5 rounded-lg text-sm font-bold bg-slate-700 hover:bg-slate-600 text-slate-200'}, feitos ? 'Fechar' : '✕ Cancelar')),
         e('p', {className: 'text-xs text-slate-400'},
-          'Digite o título, confira a categoria e os campos obrigatórios, coloque pelo menos 1 foto e confira o preço. ' +
-          'Os anúncios nascem pausados. Recomendado: crie 1 primeiro e confira no ML antes dos outros.'),
+          'Preencha tudo aqui — título, categoria, características, compatibilidade, medidas, descrição, fotos e preço — ' +
+          'e o anúncio já nasce completo. Ele fica pausado: no ML é só ativar.'),
         props.itens.map(function(it) {
           return e(CartaoCriacao, {key: it.chave, item: it, conta: conta, estado: estados[it.chave], criando: criando,
-            dados: dados[it.chave] || {},
+            dados: dados[it.chave] || {}, duplicados: duplicados[it.chave],
             setDados: function(fn) { setDados(function(atual) { var o = Object.assign({}, atual); o[it.chave] = fn(atual[it.chave] || {}); return o; }); },
             onTirar: function() { props.onTirar(it.chave); }});
         }),

@@ -118,14 +118,62 @@ Deno.serve(async (req: Request) => {
       });
       const data = await resp.json();
       if (!resp.ok) return new Response(JSON.stringify({ erro: "Falha ao buscar atributos", detalhe: data }), { status: 500, headers: { "Content-Type": "application/json", ...CORS } });
-      const obrigatorios = (data as any[])
-        .filter((a) => a.tags?.required)
+      // Obrigatórios + os que o comprador vê (preencher sobe a nota de qualidade).
+      // Fora: o que o ML esconde/trava e o que o sistema já preenche sozinho.
+      const JA_PREENCHIDOS = new Set(["SELLER_SKU", "ITEM_CONDITION", "GTIN", "EMPTY_GTIN_REASON",
+        "SELLER_PACKAGE_LENGTH", "SELLER_PACKAGE_WIDTH", "SELLER_PACKAGE_HEIGHT", "SELLER_PACKAGE_WEIGHT",
+        "SELLER_PACKAGE_TYPE"]);
+      const lista = (data as any[])
+        .filter((a) => {
+          const tg = a.tags || {};
+          if (JA_PREENCHIDOS.has(a.id)) return false;
+          if (tg.required) return true;
+          return !(tg.hidden || tg.read_only || tg.fixed || tg.others || tg.variation_attribute || tg.allow_variations);
+        })
         .map((a) => ({
           id: a.id,
           nome: a.name,
+          obrigatorio: !!a.tags?.required,
+          tipo: a.value_type,
+          unidade: a.default_unit || null,
           valores: (a.values || []).map((v: any) => ({ id: v.id, nome: v.name })),
-        }));
-      return new Response(JSON.stringify(obrigatorios), { headers: { "Content-Type": "application/json", ...CORS } });
+        }))
+        .sort((x, y) => Number(y.obrigatorio) - Number(x.obrigatorio));
+      return new Response(JSON.stringify(lista), { headers: { "Content-Type": "application/json", ...CORS } });
+    }
+
+    // --- Dados de uma categoria (nome + caminho completo), pra escolher pelo código ---
+    if (req.method === "GET" && acao === "categoria") {
+      const id = (url.searchParams.get("categoria_id") || "").trim().toUpperCase();
+      const resp = await fetch(`https://api.mercadolibre.com/categories/${encodeURIComponent(id)}`);
+      const data = await resp.json();
+      if (!resp.ok) return new Response(JSON.stringify({ erro: "Categoria não encontrada" }), { status: 404, headers: { "Content-Type": "application/json", ...CORS } });
+      return new Response(JSON.stringify({
+        category_id: data.id,
+        category_name: data.name,
+        caminho: (data.path_from_root || []).map((p: any) => p.name).join(" > "),
+        folha: !(data.children_categories || []).length,
+        filhas: (data.children_categories || []).map((f: any) => ({ category_id: f.id, category_name: f.name })),
+      }), { headers: { "Content-Type": "application/json", ...CORS } });
+    }
+
+    // --- Texto padrão da descrição (o cartão mostra pra editar antes de criar) ---
+    if (req.method === "GET" && acao === "descricao_padrao") {
+      return new Response(JSON.stringify({ texto: DESCRICAO_PADRAO }), { headers: { "Content-Type": "application/json", ...CORS } });
+    }
+
+    // --- Já existe anúncio com esse SKU nessa loja? ---
+    if (req.method === "GET" && acao === "duplicado") {
+      const conta = url.searchParams.get("conta") || "KMP";
+      const sku = url.searchParams.get("sku") || "";
+      const token = await obterTokenConta(supabase, conta);
+      const { data: tk } = await supabase.from("ml_tokens").select("user_id").eq("conta", conta).single();
+      const resp = await fetch(
+        `https://api.mercadolibre.com/users/${tk.user_id}/items/search?seller_sku=${encodeURIComponent(sku)}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const data = await resp.json();
+      return new Response(JSON.stringify({ itens: resp.ok ? (data.results || []) : [] }), { headers: { "Content-Type": "application/json", ...CORS } });
     }
 
     // --- Upload de uma foto (multipart/form-data com campo 'file') ---
@@ -151,7 +199,7 @@ Deno.serve(async (req: Request) => {
     // --- Criar o anúncio (já nasce ativo, pausamos em seguida) ---
     if (req.method === "POST" && acao === "criar") {
       const body = await req.json();
-      const { conta, titulo, categoria_id, preco, quantidade, sku, atributos, picture_ids, comprimento, largura, altura, peso } = body;
+      const { conta, titulo, categoria_id, preco, quantidade, sku, atributos, picture_ids, comprimento, largura, altura, peso, descricao, compat_ids } = body;
       const token = await obterTokenConta(supabase, conta);
 
       // Fotos de template da loja (mesma lógica da clonagem): busca fresca do anúncio de
@@ -215,21 +263,47 @@ Deno.serve(async (req: Request) => {
         return new Response(JSON.stringify({ erro: "Falha ao criar anúncio", detalhe: novo }), { status: 400, headers: { "Content-Type": "application/json", ...CORS } });
       }
 
-      // Descrição padrão (o Matheus preenche as diferenças depois: aplicações, código, conteúdo da caixa)
-      await fetch(`https://api.mercadolibre.com/items/${novo.id}/description`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ plain_text: DESCRICAO_PADRAO }),
-      });
-
-      // Pausa em seguida, pra revisão antes de ativar de vez
+      // Pausa logo de cara: só vai pro ar quando ele ativar no ML.
       await fetch(`https://api.mercadolibre.com/items/${novo.id}`, {
         method: "PUT",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify({ status: "paused" }),
       });
 
-      return new Response(JSON.stringify({ item_id: novo.id, permalink: novo.permalink, fotos: fotosFinal.length }), { headers: { "Content-Type": "application/json", ...CORS } });
+      // Descrição: a que ele completou no cartão (aplicações, códigos, conteúdo da caixa).
+      const respDesc = await fetch(`https://api.mercadolibre.com/items/${novo.id}/description`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ plain_text: (descricao && String(descricao).trim()) ? descricao : DESCRICAO_PADRAO }),
+      });
+      const avisos: string[] = [];
+      if (!respDesc.ok) avisos.push("descrição não foi gravada");
+
+      // Compatibilidade: tenta no item; se o ML pedir, vai pelo user-product (igual à clonagem).
+      let compatSalvas = 0;
+      const produtos = [...new Set((compat_ids || []) as string[])].map((id) => ({ id }));
+      for (let i = 0; i < produtos.length; i += 200) {
+        const lote = produtos.slice(i, i + 200);
+        const r1 = await fetch(`https://api.mercadolibre.com/items/${novo.id}/compatibilities`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ products: lote }),
+        });
+        const d1 = await r1.json().catch(() => ({}));
+        if (r1.ok) { compatSalvas += d1.created_compatibilities_count ?? lote.length; continue; }
+        if (novo.user_product_id) {
+          const r2 = await fetch(`https://api.mercadolibre.com/user-products/${novo.user_product_id}/compatibilities`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ domain_id: "MLB-CARS_AND_VANS", products: lote }),
+          });
+          const d2 = await r2.json().catch(() => ({}));
+          if (r2.ok) { compatSalvas += d2.created_compatibilities_count ?? lote.length; continue; }
+        }
+        avisos.push("compatibilidade: " + (d1.message || "o ML recusou"));
+      }
+
+      return new Response(JSON.stringify({ item_id: novo.id, permalink: novo.permalink, fotos: fotosFinal.length, compat: compatSalvas, avisos }), { headers: { "Content-Type": "application/json", ...CORS } });
     }
 
     return new Response(JSON.stringify({ erro: "Ação inválida" }), { status: 400, headers: { "Content-Type": "application/json", ...CORS } });
