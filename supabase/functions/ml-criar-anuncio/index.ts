@@ -270,13 +270,40 @@ Deno.serve(async (req: Request) => {
         body: JSON.stringify({ status: "paused" }),
       });
 
+      // Embalagem de FÁBRICA (PACKAGE_*): o ML ignora na criação ("not modifiable"), então
+      // grava depois, com o anúncio já pausado, e confere se ficou. A de ENVIO (SELLER_PACKAGE_*)
+      // vai igual à de fábrica = "Na embalagem de fábrica, sem nada extra", como ele faz no painel.
+      const avisosEmb: string[] = [];
+      if (comprimento && largura && altura && peso) {
+        const fab = [
+          { id: "PACKAGE_LENGTH", value_name: `${comprimento} cm` },
+          { id: "PACKAGE_WIDTH", value_name: `${largura} cm` },
+          { id: "PACKAGE_HEIGHT", value_name: `${altura} cm` },
+          { id: "PACKAGE_WEIGHT", value_name: `${peso} g` },
+        ];
+        await fetch(`https://api.mercadolibre.com/items/${novo.id}`, {
+          method: "PUT",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ attributes: fab }),
+        });
+        const conf = await fetch(`https://api.mercadolibre.com/items/${novo.id}?include_attributes=all`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }).then((r) => r.json()).catch(() => ({}));
+        const num = (v: string) => parseFloat(String(v || "").replace(",", "."));
+        const errado = fab.filter((f) => {
+          const a = (conf.attributes || []).find((x: any) => x.id === f.id);
+          return !a || num(a.value_name) !== num(f.value_name);
+        });
+        if (errado.length) avisosEmb.push("embalagem de fábrica não gravou — ajuste no ML");
+      }
+
       // Descrição: a que ele completou no cartão (aplicações, códigos, conteúdo da caixa).
       const respDesc = await fetch(`https://api.mercadolibre.com/items/${novo.id}/description`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify({ plain_text: (descricao && String(descricao).trim()) ? descricao : DESCRICAO_PADRAO }),
       });
-      const avisos: string[] = [];
+      const avisos: string[] = [...avisosEmb];
       if (!respDesc.ok) avisos.push("descrição não foi gravada");
 
       // Compatibilidade: tenta no item; se o ML pedir, vai pelo user-product (igual à clonagem).

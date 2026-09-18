@@ -929,7 +929,7 @@
                     d.convertendo ? '⏳' : '+ foto',
                     e('input', {type: 'file', accept: 'image/*', multiple: true, className: 'hidden',
                       onChange: function(ev) { escolherFotos(ev.target.files); ev.target.value = ''; }}))),
-                e('label', {className: 'text-xs text-slate-400 block'}, 'Embalagem (medidas da expedição)'),
+                e('label', {className: 'text-xs text-slate-400 block'}, 'Embalagem de fábrica (medidas da expedição) — o envio vai "na embalagem de fábrica, sem nada extra"'),
                 e('div', {className: 'grid grid-cols-4 gap-2'},
                   [['comprimento', 'Compr. cm'], ['largura', 'Larg. cm'], ['altura', 'Alt. cm'], ['peso', 'Peso kg']].map(function(m) {
                     return e('div', {key: m[0]},
