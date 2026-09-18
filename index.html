@@ -569,10 +569,33 @@
         .then(function(r) { return r.json(); });
     }
 
-    // Compatibilidade: Marca -> Modelo -> (Ano) -> versões; marca as que servem.
+    // Lista com caixinhas + filtro: marcar várias marcas / modelos / anos de uma vez.
+    function ListaMarcar(props) {
+      var fSt = useState(''); var f = fSt[0]; var setF = fSt[1];
+      var opcoes = props.opcoes || [], sel = props.sel || {};
+      var q = f.trim().toLowerCase();
+      var visiveis = q ? opcoes.filter(function(o) { return o.nome.toLowerCase().indexOf(q) !== -1; }) : opcoes;
+      var n = opcoes.filter(function(o) { return sel[o.id]; }).length;
+      return e('div', {className: 'bg-slate-900 rounded border border-slate-700 p-2 flex flex-col min-w-0'},
+        e('div', {className: 'flex items-center gap-2 text-xs text-slate-400 mb-1'},
+          e('b', {className: 'text-slate-200'}, props.titulo), n ? n + ' marcado(s)' : '',
+          props.carregando && '⏳',
+          n > 0 && e('button', {onClick: function() { props.onLimpar(); }, className: 'ml-auto text-slate-500 underline'}, 'limpar')),
+        opcoes.length > 8 && e('input', {value: f, placeholder: 'filtrar...', onChange: function(ev) { setF(ev.target.value); },
+          className: 'bg-slate-800 text-slate-100 rounded px-2 py-1 border border-slate-600 text-xs mb-1'}),
+        e('div', {className: 'h-40 overflow-y-auto space-y-0.5'},
+          !opcoes.length && e('div', {className: 'text-xs text-slate-500'}, props.vazio),
+          visiveis.map(function(o) {
+            return e('label', {key: o.id, className: 'flex items-center gap-2 text-xs text-slate-200 cursor-pointer'},
+              e('input', {type: 'checkbox', checked: !!sel[o.id], onChange: function() { props.onAlternar(o); }}), o.nome);
+          })));
+    }
+
+    // Compatibilidade: marque várias marcas, modelos e anos -> "Ver versões" -> marque as que servem.
     function SeletorCompat(props) {
       var conta = props.conta, marcados = props.marcados || [], travado = props.travado;
-      var st = useState({marcas: [], modelos: [], anos: [], marca: '', modelo: '', ano: '', achados: null, carregando: ''});
+      var st = useState({marcas: [], modelos: [], anos: [], selMarca: {}, selModelo: {}, selAno: {},
+        carregModelos: false, carregAnos: false, achados: null, filtro: '', carregando: ''});
       var s = st[0], setS = st[1];
       function mudar(c) { setS(function(cur) { return Object.assign({}, cur, c); }); }
 
@@ -580,65 +603,114 @@
         chamarEditor({acao: 'compat_marcas', conta: conta}).then(function(r) { mudar({marcas: r.valores || []}); });
       }, [conta]);
 
-      function conhecidos(marca, modelo, ano) {
-        var k = [];
-        if (marca) k.push({id: 'BRAND', value_id: marca});
-        if (modelo) k.push({id: 'MODEL', value_id: modelo});
-        if (ano) k.push({id: 'VEHICLE_YEAR', value_id: ano});
-        return k;
+      function ids(sel) { return Object.keys(sel).filter(function(k) { return sel[k]; }); }
+      function semRepetir(lista) {
+        var ja = {};
+        return lista.filter(function(x) { if (ja[x.id]) return false; ja[x.id] = 1; return true; });
       }
-      function escolherMarca(v) {
-        mudar({marca: v, modelo: '', ano: '', modelos: [], anos: [], achados: null});
-        if (!v) return;
-        chamarEditor({acao: 'compat_valores', conta: conta, atributo: 'MODEL', conhecidos: conhecidos(v)})
-          .then(function(r) { mudar({modelos: r.valores || []}); });
+
+      // Modelos de todas as marcas marcadas (com o nome da marca na frente, se for mais de uma).
+      function carregarModelos(selMarca) {
+        var ms = ids(selMarca);
+        if (!ms.length) { mudar({modelos: [], selModelo: {}, anos: [], selAno: {}}); return; }
+        mudar({carregModelos: true});
+        Promise.all(ms.map(function(m) {
+          var nomeMarca = (s.marcas.filter(function(x) { return x.id === m; })[0] || {}).nome || '';
+          return chamarEditor({acao: 'compat_valores', conta: conta, atributo: 'MODEL', conhecidos: [{id: 'BRAND', value_id: m}]})
+            .then(function(r) { return (r.valores || []).map(function(v) { return {id: v.id, nome: ms.length > 1 ? nomeMarca + ' ' + v.nome : v.nome, marca: m}; }); });
+        })).then(function(listas) {
+          var todos = [].concat.apply([], listas);
+          setS(function(cur) {
+            var selModelo = {};
+            todos.forEach(function(v) { if (cur.selModelo[v.id]) selModelo[v.id] = true; });
+            return Object.assign({}, cur, {carregModelos: false, modelos: todos, selModelo: selModelo});
+          });
+        });
       }
-      function escolherModelo(v) {
-        mudar({modelo: v, ano: '', anos: [], achados: null});
-        if (!v) return;
-        chamarEditor({acao: 'compat_valores', conta: conta, atributo: 'VEHICLE_YEAR', conhecidos: conhecidos(s.marca, v)})
-          .then(function(r) { mudar({anos: r.valores || []}); });
+
+      // Anos de todos os modelos marcados (junta tudo, do mais novo pro mais velho).
+      function carregarAnos(selModelo, modelos) {
+        var ms = ids(selModelo);
+        if (!ms.length) { mudar({anos: [], selAno: {}}); return; }
+        mudar({carregAnos: true});
+        Promise.all(ms.map(function(m) {
+          var mod = modelos.filter(function(x) { return x.id === m; })[0] || {};
+          return chamarEditor({acao: 'compat_valores', conta: conta, atributo: 'VEHICLE_YEAR',
+            conhecidos: [{id: 'BRAND', value_id: mod.marca}, {id: 'MODEL', value_id: m}]})
+            .then(function(r) { return r.valores || []; });
+        })).then(function(listas) {
+          var todos = semRepetir([].concat.apply([], listas)).sort(function(a, b) { return b.nome.localeCompare(a.nome); });
+          setS(function(cur) {
+            var selAno = {};
+            todos.forEach(function(v) { if (cur.selAno[v.id]) selAno[v.id] = true; });
+            return Object.assign({}, cur, {carregAnos: false, anos: todos, selAno: selAno});
+          });
+        });
       }
+
+      function alternarMarca(o) {
+        var n = Object.assign({}, s.selMarca); n[o.id] = !n[o.id];
+        mudar({selMarca: n, achados: null}); carregarModelos(n);
+      }
+      function alternarModelo(o) {
+        var n = Object.assign({}, s.selModelo); n[o.id] = !n[o.id];
+        mudar({selModelo: n, achados: null}); carregarAnos(n, s.modelos);
+      }
+      function alternarAno(o) {
+        var n = Object.assign({}, s.selAno); n[o.id] = !n[o.id];
+        mudar({selAno: n, achados: null});
+      }
+
       function buscar() {
-        mudar({carregando: 'buscando versões...', achados: null});
-        // A busca de versões pede lista (value_ids); a de marcas/modelos/anos, valor único.
-        var k = conhecidos(s.marca, s.modelo, s.ano).map(function(x) { return {id: x.id, value_ids: [x.value_id]}; });
+        var k = [{id: 'BRAND', value_ids: ids(s.selMarca)}, {id: 'MODEL', value_ids: ids(s.selModelo)}];
+        if (ids(s.selAno).length) k.push({id: 'VEHICLE_YEAR', value_ids: ids(s.selAno)});
+        mudar({carregando: 'buscando versões...', achados: null, filtro: ''});
         chamarEditor({acao: 'compat_buscar', conta: conta, conhecidos: k})
-          .then(function(r) { mudar({carregando: '', achados: r.veiculos || []}); })
+          .then(function(r) {
+            var lista = (r.veiculos || []).slice().sort(function(a, b) { return a.nome.localeCompare(b.nome); });
+            mudar({carregando: '', achados: lista});
+          })
           .catch(function() { mudar({carregando: 'falhou, tente de novo'}); });
       }
+
       var idsMarcados = {};
       marcados.forEach(function(v) { idsMarcados[v.id] = true; });
       function alternar(v) {
         props.onMudar(idsMarcados[v.id] ? marcados.filter(function(x) { return x.id !== v.id; }) : marcados.concat([v]));
       }
-      function marcarTodos() {
-        var novos = (s.achados || []).filter(function(v) { return !idsMarcados[v.id]; });
-        props.onMudar(marcados.concat(novos));
+      var q = s.filtro.trim().toLowerCase();
+      var achadosVis = (s.achados || []).filter(function(v) { return !q || v.nome.toLowerCase().indexOf(q) !== -1; });
+      function marcarVisiveis(marcar) {
+        var alvo = {};
+        achadosVis.forEach(function(v) { alvo[v.id] = true; });
+        if (marcar) props.onMudar(marcados.concat(achadosVis.filter(function(v) { return !idsMarcados[v.id]; })));
+        else props.onMudar(marcados.filter(function(v) { return !alvo[v.id]; }));
       }
-      var sel = 'bg-slate-900 text-slate-100 rounded px-2 py-1.5 border border-slate-600 text-sm';
+      var podeBuscar = ids(s.selMarca).length && ids(s.selModelo).length;
 
       return e('div', {className: 'space-y-2'},
-        !travado && e('div', {className: 'flex flex-wrap gap-2 items-center'},
-          e('select', {value: s.marca, onChange: function(ev) { escolherMarca(ev.target.value); }, className: sel},
-            e('option', {value: ''}, 'Marca'),
-            s.marcas.map(function(m) { return e('option', {key: m.id, value: m.id}, m.nome); })),
-          e('select', {value: s.modelo, disabled: !s.marca, onChange: function(ev) { escolherModelo(ev.target.value); }, className: sel},
-            e('option', {value: ''}, 'Modelo'),
-            s.modelos.map(function(m) { return e('option', {key: m.id, value: m.id}, m.nome); })),
-          e('select', {value: s.ano, disabled: !s.modelo, onChange: function(ev) { mudar({ano: ev.target.value, achados: null}); }, className: sel},
-            e('option', {value: ''}, 'Todos os anos'),
-            s.anos.map(function(m) { return e('option', {key: m.id, value: m.id}, m.nome); })),
-          e('button', {onClick: buscar, disabled: !s.modelo,
-            className: 'px-3 py-1.5 rounded text-sm font-bold ' + (s.modelo ? 'bg-blue-600 hover:bg-blue-500 text-white' : 'bg-slate-700 text-slate-500')}, 'Ver versões')),
+        !travado && e('div', {className: 'grid grid-cols-3 gap-2'},
+          e(ListaMarcar, {titulo: 'Marcas', opcoes: s.marcas, sel: s.selMarca, onAlternar: alternarMarca,
+            onLimpar: function() { mudar({selMarca: {}, achados: null}); carregarModelos({}); }, vazio: '⏳ carregando...'}),
+          e(ListaMarcar, {titulo: 'Modelos', opcoes: s.modelos, sel: s.selModelo, onAlternar: alternarModelo, carregando: s.carregModelos,
+            onLimpar: function() { mudar({selModelo: {}, achados: null}); carregarAnos({}, s.modelos); }, vazio: 'marque uma ou mais marcas'}),
+          e(ListaMarcar, {titulo: 'Anos', opcoes: s.anos, sel: s.selAno, onAlternar: alternarAno, carregando: s.carregAnos,
+            onLimpar: function() { mudar({selAno: {}, achados: null}); }, vazio: 'marque um ou mais modelos (sem ano = todos)'})),
+        !travado && e('div', {className: 'flex items-center gap-3'},
+          e('button', {onClick: buscar, disabled: !podeBuscar,
+            className: 'px-4 py-1.5 rounded text-sm font-bold ' + (podeBuscar ? 'bg-blue-600 hover:bg-blue-500 text-white' : 'bg-slate-700 text-slate-500')}, 'Ver versões'),
+          e('span', {className: 'text-xs text-slate-500'}, ids(s.selAno).length ? '' : 'nenhum ano marcado = todos os anos')),
         s.carregando && e('div', {className: 'text-xs text-slate-400'}, '⏳ ' + s.carregando),
         s.achados && e('div', {className: 'bg-slate-900 rounded border border-slate-700 p-2 space-y-1'},
-          e('div', {className: 'flex items-center gap-3 text-xs text-slate-400'},
+          e('div', {className: 'flex flex-wrap items-center gap-3 text-xs text-slate-400'},
             s.achados.length + ' versão(ões)',
-            s.achados.length > 0 && e('button', {onClick: marcarTodos, className: 'text-blue-300 underline'}, 'marcar todas'),
+            e('input', {value: s.filtro, placeholder: 'filtrar (ex.: 1.6, flex, 16v)', onChange: function(ev) { mudar({filtro: ev.target.value}); },
+              className: 'bg-slate-800 text-slate-100 rounded px-2 py-1 border border-slate-600 text-xs w-48'}),
+            achadosVis.length > 0 && e('button', {onClick: function() { marcarVisiveis(true); }, className: 'text-blue-300 underline'}, 'marcar ' + (q ? 'filtradas' : 'todas')),
+            achadosVis.length > 0 && e('button', {onClick: function() { marcarVisiveis(false); }, className: 'text-slate-400 underline'}, 'desmarcar ' + (q ? 'filtradas' : 'todas')),
             e('button', {onClick: function() { mudar({achados: null}); }, className: 'ml-auto text-slate-500'}, 'fechar')),
-          e('div', {className: 'max-h-48 overflow-y-auto space-y-0.5'},
-            s.achados.map(function(v) {
+          e('div', {className: 'max-h-64 overflow-y-auto space-y-0.5'},
+            achadosVis.map(function(v) {
               return e('label', {key: v.id, className: 'flex items-center gap-2 text-xs text-slate-200 cursor-pointer'},
                 e('input', {type: 'checkbox', checked: !!idsMarcados[v.id], onChange: function() { alternar(v); }}), v.nome);
             }))),
@@ -834,9 +906,7 @@
                   (d.atributos || []).filter(function(a) { return !a.obrigatorio && (d.valores || {})[a.id]; }).length + ' de ' +
                   (d.atributos || []).filter(function(a) { return !a.obrigatorio; }).length + ' preenchidas'),
                 mais && (d.atributos || []).filter(function(a) { return !a.obrigatorio; }).map(function(a) { return campoAtributo(a, ''); }),
-                e('label', {className: 'text-xs text-slate-400 block pt-2'}, 'Compatibilidade (carros em que a peça serve)'),
-                e(SeletorCompat, {conta: conta, marcados: d.compat || [], travado: props.criando,
-                  onMudar: function(lista) { mudar({compat: lista}); }})),
+                null),
               e('div', {className: 'space-y-2'},
                 e('label', {className: 'text-xs text-slate-400 block'}, 'Preço (R$)' + (d.precoOrigem ? ' — ' + d.precoOrigem : '')),
                 e('input', {value: d.preco || '', inputMode: 'decimal', disabled: props.criando,
@@ -856,7 +926,7 @@
                       onChange: function(ev) { escolherFotos(ev.target.files); ev.target.value = ''; }}))),
                 e('label', {className: 'text-xs text-slate-400 block'}, 'Embalagem (medidas da expedição)'),
                 e('div', {className: 'grid grid-cols-4 gap-2'},
-                  [['comprimento', 'Compr. cm'], ['largura', 'Larg. cm'], ['altura', 'Alt. cm'], ['peso', 'Peso g']].map(function(m) {
+                  [['comprimento', 'Compr. cm'], ['largura', 'Larg. cm'], ['altura', 'Alt. cm'], ['peso', 'Peso kg']].map(function(m) {
                     return e('div', {key: m[0]},
                       e('div', {className: 'text-[10px] text-slate-500'}, m[1]),
                       e('input', {value: d[m[0]] || '', inputMode: 'decimal', disabled: props.criando,
@@ -873,7 +943,11 @@
                       className: 'underline text-blue-300 mr-2'}, id);
                   })),
                 estado.rodando && e('div', {className: 'text-xs text-blue-300'}, '⏳ ' + estado.rodando),
-                estado.erro && e('div', {className: 'text-xs text-red-300'}, '⚠ ' + estado.erro))));
+                estado.erro && e('div', {className: 'text-xs text-red-300'}, '⚠ ' + estado.erro)),
+              e('div', {className: 'md:col-span-2 space-y-1 border-t border-slate-700 pt-3'},
+                e('label', {className: 'text-xs text-slate-400 block'}, 'Compatibilidade (carros em que a peça serve)'),
+                e(SeletorCompat, {conta: conta, marcados: d.compat || [], travado: props.criando,
+                  onMudar: function(lista) { mudar({compat: lista}); }}))));
     }
 
     // Aceita "1.234,56", "1234,56" e "1234.56".
@@ -972,7 +1046,7 @@
               }),
               picture_ids: res.map(function(r) { return r.picture_id; }),
               comprimento: precoParaNumeroGlobal(d.comprimento), largura: precoParaNumeroGlobal(d.largura),
-              altura: precoParaNumeroGlobal(d.altura), peso: precoParaNumeroGlobal(d.peso),
+              altura: precoParaNumeroGlobal(d.altura), peso: Math.round(precoParaNumeroGlobal(d.peso) * 1000),   // digitado em kg, o ML quer g
               descricao: d.descricao,
               compat_ids: (d.compat || []).map(function(v) { return v.id; }),
             }),
