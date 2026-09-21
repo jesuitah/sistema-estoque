@@ -5141,7 +5141,6 @@
             var daConta = promoLista
               .filter(function(p) {
                 return p.conta === promoConta
-                  && p.promocao_tipo !== 'SMART'
                   && (Number(p.ativos) > 0 || Number(p.candidatos) > 0);
               })
               .sort(function(a, b) {
@@ -5307,9 +5306,16 @@
                         e('div', null, p.promocao_nome),
                         e('div', {className: 'font-normal opacity-70 mt-0.5'},
                           (p.ativos || 0) + ' ativos · ' + (p.candidatos || 0) + ' podem entrar'),
-                        (p.data_inicio || p.data_fim) && e('div', {
-                          className: 'font-normal mt-0.5 ' + (diasAteFim(p.data_fim) !== null && diasAteFim(p.data_fim) <= 3 ? 'text-amber-400' : 'opacity-60')
-                        }, periodoDaPromocao(p))
+                        // Programa contínuo (SMART, Full, redução de tarifa, Pix): a data é
+                        // do guarda-chuva, não da oferta do anúncio — mostrar 2027 confundia.
+                        // A SMART e a PRICE_MATCHING são as que o painel do ML chama de
+                        // "Com redução de tarifas".
+                        ['SMART', 'UNHEALTHY_STOCK', 'PRICE_MATCHING', 'BANK'].indexOf(p.promocao_tipo) !== -1
+                          ? e('div', {className: 'font-normal mt-0.5 opacity-60'},
+                              'programa contínuo' + (['SMART', 'PRICE_MATCHING'].indexOf(p.promocao_tipo) !== -1 ? ' · no painel: "Com redução de tarifas"' : ''))
+                          : (p.data_inicio || p.data_fim) && e('div', {
+                              className: 'font-normal mt-0.5 ' + (diasAteFim(p.data_fim) !== null && diasAteFim(p.data_fim) <= 3 ? 'text-amber-400' : 'opacity-60')
+                            }, periodoDaPromocao(p))
                       );
                     })
                   ),
