@@ -3035,7 +3035,9 @@
           if (!d) return null;
           var x = new Date(d);
           if (isNaN(x.getTime())) return null;
-          return x.toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit'});
+          // Ano só quando não é o de hoje: "12/02 a 12/02" escondia que o fim era em 2027.
+          var esteAno = x.getFullYear() === new Date().getFullYear();
+          return x.toLocaleDateString('pt-BR', esteAno ? {day: '2-digit', month: '2-digit'} : {day: '2-digit', month: '2-digit', year: 'numeric'});
         }
         var i = dia(p.data_inicio), f = dia(p.data_fim);
         if (i && f) return '📅 ' + i + ' a ' + f;
@@ -5131,12 +5133,16 @@
             //
             // Ativas primeiro, porque é onde há o que fazer; depois as que têm mais
             // candidatos esperando.
+            // Pedido dele (21/09/2026): quer ver TODA promoção em que dá pra entrar hoje —
+            // deixar anúncio de fora é perder venda. Então entra qualquer uma com anúncio
+            // dentro ou com candidato esperando. Fica de fora a SMART ("Impulsione suas
+            // vendas"): é programa contínuo do ML, o painel nem lista, e a data dela
+            // (2027) só confundia.
             var daConta = promoLista
               .filter(function(p) {
                 return p.conta === promoConta
-                  && (p.promocao_tipo === 'SELLER_CAMPAIGN'
-                      || Number(p.meli_percentual) > 0
-                      || Number(p.ativos) > 0);
+                  && p.promocao_tipo !== 'SMART'
+                  && (Number(p.ativos) > 0 || Number(p.candidatos) > 0);
               })
               .sort(function(a, b) {
                 if ((Number(a.ativos) > 0) !== (Number(b.ativos) > 0)) return Number(b.ativos) > 0 ? 1 : -1;
