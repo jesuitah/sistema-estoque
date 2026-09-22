@@ -7540,8 +7540,11 @@
                   };
                 });
 
+                // Contagem só do que está à vista: peça escondida não pode continuar
+                // contando na lista de marcas nem nos totais do topo.
+                var naLista = parados.filter(function(p) { return !paradoDispensados[p.marca + '|' + p.sku]; });
                 var marcas = {};
-                parados.forEach(function(p) { marcas[p.marca] = (marcas[p.marca] || 0) + 1; });
+                naLista.forEach(function(p) { marcas[p.marca] = (marcas[p.marca] || 0) + 1; });
 
                 var termo = paradoBusca.trim().toUpperCase();
                 var visiveis = parados.filter(function(p) {
