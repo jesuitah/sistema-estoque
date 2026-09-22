@@ -572,30 +572,50 @@
     // Lista com caixinhas + filtro: marcar várias marcas / modelos / anos de uma vez.
     function ListaMarcar(props) {
       var fSt = useState(''); var f = fSt[0]; var setF = fSt[1];
+      var iSt = useState(0); var idx = iSt[0]; var setIdx = iSt[1];
       var opcoes = props.opcoes || [], sel = props.sel || {};
       var q = f.trim().toLowerCase();
       var visiveis = q ? opcoes.filter(function(o) { return o.nome.toLowerCase().indexOf(q) !== -1; }) : opcoes;
       var n = opcoes.filter(function(o) { return sel[o.id]; }).length;
+
+      // Teclado: ↑ ↓ andam na lista e Enter marca/desmarca — sem tirar a mão do teclado.
+      // O mouse continua funcionando igual.
+      function teclado(ev) {
+        if (!visiveis.length) return;
+        if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+          ev.preventDefault();
+          var novo = Math.min(visiveis.length - 1, Math.max(0, idx + (ev.key === 'ArrowDown' ? 1 : -1)));
+          setIdx(novo);
+          var alvo = document.getElementById(props.chave + '-op-' + novo);
+          if (alvo && alvo.scrollIntoView) alvo.scrollIntoView({block: 'nearest'});
+        } else if (ev.key === 'Enter') {
+          ev.preventDefault();
+          if (visiveis[idx]) props.onAlternar(visiveis[idx]);
+        }
+      }
       return e('div', {className: 'bg-slate-900 rounded border border-slate-700 p-2 flex flex-col min-w-0'},
         e('div', {className: 'flex items-center gap-2 text-xs text-slate-400 mb-1'},
           e('b', {className: 'text-slate-200'}, props.titulo), n ? n + ' marcado(s)' : '',
           props.carregando && '⏳',
           n > 0 && e('button', {onClick: function() { props.onLimpar(); }, className: 'ml-auto text-slate-500 underline'}, 'limpar')),
-        opcoes.length > 8 && e('input', {value: f, placeholder: 'filtrar...', onChange: function(ev) { setF(ev.target.value); },
+        opcoes.length > 0 && e('input', {value: f, placeholder: 'filtrar (↑ ↓ e Enter marcam)',
+          onChange: function(ev) { setF(ev.target.value); setIdx(0); }, onKeyDown: teclado,
           className: 'bg-slate-800 text-slate-100 rounded px-2 py-1 border border-slate-600 text-xs mb-1'}),
-        e('div', {className: 'h-40 overflow-y-auto space-y-0.5'},
+        e('div', {className: 'h-40 overflow-y-auto space-y-0.5', tabIndex: 0, onKeyDown: teclado},
           !opcoes.length && e('div', {className: 'text-xs text-slate-500'}, props.vazio),
-          visiveis.map(function(o) {
-            return e('label', {key: o.id, className: 'flex items-center gap-2 text-xs text-slate-200 cursor-pointer'},
-              e('input', {type: 'checkbox', checked: !!sel[o.id], onChange: function() { props.onAlternar(o); }}), o.nome);
+          visiveis.map(function(o, i) {
+            return e('label', {key: o.id, id: props.chave + '-op-' + i,
+                className: 'flex items-center gap-2 text-xs cursor-pointer rounded px-1 ' +
+                  (i === idx ? 'bg-slate-700 text-white' : 'text-slate-200')},
+              e('input', {type: 'checkbox', checked: !!sel[o.id], onChange: function() { setIdx(i); props.onAlternar(o); }}), o.nome);
           })));
     }
 
     // Compatibilidade: marque várias marcas, modelos e anos -> "Ver versões" -> marque as que servem.
     function SeletorCompat(props) {
       var conta = props.conta, marcados = props.marcados || [], travado = props.travado;
-      var st = useState({marcas: [], modelos: [], anos: [], selMarca: {}, selModelo: {}, selAno: {},
-        carregModelos: false, carregAnos: false, achados: null, filtro: '', carregando: ''});
+      var st = useState({marcas: [], modelos: [], anos: [], motores: [], selMarca: {}, selModelo: {}, selAno: {}, selMotor: {},
+        carregModelos: false, carregAnos: false, carregMotores: false, achados: null, filtro: '', carregando: ''});
       var s = st[0], setS = st[1];
       function mudar(c) { setS(function(cur) { return Object.assign({}, cur, c); }); }
 
@@ -654,16 +674,41 @@
       }
       function alternarModelo(o) {
         var n = Object.assign({}, s.selModelo); n[o.id] = !n[o.id];
-        mudar({selModelo: n, achados: null}); carregarAnos(n, s.modelos);
+        mudar({selModelo: n, achados: null}); carregarAnos(n, s.modelos); carregarMotores(n, s.modelos);
       }
+      // Motores dos modelos marcados (ele pediu: "nas compatibilidades ter o motor também").
+      function carregarMotores(selModelo, modelos) {
+        var ms = ids(selModelo);
+        if (!ms.length) { mudar({motores: [], selMotor: {}}); return; }
+        mudar({carregMotores: true});
+        Promise.all(ms.map(function(m) {
+          var mod = modelos.filter(function(x) { return x.id === m; })[0] || {};
+          return chamarEditor({acao: 'compat_valores', conta: conta, atributo: 'ENGINE',
+            conhecidos: [{id: 'BRAND', value_id: mod.marca}, {id: 'MODEL', value_id: m}]})
+            .then(function(r) { return r.valores || []; }).catch(function() { return []; });
+        })).then(function(listas) {
+          var todos = semRepetir([].concat.apply([], listas)).sort(function(a, b) { return a.nome.localeCompare(b.nome); });
+          setS(function(cur) {
+            var selMotor = {};
+            todos.forEach(function(v) { if (cur.selMotor[v.id]) selMotor[v.id] = true; });
+            return Object.assign({}, cur, {carregMotores: false, motores: todos, selMotor: selMotor});
+          });
+        });
+      }
+
       function alternarAno(o) {
         var n = Object.assign({}, s.selAno); n[o.id] = !n[o.id];
         mudar({selAno: n, achados: null});
+      }
+      function alternarMotor(o) {
+        var n = Object.assign({}, s.selMotor); n[o.id] = !n[o.id];
+        mudar({selMotor: n, achados: null});
       }
 
       function buscar() {
         var k = [{id: 'BRAND', value_ids: ids(s.selMarca)}, {id: 'MODEL', value_ids: ids(s.selModelo)}];
         if (ids(s.selAno).length) k.push({id: 'VEHICLE_YEAR', value_ids: ids(s.selAno)});
+        if (ids(s.selMotor).length) k.push({id: 'ENGINE', value_ids: ids(s.selMotor)});
         mudar({carregando: 'buscando versões...', achados: null, filtro: ''});
         chamarEditor({acao: 'compat_buscar', conta: conta, conhecidos: k})
           .then(function(r) {
@@ -689,17 +734,22 @@
       var podeBuscar = ids(s.selMarca).length && ids(s.selModelo).length;
 
       return e('div', {className: 'space-y-2'},
-        !travado && e('div', {className: 'grid grid-cols-3 gap-2'},
-          e(ListaMarcar, {titulo: 'Marcas', opcoes: s.marcas, sel: s.selMarca, onAlternar: alternarMarca,
+        !travado && e('div', {className: 'grid grid-cols-2 lg:grid-cols-4 gap-2'},
+          e(ListaMarcar, {chave: 'marca', titulo: 'Marcas', opcoes: s.marcas, sel: s.selMarca, onAlternar: alternarMarca,
             onLimpar: function() { mudar({selMarca: {}, achados: null}); carregarModelos({}); }, vazio: '⏳ carregando...'}),
-          e(ListaMarcar, {titulo: 'Modelos', opcoes: s.modelos, sel: s.selModelo, onAlternar: alternarModelo, carregando: s.carregModelos,
-            onLimpar: function() { mudar({selModelo: {}, achados: null}); carregarAnos({}, s.modelos); }, vazio: 'marque uma ou mais marcas'}),
-          e(ListaMarcar, {titulo: 'Anos', opcoes: s.anos, sel: s.selAno, onAlternar: alternarAno, carregando: s.carregAnos,
-            onLimpar: function() { mudar({selAno: {}, achados: null}); }, vazio: 'marque um ou mais modelos (sem ano = todos)'})),
+          e(ListaMarcar, {chave: 'modelo', titulo: 'Modelos', opcoes: s.modelos, sel: s.selModelo, onAlternar: alternarModelo, carregando: s.carregModelos,
+            onLimpar: function() { mudar({selModelo: {}, achados: null}); carregarAnos({}, s.modelos); carregarMotores({}, s.modelos); }, vazio: 'marque uma ou mais marcas'}),
+          e(ListaMarcar, {chave: 'ano', titulo: 'Anos', opcoes: s.anos, sel: s.selAno, onAlternar: alternarAno, carregando: s.carregAnos,
+            onLimpar: function() { mudar({selAno: {}, achados: null}); }, vazio: 'marque um ou mais modelos (sem ano = todos)'}),
+          e(ListaMarcar, {chave: 'motor', titulo: 'Motores', opcoes: s.motores, sel: s.selMotor, onAlternar: alternarMotor, carregando: s.carregMotores,
+            onLimpar: function() { mudar({selMotor: {}, achados: null}); }, vazio: 'marque um ou mais modelos (sem motor = todos)'})),
         !travado && e('div', {className: 'flex items-center gap-3'},
           e('button', {onClick: buscar, disabled: !podeBuscar,
             className: 'px-4 py-1.5 rounded text-sm font-bold ' + (podeBuscar ? 'bg-blue-600 hover:bg-blue-500 text-white' : 'bg-slate-700 text-slate-500')}, 'Ver versões'),
-          e('span', {className: 'text-xs text-slate-500'}, ids(s.selAno).length ? '' : 'nenhum ano marcado = todos os anos')),
+          e('span', {className: 'text-xs text-slate-500'}, ids(s.selAno).length ? '' : 'nenhum ano marcado = todos os anos'),
+          props.onPronto && marcados.length > 0 && e('button', {onClick: props.onPronto,
+            className: 'ml-auto px-4 py-1.5 rounded text-sm font-bold bg-emerald-700 hover:bg-emerald-600 text-white'},
+            '✓ Pronto, fechar compatibilidade')),
         s.carregando && e('div', {className: 'text-xs text-slate-400'}, '⏳ ' + s.carregando),
         s.achados && e('div', {className: 'bg-slate-900 rounded border border-slate-700 p-2 space-y-1'},
           e('div', {className: 'flex flex-wrap items-center gap-3 text-xs text-slate-400'},
@@ -787,8 +837,9 @@
               var valores = Object.assign({}, cur.valores || {});
               lista.forEach(function(a) {
                 if (valores[a.id]) return;
-                if (a.id === 'BRAND') valores[a.id] = it.marca.charAt(0) + it.marca.slice(1).toLowerCase();
-                if (a.id === 'PART_NUMBER') valores[a.id] = it.sku;
+                // Tudo em MAIÚSCULO, e o número de peça com a marca na frente (pedido dele).
+                if (a.id === 'BRAND') valores[a.id] = it.marca.toUpperCase();
+                if (a.id === 'PART_NUMBER') valores[a.id] = (it.marca + ' ' + it.sku).toUpperCase();
               });
               return Object.assign({}, cur, {categoria: cat, atributos: lista, valores: valores});
             });
@@ -955,9 +1006,16 @@
                 estado.rodando && e('div', {className: 'text-xs text-blue-300'}, '⏳ ' + estado.rodando),
                 estado.erro && e('div', {className: 'text-xs text-red-300'}, '⚠ ' + estado.erro)),
               e('div', {className: 'md:col-span-2 space-y-1 border-t border-slate-700 pt-3'},
-                e('label', {className: 'text-xs text-slate-400 block'}, 'Compatibilidade (carros em que a peça serve)'),
-                e(SeletorCompat, {conta: conta, marcados: d.compat || [], travado: props.criando,
-                  onMudar: function(lista) { mudar({compat: lista}); }}))));
+                e('div', {className: 'flex items-center gap-3'},
+                  e('label', {className: 'text-xs text-slate-400'}, 'Compatibilidade (carros em que a peça serve)'),
+                  e('button', {onClick: function() { mudar({compatFechada: !d.compatFechada}); },
+                    className: 'text-xs text-blue-300 underline'},
+                    d.compatFechada ? '▸ abrir' : '▾ fechar')),
+                d.compatFechada
+                  ? e('div', {className: 'text-xs text-emerald-300'}, '✓ ' + (d.compat || []).length + ' veículo(s) marcado(s)')
+                  : e(SeletorCompat, {conta: conta, marcados: d.compat || [], travado: props.criando,
+                      onMudar: function(lista) { mudar({compat: lista}); },
+                      onPronto: function() { mudar({compatFechada: true}); }}))));
     }
 
     // Aceita "1.234,56", "1234,56" e "1234.56".
