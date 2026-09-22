@@ -3440,15 +3440,18 @@
       // "Recatalogar" não tem nada a ver com estoque. Este X quer dizer "essa eu não
       // pretendo anunciar", e a única volta é o botão "mostrar os ocultos". Por isso o
       // contador fica sempre visível — esconder sem deixar rastro seria perder peça.
-      function dispensarParado(p) {
+      // `permanente`: o ✕ some só até o "Atualizar lista"; o 🚫 é pra peça que ele nunca
+      // vai anunciar (kit, item de uso interno) e não volta nem no refresh.
+      function dispensarParado(p, permanente) {
         var chave = p.marca + '|' + p.sku;
+        if (permanente && !confirm('Esconder ' + p.marca + ' ' + p.sku + ' PARA SEMPRE da lista de estoque parado?\n\nEla continua no estoque normal. Pra desfazer, use "mostrar as escondidas para sempre".')) return;
         setParadoDispensados(function(antes) {
           var novo = Object.assign({}, antes);
-          novo[chave] = true;
+          novo[chave] = permanente ? 'perm' : true;
           return novo;
         });
         supabase.from('ml_parado_dispensados')
-          .upsert({ marca: p.marca, sku: p.sku }, { onConflict: 'marca,sku' })
+          .upsert({ marca: p.marca, sku: p.sku, permanente: !!permanente }, { onConflict: 'marca,sku' })
           .then(function(r) {
             if (r && r.error) {
               setParadoDispensados(function(antes) {
@@ -3468,9 +3471,13 @@
       // numa lista de 1.376 peças, definitivo por engano é dinheiro que some de vista.
       function atualizarEstoqueParado() {
         setSkusAnunciados(null);           // volta pro "Carregando catálogo..."
-        supabase.from('ml_parado_dispensados').delete().neq('marca', ' ')
+        supabase.from('ml_parado_dispensados').delete().eq('permanente', false)
           .then(function() {
-            setParadoDispensados({});
+            setParadoDispensados(function(antes) {
+              var fica = {};   // as "para sempre" continuam escondidas
+              Object.keys(antes).forEach(function(k) { if (antes[k] === 'perm') fica[k] = 'perm'; });
+              return fica;
+            });
             carregarEstoque();
             carregarPrecos();
             carregarSkusAnunciados();
@@ -3673,9 +3680,9 @@
 
       function carregarSkusAnunciados() {
         // Traz junto o que foi dispensado: uma coisa não serve sem a outra.
-        supabase.from('ml_parado_dispensados').select('marca, sku').then(function(r) {
+        supabase.from('ml_parado_dispensados').select('marca, sku, permanente').then(function(r) {
           var fora = {};
-          (r.data || []).forEach(function(d) { fora[d.marca + '|' + d.sku] = true; });
+          (r.data || []).forEach(function(d) { fora[d.marca + '|' + d.sku] = d.permanente ? 'perm' : true; });
           setParadoDispensados(fora);
         });
 
@@ -7603,14 +7610,24 @@
                     // mesmo, mas quem acabou de esconder por engano está olhando pra cá,
                     // não pro cabeçalho.
                     (function() {
-                      var n = Object.keys(paradoDispensados).length;
-                      if (!n) return null;
+                      var chaves = Object.keys(paradoDispensados);
+                      var perm = chaves.filter(function(k) { return paradoDispensados[k] === 'perm'; }).length;
+                      if (!chaves.length) return null;
                       return e('span', {className: 'text-xs text-slate-500 whitespace-nowrap'},
-                        n + ' oculta(s) · ',
+                        (chaves.length - perm) + ' oculta(s) · ',
                         e('button', {
                           onClick: atualizarEstoqueParado,
                           className: 'text-blue-400 hover:text-blue-300 underline'
-                        }, 'mostrar todas')
+                        }, 'mostrar todas'),
+                        perm > 0 && e('span', null, ' · ' + perm + ' escondida(s) para sempre · ',
+                          e('button', {
+                            onClick: function() {
+                              if (!confirm('Trazer de volta as ' + perm + ' peças escondidas para sempre?')) return;
+                              supabase.from('ml_parado_dispensados').delete().eq('permanente', true)
+                                .then(function() { atualizarEstoqueParado(); });
+                            },
+                            className: 'text-blue-400 hover:text-blue-300 underline'
+                          }, 'trazer de volta'))
                       );
                     })()
                   ),
@@ -7668,7 +7685,7 @@
                             // vista. Com 300 linhas na tela, o olho precisa de trilho
                             // pra não pular de uma linha pra outra sem perceber.
                             className: 'group grid gap-2 pl-2 pr-3 py-2 text-xs border-b border-slate-700 last:border-0 items-center '
-                              + 'grid-cols-[24px_34px_110px_1fr_70px_90px_100px_28px] hover:bg-slate-700 '
+                              + 'grid-cols-[24px_34px_110px_1fr_70px_90px_100px_52px] hover:bg-slate-700 '
                               + (i % 2 === 1 ? 'bg-slate-800/40' : '')
                           },
                             // Encostado na borda esquerda: a numeração é referência, não
@@ -7694,13 +7711,18 @@
                             // Tirar a linha da lista. Discreto até o mouse passar pela
                             // linha: 300 ✕ vermelhos empilhados fariam a tela inteira
                             // parecer uma fila de exclusão, e ela é uma fila de trabalho.
-                            e('button', {
-                              onClick: function() { dispensarParado(p); },
-                              title: 'tirar da lista',
-                              className: 'h-5 w-5 rounded flex items-center justify-center text-[11px] '
-                                + 'text-slate-600 hover:text-white hover:bg-red-600 '
-                                + 'opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity'
-                            }, '✕')
+                            e('div', {className: 'flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity'},
+                              e('button', {
+                                onClick: function() { dispensarParado(p); },
+                                title: 'tirar da lista (volta no Atualizar lista)',
+                                className: 'h-5 w-5 rounded flex items-center justify-center text-[11px] text-slate-600 hover:text-white hover:bg-red-600'
+                              }, '✕'),
+                              // Peça que ele nunca vai anunciar: some de vez, não volta no refresh.
+                              e('button', {
+                                onClick: function() { dispensarParado(p, true); },
+                                title: 'esconder para sempre',
+                                className: 'h-5 w-5 rounded flex items-center justify-center text-[11px] text-slate-600 hover:text-white hover:bg-red-800'
+                              }, '🚫'))
                           );
                         }),
                         visiveis.length > 300 && e('div', {className: 'px-4 py-2 text-xs text-slate-500 text-center'},
