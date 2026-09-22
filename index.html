@@ -1588,6 +1588,9 @@
       var setParadoMarca = paradoMarcaState[1];
 
       // Linhas que o Matheus tirou da aba "Estoque parado". Chave: "MARCA|SKU".
+      var paradoSincronizandoState = useState(false);
+      var paradoSincronizando = paradoSincronizandoState[0];
+      var setParadoSincronizando = paradoSincronizandoState[1];
       var paradoDispensadosState = useState({});
       var paradoDispensados = paradoDispensadosState[0];
       var setParadoDispensados = paradoDispensadosState[1];
@@ -3470,9 +3473,23 @@
       // Mesmo combinado da aba de clonagem: o ✕ é "já vi, não agora", e o refresh
       // recomeça a análise. Sem uma rotina de volta, esconder virava definitivo — e
       // numa lista de 1.376 peças, definitivo por engano é dinheiro que some de vista.
+      // Busca o catálogo no ML ANTES de recarregar.
+      //
+      // O botão relia o nosso catálogo, que o robô atualiza de 3 em 3 horas. Anúncio
+      // criado (ou SKU trocado no painel) depois da última leitura continuava aparecendo
+      // como parado — aconteceu em 22/09/2026 com o SCHADEK 20.291, criado 3 minutos
+      // depois da sincronização. Agora o botão vai no ML primeiro.
       function atualizarEstoqueParado() {
         setSkusAnunciados(null);           // volta pro "Carregando catálogo..."
-        supabase.from('ml_parado_dispensados').delete().eq('permanente', false)
+        setParadoSincronizando(true);
+        Promise.all(['KMP', 'ERP', 'LTS'].map(function(conta) {
+          return fetch('https://pylkufhziohxvwbbaued.supabase.co/functions/v1/ml-sincronizar-anuncios?conta=' + conta)
+            .then(function(r) { return r.json(); }).catch(function() { return null; });
+        })).then(function() { setParadoSincronizando(false); return seguirAtualizandoParado(); });
+      }
+
+      function seguirAtualizandoParado() {
+        return supabase.from('ml_parado_dispensados').delete().eq('permanente', false)
           .then(function() {
             setParadoDispensados(function(antes) {
               var fica = {};   // as "para sempre" continuam escondidas
@@ -7567,8 +7584,10 @@
                       e('h2', {className: 'text-lg font-bold'}, '📥 Estoque parado — peças que você tem e não vende'),
                       e('button', {
                         onClick: atualizarEstoqueParado,
-                        className: 'flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors'
-                      }, '🔄 Atualizar lista')
+                        disabled: paradoSincronizando,
+                        className: 'flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-colors ' +
+                          (paradoSincronizando ? 'bg-slate-700 text-slate-400 cursor-wait' : 'bg-blue-600 hover:bg-blue-500 text-white')
+                      }, paradoSincronizando ? '⏳ buscando no Mercado Livre...' : '🔄 Atualizar lista')
                     ),
                     e('p', {className: 'text-slate-400 text-sm'},
                       'Tem unidade em estoque e não está anunciada em nenhuma das três lojas. ' +
