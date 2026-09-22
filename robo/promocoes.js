@@ -160,6 +160,9 @@ async function tarifaDe(sb, cache, categoria, tipo, preco, auth) {
 // anúncios já está velha demais e recomeçamos do zero.
 const PROGRESSO_VALE_MS = 12 * 60 * 60 * 1000;
 
+// Quantos anúncios cada passada leva adiante antes de ceder a vez às tarefas.
+const MIN_POR_PASSADA = 150;
+
 async function varrerConta(sb, conta, log, semInterrupcao) {
   const { data: tok } = await sb.from('ml_tokens')
     .select('user_id, access_token').eq('conta', conta).maybeSingle();
@@ -291,7 +294,13 @@ async function varrerConta(sb, conta, log, semInterrupcao) {
       // posição: o cache antigo segue na tela e a próxima passada continua daqui.
       // Na varredura da madrugada (semInterrupcao) ninguém está esperando, então ela
       // vai até o fim.
-      if (!semInterrupcao && await temTarefaDoMatheus(sb)) {
+      // Um pedaço MÍNIMO por passada, senão ela não anda.
+      //
+      // Só continuar de onde parou não bastou: em 22/09/2026 caía tarefa na fila nos
+      // primeiros 30 segundos toda vez, e cada patrulha avançava 25 anúncios — 20 horas
+      // pra fechar a KMP. Agora cada passada leva no mínimo MIN_POR_PASSADA adiante
+      // (~2 min), que é o atraso máximo que uma tarefa vai esperar.
+      if (!semInterrupcao && (i + 1 - comecoEm) >= MIN_POR_PASSADA && await temTarefaDoMatheus(sb)) {
         await guardarPedaco(i + 1);
         log(`  ${conta}: tarefa na fila — pausando em ${i + 1}/${ids.length} (continua na próxima)`);
         return { conta, anuncios: ids.length, interrompida: true, parou_em: i + 1 };
