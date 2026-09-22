@@ -137,6 +137,7 @@ Deno.serve(async (req: Request) => {
           id: a.id,
           nome: a.name,
           obrigatorio: !!a.tags?.required,
+          multi: !!a.tags?.multivalued,   // aceita vários valores (ex.: Código OEM)
           tipo: a.value_type,
           unidade: a.default_unit || null,
           valores: (a.values || []).map((v: any) => ({ id: v.id, nome: v.name })),
@@ -227,7 +228,10 @@ Deno.serve(async (req: Request) => {
       const fotosFinal = fotosProduto.concat(fotosTemplate);
 
       const atributosFinal = [
-        ...(atributos || []).map((a: any) => ({ id: a.id, value_name: a.value_name, ...(a.value_id ? { value_id: a.value_id } : {}) })),
+        // `values` é o formato de quem aceita vários (Código OEM). Quando vem, manda só ele.
+        ...(atributos || []).map((a: any) => a.values
+          ? { id: a.id, values: a.values }
+          : { id: a.id, value_name: a.value_name, ...(a.value_id ? { value_id: a.value_id } : {}) }),
         ...(sku ? [{ id: "SELLER_SKU", value_name: sku }] : []),
       ];
 

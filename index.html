@@ -871,6 +871,17 @@
       function campoAtributo(a, sufixo) {
         var val = (d.valores || {})[a.id] || '';
         function por(v) { var n = Object.assign({}, d.valores); n[a.id] = v; mudar({valores: n}); }
+        // Campo de vários valores (Código OEM): um por linha. O ML guarda como lista,
+        // e assim cada código vira um valor de verdade, não um texto comprido só.
+        if (a.multi) {
+          return e('div', {key: a.id},
+            e('label', {className: 'text-xs text-slate-400 block'}, a.nome + ' — um por linha'),
+            e('textarea', {value: val, rows: 3, disabled: props.criando,
+              placeholder: '1662000420\n1662000620\nA16620000520',
+              onChange: function(ev) { por(ev.target.value); }, className: campo}),
+            val && val !== NAO_SE_APLICA && e('div', {className: 'text-[10px] text-slate-500'},
+              val.split('\n').filter(function(x) { return x.trim(); }).length + ' código(s)'));
+        }
         var fechada = a.tipo === 'boolean' || a.tipo === 'list';
         var listaId = 'sug-' + it.chave + '-' + a.id;
         return e('div', {key: a.id},
@@ -1123,6 +1134,10 @@
               atributos: (d.atributos || []).filter(function(a) { return (d.valores || {})[a.id]; }).map(function(a) {
                 var val = String(d.valores[a.id]).trim();
                 if (val === NAO_SE_APLICA) return {id: a.id, value_id: '-1'};
+                if (a.multi) {
+                  var lista = val.split('\n').map(function(x) { return x.trim(); }).filter(Boolean);
+                  return {id: a.id, values: lista.map(function(x) { return {name: x}; })};
+                }
                 var op = (a.valores || []).filter(function(v) { return v.nome === val; })[0];
                 if (op) return {id: a.id, value_name: op.nome, value_id: op.id};
                 // Medida digitada só com o número: completa com a unidade da categoria ("45" -> "45 cm").
