@@ -865,17 +865,30 @@
       if (!(d.descricao || '').trim()) faltando.push('descrição');
 
       var campo = 'w-full bg-slate-900 text-slate-100 rounded px-2 py-1.5 border border-slate-600 text-sm';
+      // Lista fechada (Sim/Não, Tipo de veículo): vira menu, com "Não se aplica" igual ao ML.
+      // Lista aberta (Material do corpo...): vira campo de digitar com as sugestões do ML —
+      // ele quis escrever "METAL", que não estava na lista.
       function campoAtributo(a, sufixo) {
         var val = (d.valores || {})[a.id] || '';
         function por(v) { var n = Object.assign({}, d.valores); n[a.id] = v; mudar({valores: n}); }
+        var fechada = a.tipo === 'boolean' || a.tipo === 'list';
+        var listaId = 'sug-' + it.chave + '-' + a.id;
         return e('div', {key: a.id},
           e('label', {className: 'text-xs text-slate-400 block'}, a.nome + (a.unidade ? ' (' + a.unidade + ')' : '') + sufixo),
-          (a.valores || []).length
+          fechada && (a.valores || []).length
             ? e('select', {value: val, disabled: props.criando, onChange: function(ev) { por(ev.target.value); }, className: campo},
                 e('option', {value: ''}, '— escolha —'),
-                a.valores.map(function(o) { return e('option', {key: o.id, value: o.nome}, o.nome); }))
-            : e('input', {value: val, disabled: props.criando, inputMode: a.tipo === 'number_unit' ? 'decimal' : undefined,
-                onChange: function(ev) { por(ev.target.value); }, className: campo}));
+                a.valores.map(function(o) { return e('option', {key: o.id, value: o.nome}, o.nome); }),
+                !a.obrigatorio && e('option', {value: NAO_SE_APLICA}, NAO_SE_APLICA))
+            : e('div', null,
+                e('input', {value: val, disabled: props.criando, list: (a.valores || []).length ? listaId : undefined,
+                  inputMode: a.tipo === 'number_unit' ? 'decimal' : undefined,
+                  onChange: function(ev) { por(ev.target.value); }, className: campo}),
+                (a.valores || []).length > 0 && e('datalist', {id: listaId},
+                  a.valores.map(function(o) { return e('option', {key: o.id, value: o.nome}); })),
+                !a.obrigatorio && !props.criando && e('label', {className: 'flex items-center gap-1 text-[10px] text-slate-500 mt-0.5 cursor-pointer'},
+                  e('input', {type: 'checkbox', checked: val === NAO_SE_APLICA,
+                    onChange: function(ev) { por(ev.target.checked ? NAO_SE_APLICA : ''); }}), NAO_SE_APLICA)));
       }
 
       var cor = estado.ok ? 'border-emerald-600' : estado.erro ? 'border-red-600' : 'border-slate-700';
@@ -1027,6 +1040,9 @@
       return isNaN(n) ? 0 : n;
     }
 
+    // "Não se aplica" no ML é o valor de id "-1" — vale para qualquer característica.
+    var NAO_SE_APLICA = 'Não se aplica';
+
     function medidasOk(d) {
       return ['comprimento', 'largura', 'altura', 'peso'].every(function(k) { return precoParaNumeroGlobal(d[k]) > 0; });
     }
@@ -1106,6 +1122,7 @@
               sku: it.marca + ': ' + it.sku,
               atributos: (d.atributos || []).filter(function(a) { return (d.valores || {})[a.id]; }).map(function(a) {
                 var val = String(d.valores[a.id]).trim();
+                if (val === NAO_SE_APLICA) return {id: a.id, value_id: '-1'};
                 var op = (a.valores || []).filter(function(v) { return v.nome === val; })[0];
                 if (op) return {id: a.id, value_name: op.nome, value_id: op.id};
                 // Medida digitada só com o número: completa com a unidade da categoria ("45" -> "45 cm").
