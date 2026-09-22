@@ -2278,7 +2278,8 @@
           .order('atualizado_em', { ascending: false }).limit(1)
           .then(function(r) { if (r.data && r.data[0]) guardar('catalogo', r.data[0].atualizado_em); });
 
-        supabase.from('ml_promocoes_itens').select('atualizado_em')
+        // `parcial = false`: linha de varredura pela metade não conta como atualização.
+        supabase.from('ml_promocoes_itens').select('atualizado_em').eq('parcial', false)
           .order('atualizado_em', { ascending: false }).limit(1)
           .then(function(r) { if (r.data && r.data[0]) guardar('promocoes', r.data[0].atualizado_em); });
 
@@ -2289,7 +2290,7 @@
         // então KMP era lida toda hora e a ERP e a LTS ficavam pra trás sem ninguém ver.
         // Com um selo por loja, loja atrasada aparece.
         ['KMP', 'ERP', 'LTS'].forEach(function(c) {
-          supabase.from('ml_promocoes_itens').select('atualizado_em').eq('conta', c)
+          supabase.from('ml_promocoes_itens').select('atualizado_em').eq('conta', c).eq('parcial', false)
             .order('atualizado_em', { ascending: false }).limit(1)
             .then(function(r) {
               if (r.data && r.data[0]) guardar('promocoes_' + c, r.data[0].atualizado_em);
@@ -2531,7 +2532,7 @@
         // porque o Supabase devolve no máximo 1000 linhas por vez, e a KMP tem 2.300.
         (function carregarTudo(inicio, acumulado) {
           supabase.from('ml_promocoes_itens').select('*')
-            .eq('conta', p.conta).order('item_id').range(inicio, inicio + 999)
+            .eq('conta', p.conta).eq('parcial', false).order('item_id').range(inicio, inicio + 999)
             .then(function(r) {
               if (r.error || !r.data) { setPromoCarregando(false); return; }
               var tudo = acumulado.concat(r.data);

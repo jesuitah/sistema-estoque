@@ -176,6 +176,8 @@ let patrulhaEmAndamento = false;
 // tela força na hora quando o Matheus quiser.
 const VARREDURA_PROMO_MS = 24 * 60 * 60 * 1000;
 let ultimaVarreduraPromo = 0;
+// A rodada das 4h da manhã, que vai até o fim sem interromper. Uma por dia.
+let ultimaVarreduraMadrugada = 0;
 
 // O robô conferindo a si mesmo. Grava o que encontra em robo_alertas e a tela mostra.
 const VIGIA_MS = 15 * 60 * 1000;
@@ -1301,7 +1303,16 @@ async function main() {
 
           // Uma vez por dia, recataloga as promoções. Fica junto da patrulha porque
           // aqui já sabemos que a fila está vazia — não disputa com as tarefas dele.
-          if (Date.now() - ultimaVarreduraPromo > VARREDURA_PROMO_MS) {
+          // De madrugada (4h) a fila está vazia e ninguém espera o robô: a varredura
+          // roda inteira, sem parar no meio. É a rede de segurança pro caso de os
+          // pedaços do dia não terem fechado o ciclo.
+          const agoraHora = new Date().getHours();
+          const madrugada = agoraHora === 4;
+          const rodadaDaMadrugada = madrugada && (!ultimaVarreduraMadrugada
+            || new Date(ultimaVarreduraMadrugada).toDateString() !== new Date().toDateString());
+
+          if (rodadaDaMadrugada || Date.now() - ultimaVarreduraPromo > VARREDURA_PROMO_MS) {
+            if (rodadaDaMadrugada) ultimaVarreduraMadrugada = Date.now();
             ultimaVarreduraPromo = Date.now();
             // O CATÁLOGO VEM PRIMEIRO, e não é detalhe de ordem.
             //
@@ -1313,7 +1324,7 @@ async function main() {
 
             log('🏷 recatalogando promoções...');
             try {
-              const r = await varrerPromocoes({ log: (m) => log(m) });
+              const r = await varrerPromocoes({ log: (m) => log(m), semInterrupcao: rodadaDaMadrugada });
               const interrompidas = (r || []).filter((x) => x.interrompida).map((x) => x.conta);
               await atualizarCustos(undefined, log);
               if (interrompidas.length) {

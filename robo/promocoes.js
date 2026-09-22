@@ -156,15 +156,37 @@ async function tarifaDe(sb, cache, categoria, tipo, preco, auth) {
   return cache[chave];
 }
 
-async function varrerConta(sb, conta, log) {
+// Quanto tempo um progresso interrompido continua valendo. Passou disso, a lista de
+// anúncios já está velha demais e recomeçamos do zero.
+const PROGRESSO_VALE_MS = 12 * 60 * 60 * 1000;
+
+async function varrerConta(sb, conta, log, semInterrupcao) {
   const { data: tok } = await sb.from('ml_tokens')
     .select('user_id, access_token').eq('conta', conta).maybeSingle();
   if (!tok) { log(`  ${conta}: sem token, pulando`); return null; }
   const auth = { Authorization: `Bearer ${tok.access_token}` };
 
-  const ids = await idsAtivos(tok.user_id, auth);
-  log(`  ${conta}: ${ids.length} anúncios ativos`);
-  const dados = await dadosDosAnuncios(ids, auth);
+  // CONTINUA DE ONDE PAROU.
+  //
+  // A varredura leva ~18 min por loja e para assim que cai tarefa na fila. Como ele
+  // mexe em anúncio o dia inteiro, ela era interrompida sempre nos primeiros minutos e
+  // recomeçava do zero — em 22/09/2026 rodou 3 vezes e nenhuma passou de 30 segundos,
+  // e o cache ficou um dia parado. Agora o que já foi lido é gravado como `parcial` e
+  // a posição fica guardada: cada patrulha avança um pedaço até fechar o ciclo.
+  const { data: prog } = await sb.from('ml_promocoes_progresso').select('*').eq('conta', conta).maybeSingle();
+  const progressoVale = prog && prog.ids && (Date.now() - new Date(prog.atualizado_em).getTime()) < PROGRESSO_VALE_MS;
+
+  let ids, comecoEm;
+  if (progressoVale) {
+    ids = prog.ids;
+    comecoEm = prog.posicao || 0;
+    log(`  ${conta}: retomando de ${comecoEm}/${ids.length}`);
+  } else {
+    ids = await idsAtivos(tok.user_id, auth);
+    comecoEm = 0;
+    await sb.from('ml_promocoes_itens').delete().eq('conta', conta).eq('parcial', true);
+    log(`  ${conta}: ${ids.length} anúncios ativos`);
+  }
 
   // Datas das campanhas.
   //
@@ -187,10 +209,27 @@ async function varrerConta(sb, conta, log) {
     }
   } catch (_e) { /* segue sem as datas */ }
 
-  const linhas = [];
+  const dados = await dadosDosAnuncios(ids.slice(comecoEm), auth);
+
+  let linhas = [];
   const cacheTarifa = {};
   let erros = 0;
-  for (let i = 0; i < ids.length; i++) {
+
+  // Grava o pedaço já lido e guarda a posição, pra próxima passada continuar daqui.
+  async function guardarPedaco(posicao) {
+    if (linhas.length) {
+      for (let j = 0; j < linhas.length; j += 500) {
+        const { error } = await sb.from('ml_promocoes_itens')
+          .insert(linhas.slice(j, j + 500).map((l) => Object.assign({}, l, { parcial: true })));
+        if (error) throw new Error(`falha ao gravar o cache: ${error.message}`);
+      }
+      linhas = [];
+    }
+    await sb.from('ml_promocoes_progresso')
+      .upsert({ conta, ids, posicao, atualizado_em: new Date().toISOString() }, { onConflict: 'conta' });
+  }
+
+  for (let i = comecoEm; i < ids.length; i++) {
     const id = ids[i];
     const d = dados[id] || {};
     try {
@@ -248,31 +287,39 @@ async function varrerConta(sb, conta, log) {
         detalhe: { varrendo_promocoes: true, conta, lidos: i + 1, total: ids.length },
       }).eq('id', 1).then(() => {}, () => {});
 
-      // Chegou tarefa do Matheus? Ela vem primeiro. Interrompemos a varredura sem
-      // gravar nada — o cache antigo continua valendo e a varredura recomeça depois.
-      if (await temTarefaDoMatheus(sb)) {
-        log(`  ${conta}: tarefa na fila — interrompendo a varredura pra atender`);
-        return { conta, anuncios: ids.length, interrompida: true };
+      // Chegou tarefa do Matheus? Ela vem primeiro. Guardamos o pedaço lido e a
+      // posição: o cache antigo segue na tela e a próxima passada continua daqui.
+      // Na varredura da madrugada (semInterrupcao) ninguém está esperando, então ela
+      // vai até o fim.
+      if (!semInterrupcao && await temTarefaDoMatheus(sb)) {
+        await guardarPedaco(i + 1);
+        log(`  ${conta}: tarefa na fila — pausando em ${i + 1}/${ids.length} (continua na próxima)`);
+        return { conta, anuncios: ids.length, interrompida: true, parou_em: i + 1 };
       }
+      await guardarPedaco(i + 1);
     }
   }
 
-  // Troca o cache desta conta de uma vez só, pra tela nunca ver meio caminho.
-  await sb.from('ml_promocoes_itens').delete().eq('conta', conta);
-  for (let i = 0; i < linhas.length; i += 500) {
-    const { error } = await sb.from('ml_promocoes_itens').insert(linhas.slice(i, i + 500));
-    if (error) throw new Error(`falha ao gravar o cache: ${error.message}`);
-  }
+  // Terminou a conta: grava o resto como parcial, joga fora o cache velho e promove
+  // o novo de uma vez só — a tela nunca vê meio caminho, porque só lê `parcial = false`.
+  await guardarPedaco(ids.length);
+  await sb.from('ml_promocoes_itens').delete().eq('conta', conta).eq('parcial', false);
+  const { error: erroPromover } = await sb.from('ml_promocoes_itens')
+    .update({ parcial: false }).eq('conta', conta).eq('parcial', true);
+  if (erroPromover) throw new Error(`falha ao trocar o cache: ${erroPromover.message}`);
+  await sb.from('ml_promocoes_progresso').delete().eq('conta', conta);
 
-  log(`  ${conta}: ${linhas.length} oportunidades de promoção${erros ? ` · ${erros} anúncios não responderam` : ''}`);
-  return { conta, anuncios: ids.length, oportunidades: linhas.length, erros };
+  const { count } = await sb.from('ml_promocoes_itens')
+    .select('id', { count: 'exact', head: true }).eq('conta', conta);
+  log(`  ${conta}: ${count} oportunidades de promoção${erros ? ` · ${erros} anúncios não responderam` : ''}`);
+  return { conta, anuncios: ids.length, oportunidades: count, erros };
 }
 
-async function varrer({ contas = CONTAS, log = console.log } = {}) {
+async function varrer({ contas = CONTAS, log = console.log, semInterrupcao = false } = {}) {
   const sb = conectar();
   const saida = [];
   for (const conta of contas) {
-    const r = await varrerConta(sb, conta, log).catch((e) => {
+    const r = await varrerConta(sb, conta, log, semInterrupcao).catch((e) => {
       log(`  ${conta}: falhou — ${e.message}`);
       return null;
     });
