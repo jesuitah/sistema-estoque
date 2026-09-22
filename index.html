@@ -724,7 +724,6 @@
     function CartaoCriacao(props) {
       var it = props.item, conta = props.conta, estado = props.estado || {};
       var d = props.dados, setD = props.setDados;
-      var maisSt = useState(false); var mais = maisSt[0]; var setMais = maisSt[1];
       var outraSt = useState(''); var outra = outraSt[0]; var setOutra = outraSt[1];
 
       // Sempre pelo estado ATUAL: foto convertendo e categoria chegando podem voltar
@@ -900,13 +899,19 @@
                     onKeyDown: function(ev) { if (ev.key === 'Enter') procurarOutra(); }, className: campo}),
                   e('button', {onClick: procurarOutra, className: 'px-3 rounded text-sm bg-slate-700 hover:bg-slate-600 text-slate-200'}, 'Trocar')),
                 (d.atributos || []).filter(function(a) { return a.obrigatorio; }).map(function(a) { return campoAtributo(a, ' (obrigatório)'); }),
-                (d.atributos || []).some(function(a) { return !a.obrigatorio; }) && e('button', {onClick: function() { setMais(!mais); },
-                    className: 'text-xs text-blue-300 underline block'},
-                  (mais ? '▾ ' : '▸ ') + 'Mais características (sobem a nota) — ' +
-                  (d.atributos || []).filter(function(a) { return !a.obrigatorio && (d.valores || {})[a.id]; }).length + ' de ' +
-                  (d.atributos || []).filter(function(a) { return !a.obrigatorio; }).length + ' preenchidas'),
-                mais && (d.atributos || []).filter(function(a) { return !a.obrigatorio; }).map(function(a) { return campoAtributo(a, ''); }),
-                null),
+                // Secundárias e regulatórias ABERTAS: estavam atrás de um link e ele acabava
+                // preenchendo no painel do ML depois. Mesma divisão que o ML usa lá.
+                (function() {
+                  var regulatorio = function(a) { return /INMETRO|DETRAN|REGULATORY/.test(a.id); };
+                  var sec = (d.atributos || []).filter(function(a) { return !a.obrigatorio && !regulatorio(a); });
+                  var reg = (d.atributos || []).filter(function(a) { return !a.obrigatorio && regulatorio(a); });
+                  return e('div', {className: 'space-y-2'},
+                    sec.length > 0 && e('div', {className: 'text-xs font-bold text-slate-300 pt-2'},
+                      'Características secundárias — ' + sec.filter(function(a) { return (d.valores || {})[a.id]; }).length + ' de ' + sec.length + ' preenchidas'),
+                    sec.map(function(a) { return campoAtributo(a, ''); }),
+                    reg.length > 0 && e('div', {className: 'text-xs font-bold text-slate-300 pt-2'}, 'Informação regulatória'),
+                    reg.map(function(a) { return campoAtributo(a, ''); }));
+                })()),
               e('div', {className: 'space-y-2'},
                 e('label', {className: 'text-xs text-slate-400 block'}, 'Preço (R$)' + (d.precoOrigem ? ' — ' + d.precoOrigem : '')),
                 e('input', {value: d.preco || '', inputMode: 'decimal', disabled: props.criando,

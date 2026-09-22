@@ -127,8 +127,11 @@ Deno.serve(async (req: Request) => {
         .filter((a) => {
           const tg = a.tags || {};
           if (JA_PREENCHIDOS.has(a.id)) return false;
+          if (a.value_type === "picture_id") return false;   // pede imagem (ex.: QR regulatório), não texto
           if (tg.required) return true;
-          return !(tg.hidden || tg.read_only || tg.fixed || tg.others || tg.variation_attribute || tg.allow_variations);
+          // variation_attribute entra: é a etiqueta do Código OEM, que em autopeça é dos
+          // campos que mais importam. Fica fora só o que o ML esconde ou trava.
+          return !(tg.hidden || tg.read_only || tg.fixed || tg.others || tg.allow_variations);
         })
         .map((a) => ({
           id: a.id,
@@ -270,32 +273,10 @@ Deno.serve(async (req: Request) => {
         body: JSON.stringify({ status: "paused" }),
       });
 
-      // Embalagem de FÁBRICA (PACKAGE_*): o ML ignora na criação ("not modifiable"), então
-      // grava depois, com o anúncio já pausado, e confere se ficou. A de ENVIO (SELLER_PACKAGE_*)
-      // vai igual à de fábrica = "Na embalagem de fábrica, sem nada extra", como ele faz no painel.
-      const avisosEmb: string[] = [];
-      if (comprimento && largura && altura && peso) {
-        const fab = [
-          { id: "PACKAGE_LENGTH", value_name: `${comprimento} cm` },
-          { id: "PACKAGE_WIDTH", value_name: `${largura} cm` },
-          { id: "PACKAGE_HEIGHT", value_name: `${altura} cm` },
-          { id: "PACKAGE_WEIGHT", value_name: `${peso} g` },
-        ];
-        await fetch(`https://api.mercadolibre.com/items/${novo.id}`, {
-          method: "PUT",
-          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ attributes: fab }),
-        });
-        const conf = await fetch(`https://api.mercadolibre.com/items/${novo.id}?include_attributes=all`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }).then((r) => r.json()).catch(() => ({}));
-        const num = (v: string) => parseFloat(String(v || "").replace(",", "."));
-        const errado = fab.filter((f) => {
-          const a = (conf.attributes || []).find((x: any) => x.id === f.id);
-          return !a || num(a.value_name) !== num(f.value_name);
-        });
-        if (errado.length) avisosEmb.push("embalagem de fábrica não gravou — ajuste no ML");
-      }
+      // Embalagem de FÁBRICA (PACKAGE_*): TESTADO em 22/09/2026 — o ML NÃO grava pela API.
+      // Na criação responde "ignored because it is not modifiable"; no PUT responde 200 e não
+      // salva; em /user-products não existe endpoint. Só pelo painel. Por isso o aviso.
+      const avisos: string[] = ["embalagem de fábrica: só dá pra preencher no painel do ML"];
 
       // Descrição: a que ele completou no cartão (aplicações, códigos, conteúdo da caixa).
       const respDesc = await fetch(`https://api.mercadolibre.com/items/${novo.id}/description`, {
@@ -303,7 +284,6 @@ Deno.serve(async (req: Request) => {
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify({ plain_text: (descricao && String(descricao).trim()) ? descricao : DESCRICAO_PADRAO }),
       });
-      const avisos: string[] = [...avisosEmb];
       if (!respDesc.ok) avisos.push("descrição não foi gravada");
 
       // Compatibilidade: tenta no item; se o ML pedir, vai pelo user-product (igual à clonagem).
