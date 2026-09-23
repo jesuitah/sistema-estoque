@@ -140,12 +140,14 @@ async function levantarProblemas(sb) {
     // tarifa da tabela oficial por categoria. Então o que precisa existir são essas
     // duas tabelas — conferir `frete_custo` linha a linha virou alarme falso (o campo
     // está vazio de propósito desde a correção).
+    // `parcial = false`: a varredura grava o que já leu enquanto anda, e essas linhas
+    // ainda não passaram pela reposição de frete/categoria. Contá-las era alarme falso.
     // O frete de cada anúncio vem do próprio ML. Se a varredura de promoções recriar o
     // cache e a reposição falhar, a coluna "Você recebe" fica sem descontar frete — e
     // como o número não aparece na tela, ninguém percebe. Daí o alerta.
     const { count: semFrete } = await sb.from('ml_promocoes_itens')
       .select('item_id', { count: 'exact', head: true })
-      .eq('status', 'started').is('frete_oficial', null);
+      .eq('status', 'started').eq('parcial', false).is('frete_oficial', null);
     if (semFrete > 20) {
       achados.push({
         chave: 'frete_faltando', gravidade: 'aviso',
@@ -155,7 +157,7 @@ async function levantarProblemas(sb) {
 
     const { count: semCategoria } = await sb.from('ml_promocoes_itens')
       .select('item_id', { count: 'exact', head: true })
-      .eq('status', 'started').is('categoria', null);
+      .eq('status', 'started').eq('parcial', false).is('categoria', null);
     if (semCategoria > 0) {
       achados.push({
         chave: 'tarifa_faltando', gravidade: 'aviso',
