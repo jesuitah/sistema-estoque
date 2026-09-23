@@ -1708,7 +1708,13 @@
       // Era um sim/não, e por isso clicar em KMP apagava os três botões de uma vez —
       // parecia que o sistema ia recatalogar as três lojas, quando só a KMP tinha ido
       // pra fila. Guardando o nome da loja, cada botão sabe se o assunto é com ele.
-      var promoPedindoState = useState(null);   // null | 'KMP' | 'ERP' | 'LTS'
+      // Quais lojas estão esperando varredura. É um mapa {KMP: true, ...}, não uma loja
+      // só: guardando uma, clicar nas três deixava só a última com o aviso na tela.
+      var promoPedindoState = useState({});
+      // O que o BANCO diz que está na fila (sobrevive a recarregar a página).
+      var promoNaFilaState = useState({});
+      var promoNaFila = promoNaFilaState[0];
+      var setPromoNaFila = promoNaFilaState[1];
 
       // Qual rotina da aba Robô acabou de ser pedida no "Rodar agora".
       //
@@ -2216,6 +2222,21 @@
         supabase.from('robo_status').select('*').eq('id', 1).maybeSingle()
           .then(function(r) { if (!r.error) setRoboStatus(r.data); });
 
+        // Varreduras de promoção esperando na fila, por loja.
+        supabase.from('ml_tarefas_robo').select('conta, status')
+          .eq('tipo', 'varrer_promocoes').in('status', ['pendente', 'rodando'])
+          .then(function(r) {
+            var m = {};
+            (r.data || []).forEach(function(t) { m[t.conta] = t.status; });
+            setPromoNaFila(m);
+            // Quem saiu da fila também sai do "acabei de pedir".
+            setPromoPedindo(function(antes) {
+              var n = {};
+              Object.keys(antes).forEach(function(c) { if (m[c]) n[c] = true; });
+              return n;
+            });
+          });
+
         // Histórico: sem isto, a tela esquece o que aconteceu assim que atualiza.
         supabase.from('ml_log_acoes')
           // 200 e não 60: as duas abas leem daqui, e com o limite baixo o histórico de
@@ -2485,7 +2506,7 @@
         // Marca "pedido" na hora. Sem isto o botão fica mudo por até meio minuto — o
         // robô só olha a fila a cada 3s e a tela só relê o status a cada 30s — e você
         // não sabe se o clique funcionou.
-        setPromoPedindo(conta);
+        setPromoPedindo(function(antes) { var n = Object.assign({}, antes); n[conta] = true; return n; });
         // Não empilha pedidos. Clicar 3x criava 3 varreduras seguidas da mesma loja —
         // ~18 minutos de trabalho repetido pelo mesmo resultado.
         supabase.from('ml_tarefas_robo')
@@ -5362,9 +5383,8 @@
               (function() {
                 var varrendo = roboStatus && roboStatus.detalhe && roboStatus.detalhe.varrendo_promocoes
                   ? roboStatus.detalhe : null;
-                var naFila = Object.values(roboTarefas).some(function(t) {
-                  return t.tipo === 'varrer_promocoes' && (t.status === 'pendente' || t.status === 'rodando');
-                });
+                // Alguma loja esperando? Os dois são mapas por loja.
+                var naFila = Object.keys(promoNaFila).length > 0 || Object.keys(promoPedindo).length > 0;
 
                 return e('div', {className: 'bg-slate-800 border border-slate-700 p-5 rounded-lg'},
                   e('div', {className: 'flex items-center justify-between flex-wrap gap-2'},
@@ -5374,12 +5394,12 @@
                     // Aqui fica só a informação de se a lista está em dia.
                     varrendo
                       ? e('span', {className: 'text-sm text-sky-300 font-bold'}, '⏳ atualizando...')
-                      : (naFila || promoPedindo)
+                      : naFila
                         ? e('span', {className: 'text-sm text-sky-300 font-bold'}, '⏳ o robô vai começar...')
                         : seloAtualizacao('promocoes', 26)
                   ),
 
-                  !varrendo && (naFila || promoPedindo) && e('div', {className: 'mt-3 text-xs text-sky-300 bg-sky-900 bg-opacity-25 border border-sky-800 rounded px-3 py-2'},
+                  !varrendo && naFila && e('div', {className: 'mt-3 text-xs text-sky-300 bg-sky-900 bg-opacity-25 border border-sky-800 rounded px-3 py-2'},
                     '⏳ Pedido enviado. O robô pega em alguns segundos e a leitura leva uns 6 minutos.'),
 
                   varrendo && e('div', {className: 'mt-3'},
@@ -5971,8 +5991,16 @@
                   // Só apaga o botão DESTA loja. As outras duas continuam clicáveis:
                   // o robô faz uma de cada vez, e pedir a segunda enquanto a primeira
                   // roda só põe na fila — ela espera a vez sem atrapalhar nada.
-                  var minhaVez = promoPedindo === c || (varrendo && det.conta === c);
+                  var lendoAgora = varrendo && det.conta === c;
+                  var esperando = !!promoPedindo[c] || !!promoNaFila[c];
+                  var minhaVez = lendoAgora || esperando;
                   var bloqueado = !ligado || minhaVez;
+                  // Cada loja com o SEU estado embaixo do botão: lendo (com o progresso),
+                  // na fila, ou há quanto tempo foi a última. Antes isso existia uma vez
+                  // só, fora dos botões, e clicar nas três mostrava só uma.
+                  var recado = lendoAgora ? '🔍 ' + det.lidos + ' de ' + det.total
+                    : esperando ? '⏳ na fila'
+                    : desdeQuando(quando);
                   return e('div', {key: c, className: 'flex flex-col items-stretch gap-1'},
                     e('button', {
                       onClick: function() { pedirVarreduraPromocoes(c); },
@@ -5982,11 +6010,12 @@
                         (bloqueado
                           ? 'bg-slate-700 text-slate-500 border-slate-700 cursor-not-allowed'
                           : 'bg-blue-600 hover:bg-blue-500 text-white border-blue-500')
-                    }, '🔄 ' + c),
+                    }, (lendoAgora ? '⏳ ' : '🔄 ') + c),
                     e('span', {
                       className: 'text-[11px] text-center ' +
-                        (atrasada ? 'text-amber-400 font-semibold' : 'text-slate-500')
-                    }, desdeQuando(quando))
+                        (lendoAgora || esperando ? 'text-sky-300 font-semibold'
+                          : atrasada ? 'text-amber-400 font-semibold' : 'text-slate-500')
+                    }, recado)
                   );
                 }
 
@@ -6006,9 +6035,13 @@
                   // três: não cabia escrever isso dentro de um botão sem os três mudarem
                   // de texto juntos. Fica aqui embaixo, uma linha só, até a barra de
                   // progresso assumir.
-                  promoPedindo && !varrendo &&
-                    e('div', {className: 'mt-3 text-xs text-sky-300'},
-                      '⏳ ' + promoPedindo + ' na fila — o robô vai começar...'),
+                  (function() {
+                    var esperandoAgora = ['KMP', 'ERP', 'LTS'].filter(function(c) {
+                      return (promoPedindo[c] || promoNaFila[c]) && !(varrendo && det.conta === c);
+                    });
+                    return esperandoAgora.length > 0 && e('div', {className: 'mt-3 text-xs text-sky-300'},
+                      '⏳ ' + esperandoAgora.join(', ') + ' na fila — o robô faz uma loja de cada vez.');
+                  })(),
                   varrendo && e('div', {className: 'mt-3'},
                     e('div', {className: 'flex justify-between text-xs text-sky-200 font-bold mb-1'},
                       e('span', null, 'lendo a ' + det.conta + '...'),
