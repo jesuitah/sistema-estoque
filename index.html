@@ -1623,12 +1623,27 @@
                         onChange: function(ev) { mudar({frases: ev.target.value.split('\n')}); },
                         className: campo + ' text-xs'}))),
                   d.faltandoArte && e('div', {className: 'text-xs text-amber-300'}, '⚠ não achei: ' + d.faltandoArte),
+                  // A ordem das miniaturas é a ordem que vai pro anúncio: a primeira é a
+                  // capa que o comprador vê na busca.
                   (d.montadas || []).length > 0 && e('div', {className: 'flex flex-wrap gap-2'},
                     d.montadas.map(function(m, i) {
-                      return e('img', {key: i, src: m.previa, title: 'clique pra ajustar esta foto',
-                        onClick: function() { mudar({editando: {tipo: m.tipo, indice: i}}); },
-                        className: 'w-40 h-40 object-contain bg-white rounded cursor-pointer border ' +
-                          ((d.editando && d.editando.indice === i) ? 'border-blue-400' : 'border-slate-600')});
+                      function trocar(j) {
+                        if (j < 0 || j >= d.montadas.length) return;
+                        var lista = d.montadas.slice();
+                        var guarda = lista[i]; lista[i] = lista[j]; lista[j] = guarda;
+                        mudar({montadas: lista, editando: null});
+                      }
+                      return e('div', {key: i, className: 'flex flex-col items-center gap-0.5'},
+                        e('img', {src: m.previa, title: 'clique pra ajustar esta foto',
+                          onClick: function() { mudar({editando: {tipo: m.tipo, indice: i}}); },
+                          className: 'w-40 h-40 object-contain bg-white rounded cursor-pointer border ' +
+                            ((d.editando && d.editando.indice === i) ? 'border-blue-400' : 'border-slate-600')}),
+                        e('div', {className: 'flex items-center gap-1 text-[10px] text-slate-400'},
+                          e('button', {onClick: function() { trocar(i - 1); }, disabled: i === 0,
+                            className: 'px-1 rounded ' + (i === 0 ? 'text-slate-700' : 'hover:text-white hover:bg-slate-700')}, '◀'),
+                          e('span', null, i === 0 ? 'capa' : (i + 1) + 'ª'),
+                          e('button', {onClick: function() { trocar(i + 1); }, disabled: i === d.montadas.length - 1,
+                            className: 'px-1 rounded ' + (i === d.montadas.length - 1 ? 'text-slate-700' : 'hover:text-white hover:bg-slate-700')}, '▶')));
                     })),
                   // Ajuste fino: arrastar e redimensionar direto na prévia.
                   d.editando && d.pecas && e('div', {className: 'border-t border-slate-700 pt-2'},
