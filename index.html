@@ -843,7 +843,7 @@
       desenharCabendo(ctx, pecas.produto, L.produto[0], L.produto[1], L.produto[2], L.produto[3]);
       if (pecas.logo) {
         var hl = L.logo, wl = pecas.logo.width * (hl / pecas.logo.height);
-        ctx.drawImage(pecas.logo, 0, 0, wl, hl);
+        ctx.drawImage(pecas.logo, L.logoDx || 0, L.logoDy || 0, wl, hl);
       }
       if (textoTopo && textoTopo.length) escreverLinhas(ctx, textoTopo, L.textoTopo[0], L.textoTopo[1], L.textoTopo[2], 'right');
       if (frases && frases.length) {
@@ -852,8 +852,8 @@
       if (pecas.selo) {
         // Empurrado pra fora da borda: o que sai é a quina vazia do círculo, e assim
         // ele fica realmente encostado no canto.
-        var hs = 245, ws = pecas.selo.width * (hs / pecas.selo.height);
-        ctx.drawImage(pecas.selo, 1200 - ws + 26, 1200 - hs + 6, ws, hs);
+        var hs = L.selo.altura, ws = pecas.selo.width * (hs / pecas.selo.height);
+        ctx.drawImage(pecas.selo, 1200 - ws + L.selo.dx, 1200 - hs + L.selo.dy, ws, hs);
       }
       carimbarMarca(ctx, pecas.marca, [[250, 300, 1000, 950]], L.marca);
       return cv;
@@ -862,7 +862,11 @@
     // Desenha a capa + as secundárias a partir das peças já carregadas.
     function desenharTudo(pecas, opcoes, L) {
       var telas = [{nome: 'capa', tela: montarCapa(pecas[0], L.capa)}];
-      pecas.slice(0, 3).forEach(function(p, i) {
+      // SEMPRE 3 secundárias, mesmo com uma foto crua só: o padrão da loja tem 3, e
+      // cada uma leva um texto diferente (aplicação, códigos, só as frases). Com mais
+      // fotos cruas, cada foto vira uma secundária.
+      [0, 1, 2].forEach(function(i) {
+        var p = pecas[i] || pecas[pecas.length - 1];
         telas.push({
           nome: 'secundaria-' + (i + 1),
           tela: montarSecundaria(p, i === 0 ? opcoes.textoTopo : (opcoes.textosExtras || [])[i - 1] || [],
@@ -950,6 +954,16 @@
           });
         });
       });
+    }
+
+    // O texto da 3ª foto sai dos códigos que ele já digitou: Código OEM e número de peça.
+    function textoDeCodigos(valores) {
+      var codigos = [];
+      String(valores.OEM || '').split('\n').forEach(function(c) { if (c.trim()) codigos.push(c.trim()); });
+      var peca = String(valores.PART_NUMBER || '').trim();
+      if (peca && codigos.indexOf(peca) === -1) codigos.unshift(peca);
+      if (!codigos.length) return [];
+      return ['CÓDIGOS DE REFERÊNCIA'].concat(codigos.slice(0, 4));
     }
 
     // O texto de aplicação sai do que ele já marcou na compatibilidade.
@@ -1283,7 +1297,7 @@
           e('span', {className: 'ml-auto text-xs text-slate-500'}, 'arraste na foto · rodinha muda o tamanho')),
         e('canvas', {
           ref: telaRef, width: 1200, height: 1200,
-          className: 'w-full max-w-[420px] bg-white rounded border border-slate-600 cursor-move',
+          className: 'w-full max-w-[560px] bg-white rounded border border-slate-600 cursor-move',
           onMouseDown: function(ev) { setArrastando(posDoMouse(ev)); },
           onMouseMove: function(ev) {
             if (!arrastando) return;
@@ -1384,6 +1398,7 @@
         if (!d.pecas || !d.pecas.length) return;
         desenharTudo(d.pecas, {
           textoTopo: d.textoTopo || [],
+          textosExtras: [textoDeCodigos(d.valores || {}), []],
           frases: (d.frases && d.frases.filter(Boolean).length) ? d.frases : FRASES_PADRAO.slice(0, 3),
         }, layout || d.layout || LAYOUT_PADRAO).then(function(prontas) {
           mudar({montadas: prontas});
@@ -1403,6 +1418,8 @@
           fotos: fotos,
           compat: d.compat || [],
           textoTopo: (d.textoTopo && d.textoTopo.filter(Boolean).length) ? d.textoTopo : textoDeAplicacao(d.compat || []),
+          // 3ª foto leva os códigos de referência; a 4ª fica só com as frases.
+          textosExtras: [textoDeCodigos(d.valores || {}), []],
           frases: (d.frases && d.frases.filter(Boolean).length) ? d.frases : FRASES_PADRAO.slice(0, 3),
         }).then(function(r) {
           if (!r || r.erro) { mudar({montando: false}); alert((r && r.erro) || 'não consegui montar'); return; }
@@ -1610,7 +1627,7 @@
                     d.montadas.map(function(m, i) {
                       return e('img', {key: i, src: m.previa, title: 'clique pra ajustar esta foto',
                         onClick: function() { mudar({editando: {tipo: m.tipo, indice: i}}); },
-                        className: 'w-24 h-24 object-contain bg-white rounded cursor-pointer border ' +
+                        className: 'w-40 h-40 object-contain bg-white rounded cursor-pointer border ' +
                           ((d.editando && d.editando.indice === i) ? 'border-blue-400' : 'border-slate-600')});
                     })),
                   // Ajuste fino: arrastar e redimensionar direto na prévia.
