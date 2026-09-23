@@ -535,6 +535,357 @@
     //   - tudo nasce PAUSADO pra revisão. E, como sempre, primeiro 1 de teste.
     var CRIAR_URL = 'https://pylkufhziohxvwbbaued.supabase.co/functions/v1/ml-criar-anuncio';
 
+    // ── Montagem das fotos no padrão da loja ──────────────────────────────────
+    //
+    // O gargalo da criação não era achar foto nem colar: era montar a arte no padrão
+    // (caixa da marca, carros compatíveis, logo da montadora, selo, marca d'água e os
+    // textos). Isso era feito no Photoshop DEPOIS de criar o anúncio, um a um.
+    //
+    // Aqui o navegador monta a capa e as secundárias a partir da foto crua, usando as
+    // artes guardadas no Supabase. Tudo em 1200x1200, como o ML pede.
+    var ARTES_URL = 'https://pylkufhziohxvwbbaued.supabase.co/storage/v1/object/public/artes/';
+
+    var FRASES_PADRAO = [
+      'QUALIDADE PADRÃO ORIGINAL',
+      'PRODUTO TOP DE LINHA',
+      'QUALIDADE ASSEGURADA',
+      'PRODUTO COM GARANTIA',
+      'COMPONENTES DE ALTA DURABILIDADE',
+      'PRODUZIDO EM MATÉRIA PRIMA NOBRE',
+    ];
+
+    // O ML chama de Chevrolet o que a arte chama de GM, e por aí vai.
+    var APELIDO_MONTADORA = {CHEVROLET: 'GM', 'MERCEDES-BENZ': 'MERCEDES', MITSUBISHI: 'MITSUBISH'};
+
+    function semAcento(t) {
+      return String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().trim();
+    }
+
+    // Lista de artes disponíveis, lida uma vez e guardada.
+    var artesCache = {};
+    function listarArtes(pasta) {
+      if (artesCache[pasta]) return Promise.resolve(artesCache[pasta]);
+      return fetch('https://pylkufhziohxvwbbaued.supabase.co/storage/v1/object/list/artes', {
+        method: 'POST',
+        headers: {apikey: supabaseKey, Authorization: 'Bearer ' + supabaseKey, 'Content-Type': 'application/json'},
+        body: JSON.stringify({prefix: pasta + '/', limit: 500}),
+      }).then(function(r) { return r.json(); }).then(function(lista) {
+        var nomes = (Array.isArray(lista) ? lista : []).map(function(o) { return o.name; });
+        artesCache[pasta] = nomes;
+        return nomes;
+      }).catch(function() { return []; });
+    }
+
+    // Acha o arquivo cujo nome bate com o texto pedido, ignorando acento, espaço e extensão.
+    function acharArte(nomes, alvo) {
+      var a = semAcento(alvo).replace(/[^A-Z0-9]/g, '');
+      var achado = null;
+      nomes.forEach(function(n) {
+        var limpo = semAcento(n).replace(/\.[A-Z]+$/, '').replace(/[^A-Z0-9]/g, '');
+        if (limpo === a) achado = n;
+      });
+      return achado;
+    }
+
+    function carregarImagem(url) {
+      return new Promise(function(ok) {
+        var i = new Image();
+        i.crossOrigin = 'anonymous';
+        i.onload = function() { ok(i); };
+        i.onerror = function() { ok(null); };
+        i.src = url;
+      });
+    }
+
+    function arquivoParaImagem(arquivo) {
+      return new Promise(function(ok) {
+        var url = URL.createObjectURL(arquivo);
+        var i = new Image();
+        i.onload = function() { URL.revokeObjectURL(url); ok(i); };
+        i.onerror = function() { URL.revokeObjectURL(url); ok(null); };
+        i.src = url;
+      });
+    }
+
+    // Tira o fundo branco entrando pelas BORDAS: branco cercado pela peça (um furo, um
+    // reflexo) continua branco. Um "apagar tudo que é claro" comeria a peça.
+    function semFundoBranco(im) {
+      var cv = document.createElement('canvas');
+      cv.width = im.width; cv.height = im.height;
+      var ctx = cv.getContext('2d');
+      ctx.drawImage(im, 0, 0);
+      var d = ctx.getImageData(0, 0, cv.width, cv.height);
+      var px = d.data, total = cv.width * cv.height;
+      var visto = new Uint8Array(total);
+      var fila = [];
+      function claro(i) { return px[i * 4] > 236 && px[i * 4 + 1] > 236 && px[i * 4 + 2] > 236; }
+      for (var x = 0; x < cv.width; x++) { fila.push(x); fila.push((cv.height - 1) * cv.width + x); }
+      for (var y = 0; y < cv.height; y++) { fila.push(y * cv.width); fila.push(y * cv.width + cv.width - 1); }
+      while (fila.length) {
+        var i = fila.pop();
+        if (i < 0 || i >= total || visto[i] || !claro(i)) continue;
+        visto[i] = 1; px[i * 4 + 3] = 0;
+        var cx = i % cv.width;
+        if (cx > 0) fila.push(i - 1);
+        if (cx < cv.width - 1) fila.push(i + 1);
+        fila.push(i - cv.width); fila.push(i + cv.width);
+      }
+      ctx.putImageData(d, 0, 0);
+      return cv;
+    }
+
+    // Recorta a margem vazia em volta. Sem isso o tamanho pedido não é o que aparece:
+    // o logo da VW ocupava um terço do próprio arquivo, e um carro com muita margem
+    // saía menor que os outros mesmo com a mesma medida.
+    function semMargemVazia(im) {
+      var cv = document.createElement('canvas');
+      cv.width = im.width; cv.height = im.height;
+      var ctx = cv.getContext('2d');
+      ctx.drawImage(im, 0, 0);
+      var d = ctx.getImageData(0, 0, cv.width, cv.height).data;
+      var x0 = cv.width, y0 = cv.height, x1 = -1, y1 = -1;
+      for (var y = 0; y < cv.height; y++) {
+        for (var x = 0; x < cv.width; x++) {
+          var i = (y * cv.width + x) * 4;
+          if (d[i + 3] < 12 || (d[i] > 240 && d[i + 1] > 240 && d[i + 2] > 240)) continue;
+          if (x < x0) x0 = x;
+          if (x > x1) x1 = x;
+          if (y < y0) y0 = y;
+          if (y > y1) y1 = y;
+        }
+      }
+      if (x1 < 0) return cv;
+      var corte = document.createElement('canvas');
+      corte.width = x1 - x0 + 1; corte.height = y1 - y0 + 1;
+      corte.getContext('2d').drawImage(cv, x0, y0, corte.width, corte.height, 0, 0, corte.width, corte.height);
+      return corte;
+    }
+
+    function desenharCabendo(ctx, im, x, y, w, h) {
+      if (!im) return;
+      var e = Math.min(w / im.width, h / im.height);
+      var lw = im.width * e, lh = im.height * e;
+      ctx.drawImage(im, x + (w - lw) / 2, y + (h - lh) / 2, lw, lh);
+    }
+
+    function escreverLinhas(ctx, linhas, x, y, tam, alinhar) {
+      ctx.font = '700 ' + tam + 'px Arial, sans-serif';
+      ctx.textAlign = alinhar;
+      ctx.fillStyle = '#111';
+      linhas.forEach(function(l, i) { ctx.fillText(l, x, y + i * tam * 1.25); });
+    }
+
+    // Quanto daquele pedaço da foto já tem desenho (0 a 1).
+    function quantoTemAli(ctx, x, y, w, h) {
+      var d = ctx.getImageData(Math.max(0, x), Math.max(0, y), Math.min(w, 1200 - x), Math.min(h, 1200 - y)).data;
+      var cheios = 0, olhados = 0;
+      for (var i = 0; i < d.length; i += 16) {
+        olhados++;
+        if (!(d[i] > 243 && d[i + 1] > 243 && d[i + 2] > 243)) cheios++;
+      }
+      return olhados ? cheios / olhados : 0;
+    }
+
+    // A marca d'água vai EM CIMA do conteúdo, nunca no vazio: coordenada fixa caía no
+    // branco quando a peça tinha outro formato. Aqui testamos vários pontos e fica no
+    // que tem mais desenho embaixo.
+    function carimbarMarca(ctx, marca, regioes, largura) {
+      if (!marca) return;
+      var alt = largura * (marca.height / marca.width);
+      ctx.save();
+      ctx.globalAlpha = 0.7;
+      regioes.forEach(function(r) {
+        var melhor = null, nota = -1;
+        for (var x = r[0]; x <= r[2] - largura; x += 30) {
+          for (var y = r[1]; y <= r[3] - alt; y += 30) {
+            var n = quantoTemAli(ctx, x, y, largura, alt);
+            if (n > nota) { nota = n; melhor = [x, y]; }
+          }
+        }
+        if (melhor && nota > 0.25) ctx.drawImage(marca, melhor[0], melhor[1], largura, alt);
+      });
+      ctx.restore();
+    }
+
+    function novaTela() {
+      var cv = document.createElement('canvas');
+      cv.width = 1200; cv.height = 1200;
+      var ctx = cv.getContext('2d');
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, 1200, 1200);
+      return cv;
+    }
+
+    function telaParaArquivo(cv, nome) {
+      return new Promise(function(ok) {
+        cv.toBlob(function(blob) {
+          ok(new window.File([blob], nome, {type: 'image/jpeg'}));
+        }, 'image/jpeg', 0.92);
+      });
+    }
+
+    // CAPA: caixa da marca no alto à esquerda, produto recortado por cima, carros
+    // compatíveis encostados embaixo e dois carimbos da marca d'água.
+    function montarCapa(pecas) {
+      var cv = novaTela(), ctx = cv.getContext('2d');
+      desenharCabendo(ctx, pecas.caixa, 0, 20, 560, 420);
+      desenharCabendo(ctx, pecas.produto, 250, 60, 950, 720);
+
+      var carros = (pecas.carros || []).filter(Boolean);
+      if (carros.length) {
+        // Mesmo TAMANHO APARENTE: igualo a área, não a altura nem a largura.
+        // Pela largura o carro de foto fechada virava um carrão; pela altura o carro
+        // curto virava um carrinho ao lado da picape. E limito a diferença de altura
+        // em 6%, senão a fileira fica com "dente".
+        var area = 320 * 500, vao = -30;
+        var medidas = carros.map(function(c) {
+          var e = Math.sqrt(area / (c.width * c.height));
+          return {w: c.width * e, h: c.height * e};
+        });
+        var alturas = medidas.map(function(m) { return m.h; }).sort(function(a, b) { return a - b; });
+        var meio = alturas[Math.floor(alturas.length / 2)];
+        medidas.forEach(function(m) {
+          var alvo = Math.min(meio * 1.06, Math.max(meio * 0.94, m.h));
+          m.w = m.w * (alvo / m.h); m.h = alvo;
+        });
+        var total = medidas.reduce(function(s, m) { return s + m.w; }, 0) + vao * (carros.length - 1);
+        var escala = Math.min(1, 1190 / total);
+        var x = (1200 - total * escala) / 2;
+        carros.forEach(function(c, i) {
+          var w = medidas[i].w * escala, hh = medidas[i].h * escala;
+          ctx.drawImage(c, x, 1195 - hh, w, hh);
+          x += w + vao * escala;
+        });
+      }
+      carimbarMarca(ctx, pecas.marca, [[120, 80, 1100, 700], [60, 950, 1140, 1180]], 115);
+      return cv;
+    }
+
+    // SECUNDÁRIA: logo da montadora e aplicação em cima, produto no meio com a caixa
+    // apagada ao fundo, frases embaixo à esquerda e selo da loja no canto.
+    function montarSecundaria(pecas, textoTopo, frases) {
+      var cv = novaTela(), ctx = cv.getContext('2d');
+      if (pecas.caixa) {
+        ctx.save(); ctx.globalAlpha = 0.22;
+        desenharCabendo(ctx, pecas.caixa, 150, 250, 900, 700);
+        ctx.restore();
+      }
+      desenharCabendo(ctx, pecas.produto, 140, 240, 920, 720);
+      if (pecas.logo) {
+        var hl = 215, wl = pecas.logo.width * (hl / pecas.logo.height);
+        ctx.drawImage(pecas.logo, 0, 0, wl, hl);
+      }
+      if (textoTopo && textoTopo.length) escreverLinhas(ctx, textoTopo, 1175, 75, 40, 'right');
+      if (frases && frases.length) {
+        escreverLinhas(ctx, frases.map(function(t) { return '- ' + t; }), 25, 1060, 40, 'left');
+      }
+      if (pecas.selo) {
+        // Empurrado pra fora da borda: o que sai é a quina vazia do círculo, e assim
+        // ele fica realmente encostado no canto.
+        var hs = 245, ws = pecas.selo.width * (hs / pecas.selo.height);
+        ctx.drawImage(pecas.selo, 1200 - ws + 26, 1200 - hs + 6, ws, hs);
+      }
+      carimbarMarca(ctx, pecas.marca, [[250, 300, 1000, 950]], 150);
+      return cv;
+    }
+
+    // Junta tudo: descobre as artes pelo SKU e pela compatibilidade, e devolve as fotos
+    // montadas (capa + uma secundária por foto crua, até 3).
+    function montarFotosDoAnuncio(opcoes) {
+      var conta = opcoes.conta, marca = opcoes.marcaPeca, fotos = opcoes.fotos || [];
+      var compat = opcoes.compat || [];
+
+      var montadoras = [], modelos = [];
+      compat.forEach(function(v) {
+        var partes = String(v.nome || '').split(' ');
+        var m = semAcento(partes[0]);
+        if (m && montadoras.indexOf(m) === -1) montadoras.push(m);
+        var mod = semAcento(partes.slice(0, 2).join(' '));
+        if (mod && modelos.indexOf(mod) === -1) modelos.push(mod);
+      });
+      var montadora = montadoras[0] || '';
+      montadora = APELIDO_MONTADORA[montadora] || montadora;
+
+      return Promise.all([
+        listarArtes('caixa'), listarArtes('logo'), listarArtes('selo'),
+        listarArtes('marca-dagua'), listarArtes('carro'),
+      ]).then(function(listas) {
+        var faltando = [];
+        function url(pasta, nomes, alvo, rotulo) {
+          var achado = alvo ? acharArte(nomes, alvo) : null;
+          if (!achado) { if (alvo) faltando.push(rotulo + ' ' + alvo); return null; }
+          return ARTES_URL + pasta + '/' + encodeURIComponent(achado);
+        }
+        var urlCaixa = url('caixa', listas[0], marca, 'caixa da');
+        var urlLogo = url('logo', listas[1], montadora, 'logo da');
+        var urlSelo = url('selo', listas[2], conta, 'selo da');
+        var urlMarca = url('marca-dagua', listas[3], "MARCA D'AGUA " + conta, "marca d'água da");
+        var urlsCarros = modelos.slice(0, 3).map(function(m) { return url('carro', listas[4], m, 'foto do'); });
+
+        return Promise.all([
+          urlCaixa ? carregarImagem(urlCaixa) : null,
+          urlLogo ? carregarImagem(urlLogo) : null,
+          urlSelo ? carregarImagem(urlSelo) : null,
+          urlMarca ? carregarImagem(urlMarca) : null,
+          Promise.all(urlsCarros.filter(Boolean).map(carregarImagem)),
+          Promise.all(fotos.slice(0, 4).map(arquivoParaImagem)),
+        ]).then(function(r) {
+          var pecasBase = {
+            caixa: r[0] ? semMargemVazia(r[0]) : null,
+            logo: r[1] ? semMargemVazia(r[1]) : null,
+            selo: r[2] ? semMargemVazia(r[2]) : null,
+            // A marca d'água vem com fundo branco: sem tirar, ela entra como um
+            // retângulo branco por cima da foto.
+            marca: r[3] ? semMargemVazia(semFundoBranco(r[3])) : null,
+            carros: (r[4] || []).filter(Boolean).map(semMargemVazia),
+          };
+          var produtos = (r[5] || []).filter(Boolean).map(function(im) {
+            return semMargemVazia(semFundoBranco(im));
+          });
+          if (!produtos.length) return {erro: 'nenhuma foto de produto pra montar'};
+
+          var telas = [];
+          telas.push({nome: 'capa', tela: montarCapa(Object.assign({}, pecasBase, {produto: produtos[0]}))});
+          produtos.slice(0, 3).forEach(function(p, i) {
+            telas.push({
+              nome: 'secundaria-' + (i + 1),
+              tela: montarSecundaria(Object.assign({}, pecasBase, {produto: p}),
+                i === 0 ? opcoes.textoTopo : (opcoes.textosExtras || [])[i - 1] || [],
+                opcoes.frases),
+            });
+          });
+
+          return Promise.all(telas.map(function(t, i) {
+            return telaParaArquivo(t.tela, t.nome + '.jpg').then(function(arq) {
+              return {arquivo: arq, previa: t.tela.toDataURL('image/jpeg', 0.7)};
+            });
+          })).then(function(prontas) {
+            return {fotos: prontas, faltando: faltando};
+          });
+        });
+      });
+    }
+
+    // O texto de aplicação sai do que ele já marcou na compatibilidade.
+    function textoDeAplicacao(compat) {
+      if (!compat || !compat.length) return [];
+      var motores = [], anos = [];
+      compat.forEach(function(v) {
+        var m = String(v.nome || '').match(/\b\d\.\d\b/);
+        if (m && motores.indexOf(m[0]) === -1) motores.push(m[0]);
+        var a = String(v.nome || '').match(/\b(19|20)\d{2}\b/);
+        if (a) anos.push(Number(a[0]));
+      });
+      var linhas = [];
+      if (motores.length) linhas.push('APLICADO NO MOTOR ' + motores.slice(0, 3).join(' / '));
+      if (anos.length) {
+        var de = Math.min.apply(null, anos), ate = Math.max.apply(null, anos);
+        linhas.push(de === ate ? String(de) : de + ' A ' + ate);
+      }
+      return linhas;
+    }
+
+
     // Qualquer foto -> JPEG 1200x1200, a peça inteira centralizada em fundo branco.
     function fotoPara1200(arquivo) {
       return new Promise(function(ok, falhou) {
@@ -846,6 +1197,29 @@
           });
       }
 
+      // Monta capa + secundárias no padrão da loja, a partir das fotos cruas já coladas.
+      function montarFotos() {
+        var fotos = d.fotos || [];
+        if (!fotos.length) return;
+        mudar({montando: true, faltandoArte: ''});
+        montarFotosDoAnuncio({
+          conta: conta,
+          marcaPeca: it.marca,
+          fotos: fotos,
+          compat: d.compat || [],
+          textoTopo: (d.textoTopo && d.textoTopo.filter(Boolean).length) ? d.textoTopo : textoDeAplicacao(d.compat || []),
+          frases: (d.frases && d.frases.filter(Boolean).length) ? d.frases : FRASES_PADRAO.slice(0, 3),
+        }).then(function(r) {
+          if (!r || r.erro) { mudar({montando: false}); alert((r && r.erro) || 'não consegui montar'); return; }
+          mudar({
+            montando: false,
+            montadas: r.fotos,
+            faltandoArte: (r.faltando || []).join(' · '),
+            textoTopo: (d.textoTopo && d.textoTopo.filter(Boolean).length) ? d.textoTopo : textoDeAplicacao(d.compat || []),
+          });
+        }).catch(function(err) { mudar({montando: false}); alert('não consegui montar: ' + err.message); });
+      }
+
       function escolherFotos(arquivos) {
         var lista = Array.prototype.slice.call(arquivos || []);
         if (!lista.length) return;
@@ -1009,6 +1383,38 @@
                     d.convertendo ? '⏳' : '+ foto',
                     e('input', {type: 'file', accept: 'image/*', multiple: true, className: 'hidden',
                       onChange: function(ev) { escolherFotos(ev.target.files); ev.target.value = ''; }}))),
+
+                // Montagem no padrão da loja: a parte que era feita no Photoshop depois
+                // de criar o anúncio. Sai da foto crua + artes guardadas no sistema.
+                (d.fotos || []).length > 0 && !props.criando && e('div', {className: 'border border-slate-700 rounded-lg p-2 space-y-2'},
+                  e('div', {className: 'flex items-center gap-2 flex-wrap'},
+                    e('button', {onClick: montarFotos, disabled: d.montando,
+                      className: 'px-3 py-1.5 rounded text-sm font-bold ' + (d.montando ? 'bg-slate-700 text-slate-400' : 'bg-purple-700 hover:bg-purple-600 text-white')},
+                      d.montando ? '⏳ montando...' : '🎨 Montar no padrão da ' + conta),
+                    (d.montadas || []).length > 0 && e('span', {className: 'text-xs text-emerald-300'},
+                      '✓ ' + d.montadas.length + ' foto(s) montada(s) — é isso que vai pro anúncio'),
+                    (d.montadas || []).length > 0 && e('button', {onClick: function() { mudar({montadas: null}); },
+                      className: 'text-xs text-slate-400 underline'}, 'usar as fotos cruas')),
+                  e('div', {className: 'grid grid-cols-2 gap-2'},
+                    e('div', null,
+                      e('div', {className: 'text-[10px] text-slate-500'}, 'Texto da 2ª foto (aplicação)'),
+                      e('textarea', {value: (d.textoTopo || []).join('\n'), rows: 3,
+                        placeholder: 'APLICADO NO MOTOR 2.4\n2000 A 2007',
+                        onChange: function(ev) { mudar({textoTopo: ev.target.value.split('\n')}); },
+                        className: campo + ' text-xs'})),
+                    e('div', null,
+                      e('div', {className: 'text-[10px] text-slate-500'}, 'Frases (uma por linha, saem no canto de baixo)'),
+                      e('textarea', {value: (d.frases || FRASES_PADRAO.slice(0, 3)).join('\n'), rows: 3,
+                        onChange: function(ev) { mudar({frases: ev.target.value.split('\n')}); },
+                        className: campo + ' text-xs'}))),
+                  d.faltandoArte && e('div', {className: 'text-xs text-amber-300'}, '⚠ não achei: ' + d.faltandoArte),
+                  (d.montadas || []).length > 0 && e('div', {className: 'flex flex-wrap gap-2'},
+                    d.montadas.map(function(m, i) {
+                      return e('img', {key: i, src: m.previa, title: 'clique pra ver grande',
+                        onClick: function() { var w = window.open(''); if (w) w.document.write('<img src="' + m.previa + '" style="width:100%">'); },
+                        className: 'w-24 h-24 object-contain bg-white rounded cursor-zoom-in border border-slate-600'});
+                    }))),
+
                 e('label', {className: 'text-xs text-slate-400 block'}, 'Embalagem de fábrica (medidas da expedição) — o envio vai "na embalagem de fábrica, sem nada extra"'),
                 e('div', {className: 'grid grid-cols-4 gap-2'},
                   [['comprimento', 'Compr. cm'], ['largura', 'Larg. cm'], ['altura', 'Alt. cm'], ['peso', 'Peso kg']].map(function(m) {
@@ -1117,8 +1523,12 @@
 
       function criarUm(it) {
         var d = dados[it.chave];
-        marcar(it.chave, {rodando: 'subindo ' + d.fotos.length + ' foto(s)...'});
-        return Promise.all(d.fotos.map(function(f) {
+        // Montou no padrão da loja? Vão as montadas. Senão, vão as cruas.
+        var fotosPraSubir = (d.montadas && d.montadas.length)
+          ? d.montadas.map(function(m) { return m.arquivo; })
+          : d.fotos;
+        marcar(it.chave, {rodando: 'subindo ' + fotosPraSubir.length + ' foto(s)...'});
+        return Promise.all(fotosPraSubir.map(function(f) {
           var fd = new FormData(); fd.append('file', f);
           return fetch(CRIAR_URL + '?acao=upload_foto&conta=' + conta, {method: 'POST', body: fd}).then(function(r) { return r.json(); });
         })).then(function(res) {
