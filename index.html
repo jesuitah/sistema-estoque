@@ -5936,7 +5936,20 @@
                     e('p', {className: 'text-sm text-slate-400 mt-1'},
                       'Catálogo de anúncios + sem estoque + patrulha. Leva uns 3 minutos.'),
                     e('p', {className: 'text-xs text-slate-500 mt-1'},
-                      'As promoções ficam de fora: levam ~18 min e têm ritmo próprio.')
+                      'As promoções ficam de fora: levam ~18 min e têm ritmo próprio.'),
+                    // Quando isto rodou por último.
+                    //
+                    // O botão junta três rotinas, e cada uma tem a sua hora. Mostrar a
+                    // MAIS ANTIGA é o que responde a pergunta de verdade: "o que eu
+                    // estou vendo na tela é de quando?". Se o catálogo é de 25 min e a
+                    // patrulha de 15, o conjunto tem 25 min de idade.
+                    (function() {
+                      var horas = ['catalogo', 'patrulha'].map(function(k) { return roboUltimas[k]; }).filter(Boolean);
+                      if (!horas.length) return null;
+                      var maisAntiga = horas.sort()[0];
+                      return e('p', {className: 'text-xs mt-1 ' + (estaAtrasada(maisAntiga, 26) ? 'text-amber-400 font-semibold' : 'text-slate-400')},
+                        'última vez: ' + desdeQuando(maisAntiga));
+                    })()
                   ),
                   e('button', {
                     onClick: rodarTudoAgora,
