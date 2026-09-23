@@ -1409,7 +1409,7 @@
       function montarFotos() {
         var fotos = d.fotos || [];
         if (!fotos.length) return;
-        mudar({montando: true, faltandoArte: ''});
+        mudar({montando: true, faltandoArte: '', montagemVelha: false});
         (d.layout ? Promise.resolve(d.layout) : carregarLayoutDaLoja(conta)).then(function(layout) {
         montarFotosDoAnuncio({
           layout: layout,
@@ -1440,7 +1440,12 @@
         if (!lista.length) return;
         mudar({convertendo: true});
         Promise.all(lista.map(fotoPara1200)).then(function(fotos) {
-          setD(function(cur) { return Object.assign({}, cur, {convertendo: false, fotos: (cur.fotos || []).concat(fotos)}); });
+          // Foto nova = montagem velha não vale mais. Antes ela continuava na tela, e
+          // era ela que subia pro anúncio: confuso e perigoso.
+          setD(function(cur) {
+            return Object.assign({}, cur, {convertendo: false, fotos: (cur.fotos || []).concat(fotos),
+              montadas: null, pecas: null, editando: null, montagemVelha: false});
+          });
         }).catch(function(err) { mudar({convertendo: false}); alert(err.message); });
       }
 
@@ -1591,7 +1596,7 @@
                   (d.fotos || []).map(function(f, i) {
                     return e('div', {key: i, className: 'relative'},
                       e('img', {src: URL.createObjectURL(f), className: 'w-16 h-16 object-contain bg-white rounded'}),
-                      !props.criando && e('button', {onClick: function() { mudar({fotos: d.fotos.filter(function(_x, j) { return j !== i; })}); },
+                      !props.criando && e('button', {onClick: function() { mudar({fotos: d.fotos.filter(function(_x, j) { return j !== i; }), montadas: null, pecas: null, editando: null}); },
                         className: 'absolute -top-1 -right-1 bg-red-600 text-white rounded-full w-5 h-5 text-xs'}, '✕'));
                   }),
                   !props.criando && e('label', {className: 'w-16 h-16 border-2 border-dashed border-slate-600 rounded flex items-center justify-center text-slate-400 text-xs cursor-pointer hover:border-blue-400'},
@@ -1606,8 +1611,10 @@
                     e('button', {onClick: montarFotos, disabled: d.montando,
                       className: 'px-3 py-1.5 rounded text-sm font-bold ' + (d.montando ? 'bg-slate-700 text-slate-400' : 'bg-purple-700 hover:bg-purple-600 text-white')},
                       d.montando ? '⏳ montando...' : '🎨 Montar no padrão da ' + conta),
-                    (d.montadas || []).length > 0 && e('span', {className: 'text-xs text-emerald-300'},
-                      '✓ ' + d.montadas.length + ' foto(s) montada(s) — é isso que vai pro anúncio'),
+                    (d.montadas || []).length > 0 && e('span', {className: 'text-xs ' + (d.montagemVelha ? 'text-amber-300' : 'text-emerald-300')},
+                      d.montagemVelha
+                        ? '⚠ a compatibilidade mudou depois da montagem — monte de novo pra atualizar logo e carros'
+                        : '✓ ' + d.montadas.length + ' foto(s) montada(s) — é isso que vai pro anúncio'),
                     (d.montadas || []).length > 0 && e('button', {onClick: function() { mudar({montadas: null}); },
                       className: 'text-xs text-slate-400 underline'}, 'usar as fotos cruas')),
                   e('div', {className: 'grid grid-cols-2 gap-2'},
@@ -1695,7 +1702,7 @@
                 d.compatFechada
                   ? e('div', {className: 'text-xs text-emerald-300'}, '✓ ' + (d.compat || []).length + ' veículo(s) marcado(s)')
                   : e(SeletorCompat, {conta: conta, marcados: d.compat || [], travado: props.criando,
-                      onMudar: function(lista) { mudar({compat: lista}); },
+                      onMudar: function(lista) { mudar({compat: lista, montagemVelha: !!(d.montadas && d.montadas.length)}); },
                       onPronto: function() { mudar({compatFechada: true}); }}))));
     }
 
