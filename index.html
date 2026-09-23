@@ -695,11 +695,18 @@
       return corte;
     }
 
-    function desenharCabendo(ctx, im, x, y, w, h) {
+    function desenharCabendo(ctx, im, x, y, w, h, giro) {
       if (!im) return;
       var e = Math.min(w / im.width, h / im.height);
       var lw = im.width * e, lh = im.height * e;
-      ctx.drawImage(im, x + (w - lw) / 2, y + (h - lh) / 2, lw, lh);
+      var px = x + (w - lw) / 2, py = y + (h - lh) / 2;
+      if (!giro) { ctx.drawImage(im, px, py, lw, lh); return; }
+      // Gira em torno do próprio centro, como no Photoshop.
+      ctx.save();
+      ctx.translate(px + lw / 2, py + lh / 2);
+      ctx.rotate(giro * Math.PI / 180);
+      ctx.drawImage(im, -lw / 2, -lh / 2, lw, lh);
+      ctx.restore();
     }
 
     function escreverLinhas(ctx, linhas, x, y, tam, alinhar) {
@@ -797,8 +804,8 @@
     function montarCapa(pecas, L) {
       L = L || LAYOUT_PADRAO.capa;
       var cv = novaTela(), ctx = cv.getContext('2d');
-      desenharCabendo(ctx, pecas.caixa, L.caixa[0], L.caixa[1], L.caixa[2], L.caixa[3]);
-      desenharCabendo(ctx, pecas.produto, L.produto[0], L.produto[1], L.produto[2], L.produto[3]);
+      desenharCabendo(ctx, pecas.caixa, L.caixa[0], L.caixa[1], L.caixa[2], L.caixa[3], (L.giro || {}).caixa);
+      desenharCabendo(ctx, pecas.produto, L.produto[0], L.produto[1], L.produto[2], L.produto[3], (L.giro || {}).produto);
 
       var carros = (pecas.carros || []).filter(Boolean);
       if (carros.length) {
@@ -837,10 +844,10 @@
       var cv = novaTela(), ctx = cv.getContext('2d');
       if (pecas.caixa) {
         ctx.save(); ctx.globalAlpha = 0.22;
-        desenharCabendo(ctx, pecas.caixa, L.caixa[0], L.caixa[1], L.caixa[2], L.caixa[3]);
+        desenharCabendo(ctx, pecas.caixa, L.caixa[0], L.caixa[1], L.caixa[2], L.caixa[3], (L.giro || {}).caixa);
         ctx.restore();
       }
-      desenharCabendo(ctx, pecas.produto, L.produto[0], L.produto[1], L.produto[2], L.produto[3]);
+      desenharCabendo(ctx, pecas.produto, L.produto[0], L.produto[1], L.produto[2], L.produto[3], (L.giro || {}).produto);
       if (pecas.logo) {
         var hl = L.logo, wl = pecas.logo.width * (hl / pecas.logo.height);
         ctx.drawImage(pecas.logo, L.logoDx || 0, L.logoDy || 0, wl, hl);
@@ -1263,6 +1270,16 @@
         props.onMudar(L);
       }
 
+      // Girar: Shift + arrastar pro lado, ou os botões. Só faz sentido nas peças que
+      // são imagem inteira (produto e caixa).
+      function girar(graus) {
+        var l = ehCapa ? L.capa : L.secundaria;
+        if (sel !== 'produto' && sel !== 'caixa') return;
+        l.giro = l.giro || {};
+        l.giro[sel] = ((l.giro[sel] || 0) + graus) % 360;
+        props.onMudar(L);
+      }
+
       function redimensionar(passo) {
         var l = ehCapa ? L.capa : L.secundaria;
         if (sel === 'produto' || sel === 'caixa') {
@@ -1294,7 +1311,7 @@
             return e('button', {key: p[0], onClick: function() { setSel(p[0]); },
               className: botao + (sel === p[0] ? 'bg-blue-600 border-blue-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-300')}, p[1]);
           }),
-          e('span', {className: 'ml-auto text-xs text-slate-500'}, 'arraste na foto · rodinha muda o tamanho')),
+          e('span', {className: 'ml-auto text-xs text-slate-500'}, 'arraste na foto · rodinha muda o tamanho · Shift + arrastar gira')),
         e('canvas', {
           ref: telaRef, width: 1200, height: 1200,
           className: 'w-full max-w-[560px] bg-white rounded border border-slate-600 cursor-move',
@@ -1312,6 +1329,8 @@
         e('div', {className: 'flex flex-wrap gap-2'},
           e('button', {onClick: function() { redimensionar(1); }, className: botao + 'bg-slate-800 border-slate-700 text-slate-200'}, '＋ maior'),
           e('button', {onClick: function() { redimensionar(-1); }, className: botao + 'bg-slate-800 border-slate-700 text-slate-200'}, '− menor'),
+          (sel === 'produto' || sel === 'caixa') && e('button', {onClick: function() { girar(-5); }, className: botao + 'bg-slate-800 border-slate-700 text-slate-200'}, '↺ girar'),
+          (sel === 'produto' || sel === 'caixa') && e('button', {onClick: function() { girar(5); }, className: botao + 'bg-slate-800 border-slate-700 text-slate-200'}, '↻ girar'),
           e('button', {onClick: props.onPadrao, className: botao + 'bg-slate-800 border-slate-700 text-slate-400'}, '↺ voltar ao padrão'),
           e('button', {onClick: props.onSalvarLoja, className: botao + 'bg-emerald-700 border-emerald-600 text-white'}, '💾 salvar como padrão da ' + props.conta),
           e('button', {onClick: props.onFechar, className: botao + 'ml-auto bg-blue-600 border-blue-500 text-white'}, '✓ Pronto')));
@@ -1626,7 +1645,11 @@
                         className: campo + ' text-xs'})),
                     e('div', null,
                       e('div', {className: 'text-[10px] text-slate-500'}, 'Frases (uma por linha, saem no canto de baixo)'),
-                      e('textarea', {value: (d.frases || FRASES_PADRAO.slice(0, 3)).join('\n'), rows: 3,
+                      // Começa VAZIO, com a sugestão em cinza: campo já preenchido com o
+                      // texto de outra peça atrapalhava mais do que ajudava. Em branco,
+                      // valem as frases padrão.
+                      e('textarea', {value: (d.frases || []).join('\n'), rows: 3,
+                        placeholder: FRASES_PADRAO.slice(0, 3).join('\n'),
                         onChange: function(ev) { mudar({frases: ev.target.value.split('\n')}); },
                         className: campo + ' text-xs'}))),
                   // O texto digitado só entrava na próxima montagem; agora tem o botão.
