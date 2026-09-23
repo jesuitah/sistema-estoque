@@ -21,6 +21,7 @@
     var useState = React.useState;
     var useEffect = React.useEffect;
     var useMemo = React.useMemo;
+    var useRef = React.useRef;
 
     var supabaseUrl = 'https://pylkufhziohxvwbbaued.supabase.co';
     var supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB5bGt1Zmh6aW9oeHZ3YmJhdWVkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1OTIyNzMsImV4cCI6MjA5MTE2ODI3M30.S61OxgJa03KmfJZ_MdFL0ZKAzWdsrrYwnmzuqN6L0vQ';
@@ -707,6 +708,40 @@
       ctx.restore();
     }
 
+    // Onde cada peça fica na montagem. Fica num objeto (e não espalhado no código)
+    // porque ele é ajustável: o Matheus arrasta na prévia e pode salvar como padrão
+    // da loja, e aí o automático já nasce do jeito dele.
+    var LAYOUT_PADRAO = {
+      capa: {
+        caixa: [0, 20, 560, 420],
+        produto: [250, 60, 950, 720],
+        carros: {area: 320 * 500, vao: -30, base: 1195},
+        marca: 115,
+      },
+      secundaria: {
+        caixa: [150, 250, 900, 700],
+        produto: [140, 240, 920, 720],
+        logo: 215,
+        selo: {altura: 245, dx: 26, dy: 6},
+        textoTopo: [1175, 75, 40],
+        frases: [25, 1060, 40],
+        marca: 150,
+      },
+    };
+
+    function clonarLayout(l) { return JSON.parse(JSON.stringify(l || LAYOUT_PADRAO)); }
+
+    function carregarLayoutDaLoja(conta) {
+      return supabase.from('ml_fotos_layout').select('layout').eq('conta', conta).maybeSingle()
+        .then(function(r) { return (r && r.data && r.data.layout) ? r.data.layout : clonarLayout(); })
+        .catch(function() { return clonarLayout(); });
+    }
+
+    function salvarLayoutDaLoja(conta, layout) {
+      return supabase.from('ml_fotos_layout')
+        .upsert({conta: conta, layout: layout, atualizado_em: new Date().toISOString()}, {onConflict: 'conta'});
+    }
+
     function novaTela() {
       var cv = document.createElement('canvas');
       cv.width = 1200; cv.height = 1200;
@@ -726,10 +761,11 @@
 
     // CAPA: caixa da marca no alto à esquerda, produto recortado por cima, carros
     // compatíveis encostados embaixo e dois carimbos da marca d'água.
-    function montarCapa(pecas) {
+    function montarCapa(pecas, L) {
+      L = L || LAYOUT_PADRAO.capa;
       var cv = novaTela(), ctx = cv.getContext('2d');
-      desenharCabendo(ctx, pecas.caixa, 0, 20, 560, 420);
-      desenharCabendo(ctx, pecas.produto, 250, 60, 950, 720);
+      desenharCabendo(ctx, pecas.caixa, L.caixa[0], L.caixa[1], L.caixa[2], L.caixa[3]);
+      desenharCabendo(ctx, pecas.produto, L.produto[0], L.produto[1], L.produto[2], L.produto[3]);
 
       var carros = (pecas.carros || []).filter(Boolean);
       if (carros.length) {
@@ -737,7 +773,7 @@
         // Pela largura o carro de foto fechada virava um carrão; pela altura o carro
         // curto virava um carrinho ao lado da picape. E limito a diferença de altura
         // em 6%, senão a fileira fica com "dente".
-        var area = 320 * 500, vao = -30;
+        var area = L.carros.area, vao = L.carros.vao;
         var medidas = carros.map(function(c) {
           var e = Math.sqrt(area / (c.width * c.height));
           return {w: c.width * e, h: c.height * e};
@@ -753,31 +789,32 @@
         var x = (1200 - total * escala) / 2;
         carros.forEach(function(c, i) {
           var w = medidas[i].w * escala, hh = medidas[i].h * escala;
-          ctx.drawImage(c, x, 1195 - hh, w, hh);
+          ctx.drawImage(c, x, L.carros.base - hh, w, hh);
           x += w + vao * escala;
         });
       }
-      carimbarMarca(ctx, pecas.marca, [[120, 80, 1100, 700], [60, 950, 1140, 1180]], 115);
+      carimbarMarca(ctx, pecas.marca, [[120, 80, 1100, 700], [60, 950, 1140, 1180]], L.marca);
       return cv;
     }
 
     // SECUNDÁRIA: logo da montadora e aplicação em cima, produto no meio com a caixa
     // apagada ao fundo, frases embaixo à esquerda e selo da loja no canto.
-    function montarSecundaria(pecas, textoTopo, frases) {
+    function montarSecundaria(pecas, textoTopo, frases, L) {
+      L = L || LAYOUT_PADRAO.secundaria;
       var cv = novaTela(), ctx = cv.getContext('2d');
       if (pecas.caixa) {
         ctx.save(); ctx.globalAlpha = 0.22;
-        desenharCabendo(ctx, pecas.caixa, 150, 250, 900, 700);
+        desenharCabendo(ctx, pecas.caixa, L.caixa[0], L.caixa[1], L.caixa[2], L.caixa[3]);
         ctx.restore();
       }
-      desenharCabendo(ctx, pecas.produto, 140, 240, 920, 720);
+      desenharCabendo(ctx, pecas.produto, L.produto[0], L.produto[1], L.produto[2], L.produto[3]);
       if (pecas.logo) {
-        var hl = 215, wl = pecas.logo.width * (hl / pecas.logo.height);
+        var hl = L.logo, wl = pecas.logo.width * (hl / pecas.logo.height);
         ctx.drawImage(pecas.logo, 0, 0, wl, hl);
       }
-      if (textoTopo && textoTopo.length) escreverLinhas(ctx, textoTopo, 1175, 75, 40, 'right');
+      if (textoTopo && textoTopo.length) escreverLinhas(ctx, textoTopo, L.textoTopo[0], L.textoTopo[1], L.textoTopo[2], 'right');
       if (frases && frases.length) {
-        escreverLinhas(ctx, frases.map(function(t) { return '- ' + t; }), 25, 1060, 40, 'left');
+        escreverLinhas(ctx, frases.map(function(t) { return '- ' + t; }), L.frases[0], L.frases[1], L.frases[2], 'left');
       }
       if (pecas.selo) {
         // Empurrado pra fora da borda: o que sai é a quina vazia do círculo, e assim
@@ -785,14 +822,32 @@
         var hs = 245, ws = pecas.selo.width * (hs / pecas.selo.height);
         ctx.drawImage(pecas.selo, 1200 - ws + 26, 1200 - hs + 6, ws, hs);
       }
-      carimbarMarca(ctx, pecas.marca, [[250, 300, 1000, 950]], 150);
+      carimbarMarca(ctx, pecas.marca, [[250, 300, 1000, 950]], L.marca);
       return cv;
+    }
+
+    // Desenha a capa + as secundárias a partir das peças já carregadas.
+    function desenharTudo(pecas, opcoes, L) {
+      var telas = [{nome: 'capa', tela: montarCapa(pecas[0], L.capa)}];
+      pecas.slice(0, 3).forEach(function(p, i) {
+        telas.push({
+          nome: 'secundaria-' + (i + 1),
+          tela: montarSecundaria(p, i === 0 ? opcoes.textoTopo : (opcoes.textosExtras || [])[i - 1] || [],
+            opcoes.frases, L.secundaria),
+        });
+      });
+      return Promise.all(telas.map(function(t) {
+        return telaParaArquivo(t.tela, t.nome + '.jpg').then(function(arq) {
+          return {arquivo: arq, previa: t.tela.toDataURL('image/jpeg', 0.7), tipo: t.nome === 'capa' ? 'capa' : 'secundaria'};
+        });
+      }));
     }
 
     // Junta tudo: descobre as artes pelo SKU e pela compatibilidade, e devolve as fotos
     // montadas (capa + uma secundária por foto crua, até 3).
     function montarFotosDoAnuncio(opcoes) {
       var conta = opcoes.conta, marca = opcoes.marcaPeca, fotos = opcoes.fotos || [];
+      var L = opcoes.layout || LAYOUT_PADRAO;
       var compat = opcoes.compat || [];
 
       var montadoras = [], modelos = [];
@@ -844,23 +899,11 @@
           });
           if (!produtos.length) return {erro: 'nenhuma foto de produto pra montar'};
 
-          var telas = [];
-          telas.push({nome: 'capa', tela: montarCapa(Object.assign({}, pecasBase, {produto: produtos[0]}))});
-          produtos.slice(0, 3).forEach(function(p, i) {
-            telas.push({
-              nome: 'secundaria-' + (i + 1),
-              tela: montarSecundaria(Object.assign({}, pecasBase, {produto: p}),
-                i === 0 ? opcoes.textoTopo : (opcoes.textosExtras || [])[i - 1] || [],
-                opcoes.frases),
-            });
-          });
-
-          return Promise.all(telas.map(function(t, i) {
-            return telaParaArquivo(t.tela, t.nome + '.jpg').then(function(arq) {
-              return {arquivo: arq, previa: t.tela.toDataURL('image/jpeg', 0.7)};
-            });
-          })).then(function(prontas) {
-            return {fotos: prontas, faltando: faltando};
+          // As peças ficam guardadas: o editor redesenha na hora enquanto ele arrasta,
+          // sem precisar baixar arte nenhuma de novo.
+          var pecas = produtos.map(function(p) { return Object.assign({}, pecasBase, {produto: p}); });
+          return desenharTudo(pecas, opcoes, L).then(function(prontas) {
+            return {fotos: prontas, faltando: faltando, pecas: pecas, layout: L};
           });
         });
       });
@@ -1122,6 +1165,102 @@
             marcados.map(function(v) { return e('div', {key: v.id}, '• ' + v.nome); }))));
     }
 
+    // Editor da montagem: arrasta e redimensiona direto na prévia.
+    //
+    // A montagem automática acerta a maioria, mas cada peça tem um formato e às vezes
+    // uma coisa ou outra precisa andar. Aqui ele move com o mouse, muda o tamanho com
+    // a rodinha, e pode gravar como padrão da loja — aí o automático já nasce assim.
+    function EditorMontagem(props) {
+      var L = props.layout, ehCapa = props.tipo === 'capa';
+      var telaRef = useRef(null);
+      var arrastandoSt = useState(null); var arrastando = arrastandoSt[0]; var setArrastando = arrastandoSt[1];
+      var selSt = useState(ehCapa ? 'produto' : 'produto'); var sel = selSt[0]; var setSel = selSt[1];
+
+      var pecasEditaveis = ehCapa
+        ? [['produto', 'Produto'], ['caixa', 'Caixa'], ['carros', 'Carros']]
+        : [['produto', 'Produto'], ['caixa', 'Caixa'], ['logo', 'Logo'], ['selo', 'Selo'],
+           ['textoTopo', 'Texto de cima'], ['frases', 'Frases']];
+
+      function redesenhar() {
+        var alvo = telaRef.current;
+        if (!alvo) return;
+        var cv = ehCapa
+          ? montarCapa(props.pecas, L.capa)
+          : montarSecundaria(props.pecas, props.textoTopo, props.frases, L.secundaria);
+        var ctx = alvo.getContext('2d');
+        ctx.clearRect(0, 0, 1200, 1200);
+        ctx.drawImage(cv, 0, 0);
+      }
+
+      useEffect(redesenhar);
+
+      // Move a peça escolhida. Cada uma guarda o que faz sentido pra ela: as que ocupam
+      // uma área têm [x, y, largura, altura]; o selo tem deslocamento; texto tem posição.
+      function mover(dx, dy) {
+        var l = ehCapa ? L.capa : L.secundaria;
+        if (sel === 'produto' || sel === 'caixa') { l[sel][0] += dx; l[sel][1] += dy; }
+        else if (sel === 'carros') { l.carros.base += dy; }
+        else if (sel === 'logo') { l.logoDx = (l.logoDx || 0) + dx; l.logoDy = (l.logoDy || 0) + dy; }
+        else if (sel === 'selo') { l.selo.dx += dx; l.selo.dy += dy; }
+        else if (sel === 'textoTopo' || sel === 'frases') { l[sel][0] += dx; l[sel][1] += dy; }
+        props.onMudar(L);
+      }
+
+      function redimensionar(passo) {
+        var l = ehCapa ? L.capa : L.secundaria;
+        if (sel === 'produto' || sel === 'caixa') {
+          var f = 1 + passo * 0.04;
+          l[sel][2] = Math.max(80, l[sel][2] * f);
+          l[sel][3] = Math.max(80, l[sel][3] * f);
+        } else if (sel === 'carros') {
+          l.carros.area = Math.max(20000, l.carros.area * (1 + passo * 0.06));
+        } else if (sel === 'logo') {
+          l.logo = Math.max(60, l.logo * (1 + passo * 0.05));
+        } else if (sel === 'selo') {
+          l.selo.altura = Math.max(60, l.selo.altura * (1 + passo * 0.05));
+        } else if (sel === 'textoTopo' || sel === 'frases') {
+          l[sel][2] = Math.max(14, l[sel][2] * (1 + passo * 0.05));
+        }
+        props.onMudar(L);
+      }
+
+      function posDoMouse(ev) {
+        var r = ev.currentTarget.getBoundingClientRect();
+        return {x: (ev.clientX - r.left) * (1200 / r.width), y: (ev.clientY - r.top) * (1200 / r.height)};
+      }
+
+      var botao = 'px-2 py-1 rounded text-xs font-bold border ';
+      return e('div', {className: 'space-y-2'},
+        e('div', {className: 'flex flex-wrap items-center gap-1'},
+          e('span', {className: 'text-xs text-slate-400 mr-1'}, 'Mexer em:'),
+          pecasEditaveis.map(function(p) {
+            return e('button', {key: p[0], onClick: function() { setSel(p[0]); },
+              className: botao + (sel === p[0] ? 'bg-blue-600 border-blue-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-300')}, p[1]);
+          }),
+          e('span', {className: 'ml-auto text-xs text-slate-500'}, 'arraste na foto · rodinha muda o tamanho')),
+        e('canvas', {
+          ref: telaRef, width: 1200, height: 1200,
+          className: 'w-full max-w-[420px] bg-white rounded border border-slate-600 cursor-move',
+          onMouseDown: function(ev) { setArrastando(posDoMouse(ev)); },
+          onMouseMove: function(ev) {
+            if (!arrastando) return;
+            var p = posDoMouse(ev);
+            mover(p.x - arrastando.x, p.y - arrastando.y);
+            setArrastando(p);
+          },
+          onMouseUp: function() { setArrastando(null); },
+          onMouseLeave: function() { setArrastando(null); },
+          onWheel: function(ev) { ev.preventDefault(); redimensionar(ev.deltaY < 0 ? 1 : -1); },
+        }),
+        e('div', {className: 'flex flex-wrap gap-2'},
+          e('button', {onClick: function() { redimensionar(1); }, className: botao + 'bg-slate-800 border-slate-700 text-slate-200'}, '＋ maior'),
+          e('button', {onClick: function() { redimensionar(-1); }, className: botao + 'bg-slate-800 border-slate-700 text-slate-200'}, '− menor'),
+          e('button', {onClick: props.onPadrao, className: botao + 'bg-slate-800 border-slate-700 text-slate-400'}, '↺ voltar ao padrão'),
+          e('button', {onClick: props.onSalvarLoja, className: botao + 'bg-emerald-700 border-emerald-600 text-white'}, '💾 salvar como padrão da ' + props.conta),
+          e('button', {onClick: props.onFechar, className: botao + 'ml-auto bg-blue-600 border-blue-500 text-white'}, '✓ Pronto')));
+    }
+
+
     function CartaoCriacao(props) {
       var it = props.item, conta = props.conta, estado = props.estado || {};
       var d = props.dados, setD = props.setDados;
@@ -1197,12 +1336,25 @@
           });
       }
 
+      // Redesenha as fotos com o layout atual (depois de arrastar/redimensionar).
+      function redesenharMontagem(layout) {
+        if (!d.pecas || !d.pecas.length) return;
+        desenharTudo(d.pecas, {
+          textoTopo: d.textoTopo || [],
+          frases: (d.frases && d.frases.filter(Boolean).length) ? d.frases : FRASES_PADRAO.slice(0, 3),
+        }, layout || d.layout || LAYOUT_PADRAO).then(function(prontas) {
+          mudar({montadas: prontas});
+        });
+      }
+
       // Monta capa + secundárias no padrão da loja, a partir das fotos cruas já coladas.
       function montarFotos() {
         var fotos = d.fotos || [];
         if (!fotos.length) return;
         mudar({montando: true, faltandoArte: ''});
+        (d.layout ? Promise.resolve(d.layout) : carregarLayoutDaLoja(conta)).then(function(layout) {
         montarFotosDoAnuncio({
+          layout: layout,
           conta: conta,
           marcaPeca: it.marca,
           fotos: fotos,
@@ -1214,10 +1366,13 @@
           mudar({
             montando: false,
             montadas: r.fotos,
+            pecas: r.pecas,
+            layout: r.layout,
             faltandoArte: (r.faltando || []).join(' · '),
             textoTopo: (d.textoTopo && d.textoTopo.filter(Boolean).length) ? d.textoTopo : textoDeAplicacao(d.compat || []),
           });
         }).catch(function(err) { mudar({montando: false}); alert('não consegui montar: ' + err.message); });
+        });
       }
 
       function escolherFotos(arquivos) {
@@ -1410,9 +1565,28 @@
                   d.faltandoArte && e('div', {className: 'text-xs text-amber-300'}, '⚠ não achei: ' + d.faltandoArte),
                   (d.montadas || []).length > 0 && e('div', {className: 'flex flex-wrap gap-2'},
                     d.montadas.map(function(m, i) {
-                      return e('img', {key: i, src: m.previa, title: 'clique pra ver grande',
-                        onClick: function() { var w = window.open(''); if (w) w.document.write('<img src="' + m.previa + '" style="width:100%">'); },
-                        className: 'w-24 h-24 object-contain bg-white rounded cursor-zoom-in border border-slate-600'});
+                      return e('img', {key: i, src: m.previa, title: 'clique pra ajustar esta foto',
+                        onClick: function() { mudar({editando: {tipo: m.tipo, indice: i}}); },
+                        className: 'w-24 h-24 object-contain bg-white rounded cursor-pointer border ' +
+                          ((d.editando && d.editando.indice === i) ? 'border-blue-400' : 'border-slate-600')});
+                    })),
+                  // Ajuste fino: arrastar e redimensionar direto na prévia.
+                  d.editando && d.pecas && e('div', {className: 'border-t border-slate-700 pt-2'},
+                    e(EditorMontagem, {
+                      tipo: d.editando.tipo, conta: conta,
+                      pecas: d.pecas[d.editando.tipo === 'capa' ? 0 : Math.max(0, d.editando.indice - 1)],
+                      layout: d.layout || LAYOUT_PADRAO,
+                      textoTopo: d.textoTopo || [],
+                      frases: (d.frases && d.frases.filter(Boolean).length) ? d.frases : FRASES_PADRAO.slice(0, 3),
+                      onMudar: function(novo) { mudar({layout: Object.assign({}, novo)}); },
+                      onPadrao: function() { var p = clonarLayout(); mudar({layout: p}); redesenharMontagem(p); },
+                      onSalvarLoja: function() {
+                        salvarLayoutDaLoja(conta, d.layout || LAYOUT_PADRAO).then(function(r) {
+                          alert(r && r.error ? 'não consegui salvar: ' + r.error.message
+                            : 'Pronto: as próximas montagens da ' + conta + ' já saem assim.');
+                        });
+                      },
+                      onFechar: function() { mudar({editando: null}); redesenharMontagem(); },
                     }))),
 
                 e('label', {className: 'text-xs text-slate-400 block'}, 'Embalagem de fábrica (medidas da expedição) — o envio vai "na embalagem de fábrica, sem nada extra"'),
