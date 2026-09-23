@@ -42,7 +42,7 @@ async function main() {
 
   // Anúncios que estão na AGOSTO — são os que vão precisar migrar
   const { data: candidatos } = await sb.from('ml_promocoes_itens')
-    .select('item_id, title, sku, preco_cheio')
+    .select('item_id, title, sku, preco_cheio').eq('parcial', false)
     .eq('conta', CONTA).eq('promocao_nome', 'AGOSTO').eq('status', 'started')
     .limit(QUANTOS * 3);
 

@@ -20,7 +20,7 @@ const pctDe = (cheio, preco) => Math.round((1 - Number(preco) / Number(cheio)) *
 async function carregar(sb, conta) {
   let todos = [];
   for (let i = 0; ; i += 1000) {
-    const { data } = await sb.from('ml_promocoes_itens').select('*')
+    const { data } = await sb.from('ml_promocoes_itens').select('*').eq('parcial', false)
       .eq('conta', conta).order('item_id').range(i, i + 999);
     if (!data || !data.length) break;
     todos = todos.concat(data);
