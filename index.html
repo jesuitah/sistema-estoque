@@ -588,6 +588,39 @@
       return achado;
     }
 
+    // Acha a foto do carro respeitando a GERAÇÃO.
+    //
+    // "VOLKSWAGEN GOL" sozinho é genérico demais: pode ser o de 2002 ou o de 2017. Por
+    // isso o acervo aceita o ano no nome — "VOLKSWAGEN GOL 2000-2005.png". Aqui a gente
+    // escolhe a geração que cobre mais anos dos que ele marcou na compatibilidade; o
+    // arquivo sem ano vale como "serve pra qualquer ano".
+    function acharCarro(nomes, marcaModelo, anos) {
+      var alvo = semAcento(marcaModelo).replace(/[^A-Z0-9]/g, '');
+      var candidatos = [];
+      nomes.forEach(function(n) {
+        var base = semAcento(n).replace(/\.[A-Z]+$/, '');
+        var faixa = base.match(/(\d{4})\s*-\s*(\d{4})/);
+        var semAno = base.replace(/(\d{4})\s*-\s*(\d{4})/, '').replace(/[^A-Z0-9]/g, '');
+        if (semAno !== alvo) return;
+        candidatos.push({
+          nome: n,
+          de: faixa ? Number(faixa[1]) : null,
+          ate: faixa ? Number(faixa[2]) : null,
+        });
+      });
+      if (!candidatos.length) return null;
+      if (!anos.length) return candidatos[0].nome;
+
+      var melhor = null, pontos = -1;
+      candidatos.forEach(function(c) {
+        var n = c.de == null
+          ? 0.5                                    // sem ano: só entra se nada melhor aparecer
+          : anos.filter(function(a) { return a >= c.de && a <= c.ate; }).length;
+        if (n > pontos) { pontos = n; melhor = c; }
+      });
+      return melhor ? melhor.nome : candidatos[0].nome;
+    }
+
     function carregarImagem(url) {
       return new Promise(function(ok) {
         var i = new Image();
@@ -850,13 +883,19 @@
       var L = opcoes.layout || LAYOUT_PADRAO;
       var compat = opcoes.compat || [];
 
-      var montadoras = [], modelos = [];
+      // Cada veículo da compatibilidade vem como "Fiat Marea 1999 2.4 Hlx 4p": a marca,
+      // o modelo e o ano. Guardamos os anos de cada modelo pra escolher a GERAÇÃO certa
+      // da foto quando o acervo tiver "VOLKSWAGEN GOL 2000-2005.png" e irmãos.
+      var montadoras = [], modelos = [], anosPorModelo = {};
       compat.forEach(function(v) {
         var partes = String(v.nome || '').split(' ');
         var m = semAcento(partes[0]);
         if (m && montadoras.indexOf(m) === -1) montadoras.push(m);
         var mod = semAcento(partes.slice(0, 2).join(' '));
-        if (mod && modelos.indexOf(mod) === -1) modelos.push(mod);
+        if (!mod) return;
+        if (modelos.indexOf(mod) === -1) modelos.push(mod);
+        var ano = String(v.nome || '').match(/\b(19|20)\d{2}\b/);
+        if (ano) (anosPorModelo[mod] = anosPorModelo[mod] || []).push(Number(ano[0]));
       });
       var montadora = montadoras[0] || '';
       montadora = APELIDO_MONTADORA[montadora] || montadora;
@@ -875,7 +914,11 @@
         var urlLogo = url('logo', listas[1], montadora, 'logo da');
         var urlSelo = url('selo', listas[2], conta, 'selo da');
         var urlMarca = url('marca-dagua', listas[3], "MARCA D'AGUA " + conta, "marca d'água da");
-        var urlsCarros = modelos.slice(0, 3).map(function(m) { return url('carro', listas[4], m, 'foto do'); });
+        var urlsCarros = modelos.slice(0, 3).map(function(m) {
+          var achado = acharCarro(listas[4], m, anosPorModelo[m] || []);
+          if (!achado) { faltando.push('foto do ' + m); return null; }
+          return ARTES_URL + 'carro/' + encodeURIComponent(achado);
+        });
 
         return Promise.all([
           urlCaixa ? carregarImagem(urlCaixa) : null,
