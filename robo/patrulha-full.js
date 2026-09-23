@@ -401,16 +401,34 @@ async function patrulharConta(sb, conta, executar, log) {
 
       if (existente?.desistiu_em) continue;                    // já desistimos deste
       if (existente && (existente.passadas || 0) >= PASSADAS_ATE_DESISTIR) {
+        // ANTES DE CHAMAR O MATHEUS, CONFERE NA API.
+        //
+        // Em 23/09/2026 cinco anúncios foram parar em "precisa de você" e nenhum
+        // precisava: eles tinham SAÍDO do Full (viraram envio próprio, com 89 un) e o
+        // que sobrou no galpão foi 1 unidade "não apta". A tela do Full continua
+        // sugerindo coisa pra esse resto, e o robô clicava há dias. Quando o anúncio
+        // não está mais no Full, não há o que reativar — a linha fecha sozinha.
+        let foraDoFull = false;
+        if (up) {
+          const estado = await estadoReal(await autenticacao(sb, conta), up);
+          foraDoFull = !!estado && !estado.noFull;
+        }
         if (executar) {
           await sb.from('ml_patrulha_full')
-            .update({ desistiu_em: new Date().toISOString(), motivo_desistencia: 'nao_cedeu' })
+            .update({
+              desistiu_em: new Date().toISOString(),
+              motivo_desistencia: foraDoFull ? 'saiu_do_full' : 'nao_cedeu',
+            })
             .eq('id', existente.id);
           await sb.from('ml_log_acoes').insert({
-            conta, item_id: alvo.codigo_ml, title: alvo.titulo, acao: 'falhou', origem: 'robo',
-            detalhe: `o Mercado Livre não reativou em ${existente.passadas} passadas (${existente.tentativas} tentativas) — precisa de você`,
+            conta, item_id: alvo.codigo_ml, title: alvo.titulo,
+            acao: foraDoFull ? 'ignorado' : 'falhou', origem: 'robo',
+            detalhe: foraDoFull
+              ? 'o anúncio não está mais no Full — nada a reativar; a sugestão do painel é sobre as unidades que ficaram no galpão'
+              : `o Mercado Livre não reativou em ${existente.passadas} passadas (${existente.tentativas} tentativas) — precisa de você`,
           });
         }
-        log(`  ${conta}: desistindo de ${alvo.codigo_ml} após ${existente.passadas} passadas`);
+        log(`  ${conta}: ${foraDoFull ? 'fora do Full, fechando' : 'desistindo de'} ${alvo.codigo_ml} após ${existente.passadas} passadas`);
         continue;
       }
       // Sem o id não dá pra agir. Isto NÃO pode passar batido: foi exatamente assim

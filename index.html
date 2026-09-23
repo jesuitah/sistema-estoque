@@ -6727,7 +6727,10 @@
                     // largou por falta de estoque não vão pra tela — quem cuida disso é
                     // o fluxo de Inativos, e lista de "não faça nada" é ruído.
                     var manuaisTravados = trav.filter(function(p) {
-                      return p.motivo_desistencia !== 'sem_estoque';
+                      // 'saiu_do_full' também não é pra tela: o anúncio deixou o Full,
+                      // não há o que reativar, e a sugestão que sobra no painel é sobre
+                      // as unidades que ficaram no galpão do ML.
+                      return p.motivo_desistencia !== 'sem_estoque' && p.motivo_desistencia !== 'saiu_do_full';
                     });
                     var verificandoAgora = andando && andando.conta === c;
 
