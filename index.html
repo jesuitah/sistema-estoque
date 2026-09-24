@@ -1432,6 +1432,8 @@
       var arrastandoSt = useState(null); var arrastando = arrastandoSt[0]; var setArrastando = arrastandoSt[1];
       var selSt = useState('produto'); var sel = selSt[0]; var setSel = selSt[1];
       var carroSelSt = useState(null); var carroSel = carroSelSt[0]; var setCarroSel = carroSelSt[1];
+      // O que ele já deu por pronto, só pra ele se achar no meio do caminho.
+      var prontosSt = useState({}); var prontos = prontosSt[0]; var setProntos = prontosSt[1];
 
       var pecasEditaveis = ehCapa
         ? [['produto', 'Produto'], ['caixa', 'Caixa'], ['carros', 'Carros']]
@@ -1450,6 +1452,26 @@
       }
 
       useEffect(redesenhar);
+
+      // Teclado, como no Photoshop: setas movem a peça escolhida (com Shift, de 20 em
+      // 20), + e − mudam o tamanho, [ e ] giram. Só enquanto o editor está aberto, e
+      // nunca por cima de um campo de texto (senão atrapalha a busca do acervo).
+      useEffect(function() {
+        function tecla(ev) {
+          var alvo = ev.target || {};
+          var nome = (alvo.tagName || '').toUpperCase();
+          if (nome === 'INPUT' || nome === 'TEXTAREA' || alvo.isContentEditable) return;
+          var passo = ev.shiftKey ? 20 : 4;
+          var setas = {ArrowLeft: [-passo, 0], ArrowRight: [passo, 0], ArrowUp: [0, -passo], ArrowDown: [0, passo]};
+          if (setas[ev.key]) { ev.preventDefault(); mover(setas[ev.key][0], setas[ev.key][1]); return; }
+          if (ev.key === '+' || ev.key === '=') { ev.preventDefault(); redimensionar(1); return; }
+          if (ev.key === '-' || ev.key === '_') { ev.preventDefault(); redimensionar(-1); return; }
+          if (ev.key === '[') { ev.preventDefault(); girar(-5); return; }
+          if (ev.key === ']') { ev.preventDefault(); girar(5); return; }
+        }
+        window.addEventListener('keydown', tecla);
+        return function() { window.removeEventListener('keydown', tecla); };
+      });
 
       // Move a peça escolhida. Cada uma guarda o que faz sentido pra ela: as que ocupam
       // uma área têm [x, y, largura, altura]; o selo tem deslocamento; texto tem posição.
@@ -1522,10 +1544,11 @@
         e('div', {className: 'flex flex-wrap items-center gap-1'},
           e('span', {className: 'text-xs text-slate-400 mr-1'}, 'Mexer em:'),
           pecasEditaveis.map(function(p) {
-            return e('button', {key: p[0], onClick: function() { setSel(p[0]); },
-              className: botao + (sel === p[0] ? 'bg-blue-600 border-blue-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-300')}, p[1]);
+            return e('button', {key: p[0], onClick: function() { setSel(p[0]); setCarroSel(null); },
+              className: botao + (sel === p[0] ? 'bg-blue-600 border-blue-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-300')},
+              (prontos[p[0]] ? '✓ ' : '') + p[1]);
           }),
-          e('span', {className: 'ml-auto text-xs text-slate-500'}, 'arraste na foto · rodinha muda o tamanho · Shift + arrastar gira')),
+          e('span', {className: 'ml-auto text-xs text-slate-500'}, 'arraste ou use as setas do teclado · rodinha ou +/− muda o tamanho · Shift+arrastar ou [ ] gira')),
         e('canvas', {
           ref: telaRef, width: 1200, height: 1200,
           className: 'w-full max-w-[560px] bg-white rounded border border-slate-600 cursor-move',
@@ -1549,10 +1572,12 @@
           props.pecas.carrosOpcoes.map(function(opcoes, i) {
             var escolhida = opcoes[((ehCapa ? L.capa : L.secundaria).carroIdx || 0) % opcoes.length];
             return e('div', {key: i, className: 'relative'},
-              e('img', {src: escolhida.toDataURL('image/png'), title: 'mexer só neste carro',
+              e('img', {src: escolhida.toDataURL('image/png'), title: 'mexer só no carro ' + (i + 1),
                 onClick: function() { setCarroSel(carroSel === i ? null : i); },
                 className: 'w-16 h-12 object-contain bg-white rounded cursor-pointer border-2 ' +
                   (carroSel === i ? 'border-blue-400' : 'border-slate-600')}),
+              e('div', {className: 'text-[9px] text-center ' + (carroSel === i ? 'text-blue-300' : 'text-slate-500')},
+                'carro ' + (i < 9 ? '0' : '') + (i + 1)),
               e('button', {onClick: function() { props.onRemoverCarro(i); setCarroSel(null); }, title: 'tirar este carro',
                 className: 'absolute -top-1 -right-1 bg-red-600 text-white rounded-full w-4 h-4 text-[10px] leading-none'}, '✕'));
           }),
@@ -1578,7 +1603,14 @@
             var l = ehCapa ? L.capa : L.secundaria;
             l.carroIdx = (l.carroIdx || 0) + 1;
             props.onMudar(L);
-          }, className: botao + 'bg-slate-800 border-slate-700 text-slate-200'}, '🔄 trocar foto do carro')),
+          }, className: botao + 'bg-slate-800 border-slate-700 text-slate-200'}, '🔄 trocar foto do carro'),
+          // Fecha o ajuste deste item: solta o carro marcado e deixa o ✓ na lista de cima.
+          e('button', {onClick: function() {
+            var chave = (sel === 'carros' && carroSel != null) ? 'carros' : sel;
+            var novo = Object.assign({}, prontos); novo[chave] = true;
+            setProntos(novo);
+            if (carroSel != null) setCarroSel(null);
+          }, className: botao + 'ml-auto bg-emerald-700 border-emerald-600 text-white'}, '✓ ok, este está pronto')),
 
         // Trocar a arte desta peça: acervo inteiro + colar de fora.
         PASTA_DA_PECA[sel] && e(TrocarPeca, {
@@ -1957,7 +1989,8 @@
                         if (peca === 'carros') return semAcento(partes.slice(0, 2).join(' '));
                         return '';
                       },
-                      // Tira um carro da fileira (em todas as fotos).
+                      // Tira um carro da fileira (em todas as fotos). O ajuste individual
+                      // dele sai junto, senão passaria a valer pro carro seguinte.
                       onRemoverCarro: function(indice) {
                         if (!d.pecas) return;
                         var novas = d.pecas.map(function(p) {
@@ -1965,7 +1998,11 @@
                           copia.carrosOpcoes = (copia.carrosOpcoes || []).filter(function(_x, i) { return i !== indice; });
                           return copia;
                         });
-                        mudar({pecas: novas});
+                        var L = d.layout || clonarLayout();
+                        [L.capa, L.secundaria].forEach(function(l) {
+                          if (l.carros && l.carros.itens) l.carros.itens.splice(indice, 1);
+                        });
+                        mudar({pecas: novas, layout: L});
                         desenharTudo(novas, {
                           textoTopo: (d.textoTopo && d.textoTopo.filter(Boolean).length) ? d.textoTopo : textoDeAplicacao(d.compat || []),
                           textosExtras: [textoDeCodigos(d.valores || {}), []],
@@ -1978,8 +2015,10 @@
                         var novas = d.pecas.map(function(p) {
                           var copia = Object.assign({}, p);
                           if (peca === 'carros') {
+                            // Entra no FIM da fila: os carros que ele já ajustou continuam
+                            // sendo o carro 01, 02... e não herdam o ajuste de ninguém.
                             var lista = (copia.carrosOpcoes || []).slice();
-                            lista.unshift([imagem]);              // entra como o primeiro carro
+                            lista.push([imagem]);
                             copia.carrosOpcoes = lista.slice(0, 5);
                           } else {
                             copia[peca] = imagem;
