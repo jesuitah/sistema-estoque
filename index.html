@@ -868,12 +868,15 @@
           var alvo = Math.min(meio * 1.06, Math.max(meio * 0.94, m.h));
           m.w = m.w * (alvo / m.h); m.h = alvo;
         });
-        var total = medidas.reduce(function(s, m) { return s + m.w; }, 0) + vao * (carros.length - 1);
+        // Cada carro pode ter o seu próprio ajuste (posição e tamanho), por cima do
+        // que a fileira calculou — é o que permite mexer num carro só. O ajuste entra
+        // na conta da largura total, senão a fileira sai do centro quando um cresce.
+        var ajustes = L.carros.itens || [];
+        var total = medidas.reduce(function(s, m, i) {
+          return s + m.w * (((ajustes[i] || {}).escala) || 1);
+        }, 0) + vao * (carros.length - 1);
         var escala = Math.min(1, 1190 / total);
         var x = (1200 - total * escala) / 2 + (L.carros.dx || 0);
-        // Cada carro pode ter o seu próprio ajuste (posição e tamanho), por cima do
-        // que a fileira calculou — é o que permite mexer num carro só.
-        var ajustes = L.carros.itens || [];
         var giroDaFileira = (L.giro || {}).carros || 0;
         carros.forEach(function(c, i) {
           var a = ajustes[i] || {};
@@ -881,7 +884,9 @@
           var w = medidas[i].w * escala * f, hh = medidas[i].h * escala * f;
           desenharGirado(ctx, c, x + (a.dx || 0), L.carros.base - hh + (a.dy || 0), w, hh,
             a.giro || giroDaFileira);
-          x += medidas[i].w * escala + vao * escala;
+          // Avança pela largura QUE ELE TEM AGORA, não pela que tinha antes de você
+          // aumentá-lo: senão o carro maior invade o vizinho e a fileira vira um borrão.
+          x += w + vao * escala;
         });
       }
       carimbarMarca(ctx, pecas.marca, [[120, 80, 1100, 700], [60, 950, 1140, 1180]], L.marca);
@@ -1531,6 +1536,12 @@
         props.onMudar(L);
       }
 
+      function afastar(quanto) {
+        var l = ehCapa ? L.capa : L.secundaria;
+        l.carros.vao = (l.carros.vao || 0) + quanto;
+        props.onMudar(L);
+      }
+
       function posDoMouse(ev) {
         var r = ev.currentTarget.getBoundingClientRect();
         return {x: (ev.clientX - r.left) * (1200 / r.width), y: (ev.clientY - r.top) * (1200 / r.height)};
@@ -1604,6 +1615,14 @@
             l.carroIdx = (l.carroIdx || 0) + 1;
             props.onMudar(L);
           }, className: botao + 'bg-slate-800 border-slate-700 text-slate-200'}, '🔄 trocar foto do carro'),
+          // Espaço entre os carros: o padrão é negativo (eles se tocam de propósito),
+          // mas com dois carros grandes isso vira um bloco só.
+          sel === 'carros' && carroSel == null && e('button', {onClick: function() { afastar(20); },
+            title: 'mais espaço entre os carros',
+            className: botao + 'bg-slate-800 border-slate-700 text-slate-200'}, '↔ afastar'),
+          sel === 'carros' && carroSel == null && e('button', {onClick: function() { afastar(-20); },
+            title: 'menos espaço entre os carros',
+            className: botao + 'bg-slate-800 border-slate-700 text-slate-200'}, '→← aproximar'),
           // Fecha o ajuste deste item: solta o carro marcado e deixa o ✓ na lista de cima.
           e('button', {onClick: function() {
             var chave = (sel === 'carros' && carroSel != null) ? 'carros' : sel;
