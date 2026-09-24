@@ -566,12 +566,21 @@
     var artesCache = {};
     function listarArtes(pasta) {
       if (artesCache[pasta]) return Promise.resolve(artesCache[pasta]);
-      return fetch('https://pylkufhziohxvwbbaued.supabase.co/storage/v1/object/list/artes', {
-        method: 'POST',
-        headers: {apikey: supabaseKey, Authorization: 'Bearer ' + supabaseKey, 'Content-Type': 'application/json'},
-        body: JSON.stringify({prefix: pasta + '/', limit: 500}),
-      }).then(function(r) { return r.json(); }).then(function(lista) {
-        var nomes = (Array.isArray(lista) ? lista : []).map(function(o) { return o.name; });
+      // O acervo de carros passa de mil arquivos e o Storage devolve por lote:
+      // sem virar a página, metade das fotos simplesmente não existiria pro sistema.
+      var nomes = [], LOTE = 500;
+      function pagina(de) {
+        return fetch('https://pylkufhziohxvwbbaued.supabase.co/storage/v1/object/list/artes', {
+          method: 'POST',
+          headers: {apikey: supabaseKey, Authorization: 'Bearer ' + supabaseKey, 'Content-Type': 'application/json'},
+          body: JSON.stringify({prefix: pasta + '/', limit: LOTE, offset: de}),
+        }).then(function(r) { return r.json(); }).then(function(lista) {
+          if (!Array.isArray(lista) || !lista.length) return nomes;
+          lista.forEach(function(o) { nomes.push(o.name); });
+          return lista.length < LOTE ? nomes : pagina(de + LOTE);
+        });
+      }
+      return pagina(0).then(function() {
         artesCache[pasta] = nomes;
         return nomes;
       }).catch(function() { return []; });
@@ -613,10 +622,13 @@
         var palavras = base.replace(/(\d{4})\s*-\s*(\d{4})/, ' ').split(/[^A-Z0-9]+/).filter(Boolean);
         var bate = alvo.every(function(p, i) { return palavras[i] === p; });
         if (!bate) return;
+        // Sem faixa, vale o ano solto no nome ("FIAT UNO 1991"): a foto daquele ano
+        // serve pra geração inteira, então abrimos 4 anos pra cada lado.
+        var solto = faixa ? null : base.match(/\b(19|20)\d{2}\b/);
         candidatos.push({
           nome: n,
-          de: faixa ? Number(faixa[1]) : null,
-          ate: faixa ? Number(faixa[2]) : null,
+          de: faixa ? Number(faixa[1]) : solto ? Number(solto[0]) - 4 : null,
+          ate: faixa ? Number(faixa[2]) : solto ? Number(solto[0]) + 4 : null,
         });
       });
       if (!candidatos.length) return [];
