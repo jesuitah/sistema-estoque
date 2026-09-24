@@ -1291,10 +1291,18 @@
 
       if (!pasta) return null;
 
+      // Digitar "GOL" tem que trazer os Gol na frente, não um "GOLF" qualquer no meio
+      // de mil arquivos: quem começa com o que ele digitou vem primeiro.
       var q = semAcento(s.filtro).replace(/[^A-Z0-9]/g, '');
-      var visiveis = (s.nomes || []).filter(function(n) {
+      var achados = (s.nomes || []).filter(function(n) {
         return !q || semAcento(n).replace(/[^A-Z0-9]/g, '').indexOf(q) !== -1;
-      }).slice(0, 60);
+      }).sort(function(a, b) {
+        if (!q) return 0;
+        var pa = semAcento(a).replace(/[^A-Z0-9]/g, '').indexOf(q);
+        var pb = semAcento(b).replace(/[^A-Z0-9]/g, '').indexOf(q);
+        return pa - pb;
+      });
+      var visiveis = achados.slice(0, 120);
 
       // Prepara a imagem do mesmo jeito que a montagem automática faz.
       function preparar(im) {
@@ -1358,13 +1366,21 @@
             if (arq) usarArquivo(arq);
           }},
         e('div', {className: 'flex items-center gap-2 flex-wrap'},
-          e('input', {value: s.filtro, placeholder: 'procurar no acervo...',
-            onChange: function(ev) { mudar({filtro: ev.target.value}); }, className: campoPeq + ' flex-1 min-w-[140px]'}),
+          e('input', {value: s.filtro, autoFocus: props.tipo === 'carros',
+            placeholder: props.tipo === 'carros' ? 'digite o carro (ex.: GOL) e clique na foto...' : 'procurar no acervo...',
+            onChange: function(ev) { mudar({filtro: ev.target.value}); }, className: campoPeq + ' flex-1 min-w-[180px]'}),
           e('label', {className: 'text-[11px] text-blue-300 underline cursor-pointer'},
             'escolher arquivo',
             e('input', {type: 'file', accept: 'image/*', className: 'hidden',
               onChange: function(ev) { usarArquivo(ev.target.files[0]); ev.target.value = ''; }})),
           e('span', {className: 'text-[11px] text-slate-500'}, 'ou cole aqui com Ctrl+V')),
+
+        // Com mais de mil fotos no acervo, ele precisa saber se a busca achou 3 ou 40.
+        s.nomes !== null && e('div', {className: 'text-[11px] text-slate-400'},
+          !q ? s.nomes.length + ' no acervo · digite pra filtrar'
+            : achados.length + (achados.length === 1 ? ' foto' : ' fotos') + ' com "' + s.filtro.toUpperCase() + '"' +
+              (achados.length > visiveis.length ? ' · mostrando as ' + visiveis.length + ' primeiras' : '') +
+              (props.tipo === 'carros' ? ' · clique pra colocar na foto' : '')),
 
         s.ocupado && e('div', {className: 'text-[11px] text-sky-300'}, '⏳ ' + s.ocupado),
 
@@ -1377,11 +1393,14 @@
 
         s.nomes === null
           ? e('div', {className: 'text-[11px] text-slate-500'}, 'carregando o acervo...')
-          : e('div', {className: 'flex flex-wrap gap-1 max-h-40 overflow-y-auto'},
+          : e('div', {className: 'flex flex-wrap gap-1 max-h-52 overflow-y-auto'},
               visiveis.map(function(n) {
-                return e('img', {key: n, src: ARTES_URL + pasta + '/' + encodeURIComponent(n),
-                  title: n, onClick: function() { usarDoAcervo(n); },
-                  className: 'w-14 h-14 object-contain bg-white rounded cursor-pointer border border-slate-700 hover:border-blue-400'});
+                var rotulo = n.replace(/\.[a-z]+$/i, '');
+                return e('div', {key: n, title: rotulo, onClick: function() { usarDoAcervo(n); },
+                    className: 'w-[88px] cursor-pointer group'},
+                  e('img', {src: ARTES_URL + pasta + '/' + encodeURIComponent(n), loading: 'lazy',
+                    className: 'w-[88px] h-16 object-contain bg-white rounded border border-slate-700 group-hover:border-blue-400'}),
+                  e('div', {className: 'text-[9px] text-slate-500 group-hover:text-blue-300 truncate'}, rotulo));
               }),
               !visiveis.length && e('div', {className: 'text-[11px] text-slate-500'}, 'nada com esse nome no acervo')));
     }
@@ -1922,7 +1941,7 @@
                           if (peca === 'carros') {
                             var lista = (copia.carrosOpcoes || []).slice();
                             lista.unshift([imagem]);              // entra como o primeiro carro
-                            copia.carrosOpcoes = lista.slice(0, 3);
+                            copia.carrosOpcoes = lista.slice(0, 5);
                           } else {
                             copia[peca] = imagem;
                           }
