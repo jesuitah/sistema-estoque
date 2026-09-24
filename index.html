@@ -846,10 +846,15 @@
         var total = medidas.reduce(function(s, m) { return s + m.w; }, 0) + vao * (carros.length - 1);
         var escala = Math.min(1, 1190 / total);
         var x = (1200 - total * escala) / 2 + (L.carros.dx || 0);
+        // Cada carro pode ter o seu próprio ajuste (posição e tamanho), por cima do
+        // que a fileira calculou — é o que permite mexer num carro só.
+        var ajustes = L.carros.itens || [];
         carros.forEach(function(c, i) {
-          var w = medidas[i].w * escala, hh = medidas[i].h * escala;
-          ctx.drawImage(c, x, L.carros.base - hh, w, hh);
-          x += w + vao * escala;
+          var a = ajustes[i] || {};
+          var f = a.escala || 1;
+          var w = medidas[i].w * escala * f, hh = medidas[i].h * escala * f;
+          ctx.drawImage(c, x + (a.dx || 0), L.carros.base - hh + (a.dy || 0), w, hh);
+          x += medidas[i].w * escala + vao * escala;
         });
       }
       carimbarMarca(ctx, pecas.marca, [[120, 80, 1100, 700], [60, 950, 1140, 1180]], L.marca);
@@ -1379,7 +1384,8 @@
       var L = props.layout, ehCapa = props.tipo === 'capa';
       var telaRef = useRef(null);
       var arrastandoSt = useState(null); var arrastando = arrastandoSt[0]; var setArrastando = arrastandoSt[1];
-      var selSt = useState(ehCapa ? 'produto' : 'produto'); var sel = selSt[0]; var setSel = selSt[1];
+      var selSt = useState('produto'); var sel = selSt[0]; var setSel = selSt[1];
+      var carroSelSt = useState(null); var carroSel = carroSelSt[0]; var setCarroSel = carroSelSt[1];
 
       var pecasEditaveis = ehCapa
         ? [['produto', 'Produto'], ['caixa', 'Caixa'], ['carros', 'Carros']]
@@ -1404,7 +1410,14 @@
       function mover(dx, dy) {
         var l = ehCapa ? L.capa : L.secundaria;
         if (sel === 'produto' || sel === 'caixa') { l[sel][0] += dx; l[sel][1] += dy; }
-        else if (sel === 'carros') { l.carros.base += dy; l.carros.dx = (l.carros.dx || 0) + dx; }
+        else if (sel === 'carros') {
+          if (carroSel == null) { l.carros.base += dy; l.carros.dx = (l.carros.dx || 0) + dx; }
+          else {
+            l.carros.itens = l.carros.itens || [];
+            var a = l.carros.itens[carroSel] = l.carros.itens[carroSel] || {};
+            a.dx = (a.dx || 0) + dx; a.dy = (a.dy || 0) + dy;
+          }
+        }
         else if (sel === 'logo') { l.logoDx = (l.logoDx || 0) + dx; l.logoDy = (l.logoDy || 0) + dy; }
         else if (sel === 'selo') { l.selo.dx += dx; l.selo.dy += dy; }
         else if (sel === 'textoTopo' || sel === 'frases') { l[sel][0] += dx; l[sel][1] += dy; }
@@ -1467,6 +1480,27 @@
           onMouseLeave: function() { setArrastando(null); },
           onWheel: function(ev) { ev.preventDefault(); redimensionar(ev.deltaY < 0 ? 1 : -1); },
         }),
+        // Os carros que estão na foto agora, com o ✕ pra tirar cada um.
+        sel === 'carros' && (props.pecas.carrosOpcoes || []).length > 0 && e('div', {className: 'flex flex-wrap gap-2 items-center'},
+          e('span', {className: 'text-xs text-slate-400'}, 'na foto:'),
+          // Clicar numa miniatura escolhe QUAL carro você está mexendo; o ✕ tira ele.
+          props.pecas.carrosOpcoes.map(function(opcoes, i) {
+            var escolhida = opcoes[((ehCapa ? L.capa : L.secundaria).carroIdx || 0) % opcoes.length];
+            return e('div', {key: i, className: 'relative'},
+              e('img', {src: escolhida.toDataURL('image/png'), title: 'mexer só neste carro',
+                onClick: function() { setCarroSel(carroSel === i ? null : i); },
+                className: 'w-16 h-12 object-contain bg-white rounded cursor-pointer border-2 ' +
+                  (carroSel === i ? 'border-blue-400' : 'border-slate-600')}),
+              e('button', {onClick: function() { props.onRemoverCarro(i); setCarroSel(null); }, title: 'tirar este carro',
+                className: 'absolute -top-1 -right-1 bg-red-600 text-white rounded-full w-4 h-4 text-[10px] leading-none'}, '✕'));
+          }),
+          e('button', {onClick: function() { setCarroSel(null); },
+            className: 'px-2 py-1 rounded text-[11px] font-bold border ' +
+              (carroSel == null ? 'bg-blue-600 border-blue-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-300')},
+            'a fileira toda'),
+          e('span', {className: 'text-[11px] text-slate-500'},
+            carroSel == null ? 'arrastando move todos juntos' : 'arrastando move só o carro marcado')),
+
         // Trocar a arte desta peça: acervo inteiro + colar de fora.
         PASTA_DA_PECA[sel] && e(TrocarPeca, {
           tipo: sel,
@@ -1852,6 +1886,21 @@
                         if (peca === 'logo') return semAcento(partes[0] || '');
                         if (peca === 'carros') return semAcento(partes.slice(0, 2).join(' '));
                         return '';
+                      },
+                      // Tira um carro da fileira (em todas as fotos).
+                      onRemoverCarro: function(indice) {
+                        if (!d.pecas) return;
+                        var novas = d.pecas.map(function(p) {
+                          var copia = Object.assign({}, p);
+                          copia.carrosOpcoes = (copia.carrosOpcoes || []).filter(function(_x, i) { return i !== indice; });
+                          return copia;
+                        });
+                        mudar({pecas: novas});
+                        desenharTudo(novas, {
+                          textoTopo: (d.textoTopo && d.textoTopo.filter(Boolean).length) ? d.textoTopo : textoDeAplicacao(d.compat || []),
+                          textosExtras: [textoDeCodigos(d.valores || {}), []],
+                          frases: (d.frases && d.frases.filter(Boolean).length) ? d.frases : FRASES_PADRAO.slice(0, 3),
+                        }, d.layout || LAYOUT_PADRAO).then(function(prontas) { mudar({montadas: prontas}); });
                       },
                       // Troca a arte de uma peça em TODAS as fotos montadas de uma vez.
                       onTrocarPeca: function(peca, imagem) {
