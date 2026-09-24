@@ -1692,8 +1692,14 @@
               lista.forEach(function(a) {
                 if (valores[a.id]) return;
                 // Tudo em MAIÚSCULO, e o número de peça com a marca na frente (pedido dele).
-                if (a.id === 'BRAND') valores[a.id] = it.marca.toUpperCase();
-                if (a.id === 'PART_NUMBER') valores[a.id] = (it.marca + ' ' + it.sku).toUpperCase();
+                // No kit a marca é uma só (o ML não aceita "MOTORACO + BOSCH"), mas o
+                // número de peça leva as duas — uma por linha quando o campo aceita várias.
+                if (a.id === 'BRAND') valores[a.id] = (it.kit ? it.kit[0].marca : it.marca).toUpperCase();
+                if (a.id === 'PART_NUMBER') {
+                  valores[a.id] = it.kit
+                    ? it.kit.map(function(p) { return (p.marca + ' ' + p.sku).toUpperCase(); }).join(a.multi ? '\n' : ' + ')
+                    : (it.marca + ' ' + it.sku).toUpperCase();
+                }
               });
               return Object.assign({}, cur, {categoria: cat, atributos: lista, valores: valores});
             });
@@ -1721,7 +1727,9 @@
         montarFotosDoAnuncio({
           layout: layout,
           conta: conta,
-          marcaPeca: it.marca,
+          // No kit a "marca" é a junção das duas; a caixa do acervo é procurada pela
+          // marca da primeira peça (as outras ele troca no editor).
+          marcaPeca: it.kit ? it.kit[0].marca : it.marca,
           fotos: fotos,
           compat: d.compat || [],
           textoTopo: (d.textoTopo && d.textoTopo.filter(Boolean).length) ? d.textoTopo : textoDeAplicacao(d.compat || []),
@@ -1830,13 +1838,27 @@
         tabIndex: -1,   // clicar no cartão já faz o Ctrl+V cair aqui
         onPaste: colar, onDragOver: function(ev) { ev.preventDefault(); }, onDrop: soltar},
         e('div', {className: 'flex flex-wrap items-center gap-3'},
+          it.kit && e('span', {className: 'text-[11px] font-bold bg-amber-600 text-white rounded px-2 py-0.5'}, 'KIT'),
           e('span', {className: 'text-xs font-bold text-slate-400'}, it.marca),
           e('span', {className: 'text-sm font-bold text-white'}, it.sku),
-          e('span', {className: 'text-xs text-amber-400'}, it.unidades + ' un. paradas'),
+          e('span', {className: 'text-xs text-amber-400'},
+            it.kit ? 'dá pra montar ' + it.unidades + ' kit(s)' : it.unidades + ' un. paradas'),
           e('span', {className: 'ml-auto text-xs ' + (faltando.length ? 'text-slate-500' : 'text-emerald-400')},
             estado.ok ? '' : faltando.length ? 'falta: ' + faltando.join(', ') : '✓ pronto pra criar'),
           !estado.ok && !props.criando && e('button', {onClick: props.onTirar, title: 'tirar da fila',
             className: 'text-slate-500 hover:text-red-400 text-sm px-1'}, '✕')),
+
+        // O que está dentro do kit, com o estoque de cada peça.
+        it.kit && e('div', {className: 'text-xs text-slate-300 bg-slate-900 border border-amber-800 rounded px-3 py-2'},
+          e('span', {className: 'text-amber-300 font-bold'}, 'vai um de cada: '),
+          it.kit.map(function(p, i) {
+            return e('span', {key: i, className: 'mr-3'},
+              p.marca + ' ' + p.sku,
+              e('span', {className: 'text-slate-500'}, ' (' + p.unidades + ' un.)'));
+          }),
+          e('div', {className: 'text-[11px] text-slate-500 mt-1'},
+            'custo somado: R$ ' + Number(it.preco || 0).toFixed(2).replace('.', ',') +
+            ' · a baixa no estoque das peças continua manual')),
 
         estado.ok
           ? e('div', {className: 'text-sm text-emerald-300 flex flex-wrap items-center gap-3'},
@@ -2120,6 +2142,23 @@
         });
       }, [props.itens.length]);
 
+      // Kit já entra com o título montado: "KIT MOTORACO MT1034 + MT1035". Ele edita
+      // como quiser, mas não precisa escrever do zero.
+      useEffect(function() {
+        var kits = props.itens.filter(function(it) { return it.kit; });
+        if (!kits.length) return;
+        setDados(function(atual) {
+          var o = Object.assign({}, atual);
+          kits.forEach(function(it) {
+            var d = o[it.chave] || {};
+            if (d.titulo == null) {
+              o[it.chave] = Object.assign({}, d, {titulo: ('KIT ' + it.marca + ' ' + it.sku).toUpperCase().slice(0, 60)});
+            }
+          });
+          return o;
+        });
+      }, [props.itens.length]);
+
       // Já existe anúncio desse SKU na loja escolhida? (com e sem a marca na frente)
       useEffect(function() {
         setDuplicados({});
@@ -2167,7 +2206,10 @@
             body: JSON.stringify({
               conta: conta, titulo: d.titulo.trim(), categoria_id: d.categoria.category_id,
               preco: precoParaNumeroGlobal(d.preco), quantidade: 89,
-              sku: it.marca + ': ' + it.sku,
+              // Kit: o SKU junta as peças ("MOTORACO: MT1034 + MT1035"), pra você achar
+              // de qual estoque ele sai quando vender.
+              sku: it.kit ? it.kit.map(function(p) { return p.marca + ': ' + p.sku; }).join(' + ')
+                          : it.marca + ': ' + it.sku,
               atributos: (d.atributos || []).filter(function(a) { return (d.valores || {})[a.id]; }).map(function(a) {
                 var val = String(d.valores[a.id]).trim();
                 if (val === NAO_SE_APLICA) return {id: a.id, value_id: '-1'};
@@ -8762,7 +8804,27 @@
                             }));
                           },
                           className: 'ml-auto bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold text-sm'
-                        }, '🛠 Criar anúncios (' + Object.keys(paradoMarcados).length + ')')),
+                        }, '🛠 Criar anúncios (' + Object.keys(paradoMarcados).length + ')'),
+                        // Duas peças marcadas podem virar UM anúncio só: o kit.
+                        Object.keys(paradoMarcados).length > 1 && e('button', {
+                          onClick: function() {
+                            var pecas = Object.keys(paradoMarcados).map(function(ch) { return paradoMarcados[ch]; });
+                            var marcas = [];
+                            pecas.forEach(function(p) { if (marcas.indexOf(p.marca) === -1) marcas.push(p.marca); });
+                            var skus = pecas.map(function(p) { return p.sku; });
+                            setParadoFila([{
+                              chave: 'KIT|' + skus.join('+'),
+                              marca: marcas.join(' + '),
+                              sku: skus.join(' + '),
+                              // Só dá pra vender tantos kits quantos a peça mais escassa permite.
+                              unidades: Math.min.apply(null, pecas.map(function(p) { return p.unidades || 0; })),
+                              preco: pecas.reduce(function(s, p) { return s + (p.preco || 0); }, 0),
+                              kit: pecas.map(function(p) { return {marca: p.marca, sku: p.sku, unidades: p.unidades, preco: p.preco}; }),
+                            }]);
+                          },
+                          title: 'junta as peças marcadas num anúncio só',
+                          className: 'bg-amber-600 hover:bg-amber-500 text-white px-4 py-2 rounded-lg font-bold text-sm'
+                        }, '📦 Anunciar como 1 KIT (' + Object.keys(paradoMarcados).length + ' peças)')),
 
                   visiveis.length === 0
                     ? e('div', {className: 'text-center text-slate-500 py-10 bg-slate-800 border border-slate-700 rounded-lg'},
