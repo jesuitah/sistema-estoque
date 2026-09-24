@@ -961,7 +961,9 @@
           Promise.all(fotos.slice(0, 4).map(arquivoParaImagem)),
         ]).then(function(r) {
           var pecasBase = {
-            caixa: r[0] ? semMargemVazia(r[0]) : null,
+            // A caixa também passa pelo recorte do fundo branco: assim funciona igual
+            // com PNG transparente e com JPG (que sempre vem com fundo branco).
+            caixa: r[0] ? semMargemVazia(semFundoBranco(r[0])) : null,
             logo: r[1] ? semMargemVazia(r[1]) : null,
             selo: r[2] ? semMargemVazia(r[2]) : null,
             // A marca d'água vem com fundo branco: sem tirar, ela entra como um
