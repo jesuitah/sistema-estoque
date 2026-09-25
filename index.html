@@ -749,11 +749,24 @@
       ctx.restore();
     }
 
-    function escreverLinhas(ctx, linhas, x, y, tam, alinhar) {
-      ctx.font = '700 ' + tam + 'px Arial, sans-serif';
+    // O texto encolhe sozinho até caber na largura reservada. A foto dos códigos tinha
+    // 5 linhas compridas ("ORIGINAL 96FB3290AC"...) e passava por cima do produto e do
+    // logo — no MLB7702118128 ficou ilegível.
+    function escreverLinhas(ctx, linhas, x, y, tam, alinhar, larguraMax) {
+      var t = tam;
+      if (larguraMax) {
+        for (var i = 0; i < 14; i++) {
+          ctx.font = '700 ' + t + 'px Arial, sans-serif';
+          var maior = 0;
+          linhas.forEach(function(l) { maior = Math.max(maior, ctx.measureText(l).width); });
+          if (maior <= larguraMax || t <= 16) break;
+          t = t * 0.92;
+        }
+      }
+      ctx.font = '700 ' + t + 'px Arial, sans-serif';
       ctx.textAlign = alinhar;
       ctx.fillStyle = '#111';
-      linhas.forEach(function(l, i) { ctx.fillText(l, x, y + i * tam * 1.25); });
+      linhas.forEach(function(l, i) { ctx.fillText(l, x, y + i * t * 1.25); });
     }
 
     // Quanto daquele pedaço da foto já tem desenho (0 a 1).
@@ -770,11 +783,12 @@
     // A marca d'água vai EM CIMA do conteúdo, nunca no vazio: coordenada fixa caía no
     // branco quando a peça tinha outro formato. Aqui testamos vários pontos e fica no
     // que tem mais desenho embaixo.
-    function carimbarMarca(ctx, marca, regioes, largura) {
-      if (!marca) return;
+    // Onde o automático põe a marca d'água: no pedaço da foto que tem mais conteúdo
+    // (no vazio ela não esconde nada). Separado do desenho porque o editor precisa
+    // saber dessa posição pra começar a arrastar de onde ela está.
+    function lugaresDaMarca(ctx, marca, regioes, largura) {
       var alt = largura * (marca.height / marca.width);
-      ctx.save();
-      ctx.globalAlpha = 0.7;
+      var achados = [];
       regioes.forEach(function(r) {
         var melhor = null, nota = -1;
         for (var x = r[0]; x <= r[2] - largura; x += 30) {
@@ -783,8 +797,27 @@
             if (n > nota) { nota = n; melhor = [x, y]; }
           }
         }
-        if (melhor && nota > 0.25) ctx.drawImage(marca, melhor[0], melhor[1], largura, alt);
+        if (melhor && nota > 0.25) achados.push({x: melhor[0], y: melhor[1], w: largura, h: alt});
       });
+      return achados;
+    }
+
+    // L.marca é a largura. Se ele tiver arrastado a marca d'água no editor, a posição
+    // fica em L.marcaPos e o automático sai de cena — ele mandou: "quero poder
+    // movimentar a marca d'água como qualquer outra coisa".
+    function carimbarMarca(ctx, marca, regioes, largura, L) {
+      if (!marca) return;
+      var alt = largura * (marca.height / marca.width);
+      ctx.save();
+      ctx.globalAlpha = 0.7;
+      var pos = L && L.marcaPos;
+      if (pos) {
+        desenharGirado(ctx, marca, pos.x, pos.y, largura, alt, (L.giro || {}).marca);
+      } else {
+        lugaresDaMarca(ctx, marca, regioes, largura).forEach(function(p) {
+          ctx.drawImage(marca, p.x, p.y, p.w, p.h);
+        });
+      }
       ctx.restore();
     }
 
@@ -811,6 +844,16 @@
 
     function clonarLayout(l) { return JSON.parse(JSON.stringify(l || LAYOUT_PADRAO)); }
 
+    // CADA secundária tem o seu layout. Elas parecem iguais, mas o conteúdo é diferente:
+    // a 2ª leva a aplicação, a 3ª leva os códigos (texto comprido) e a 4ª só as frases.
+    // Com um layout só, arrumar uma estragava as outras — foi o que aconteceu no
+    // MLB7702118128. Layout antigo (uma "secundaria" só) vira três na primeira abertura.
+    function secDe(L, i) {
+      if (!L.secundarias) L.secundarias = [];
+      if (!L.secundarias[i]) L.secundarias[i] = clonarLayout(L.secundaria || LAYOUT_PADRAO.secundaria);
+      return L.secundarias[i];
+    }
+
     function carregarLayoutDaLoja(conta) {
       return supabase.from('ml_fotos_layout').select('layout').eq('conta', conta).maybeSingle()
         .then(function(r) { return (r && r.data && r.data.layout) ? r.data.layout : clonarLayout(); })
@@ -831,7 +874,20 @@
       return cv;
     }
 
+    // O ML APARA a borda branca de toda foto que recebe. Medido no anúncio MLB7702118128:
+    // a capa 1200x1200 virou 1200x1095, outra virou 1055x1200 — cada foto com um
+    // tamanho, o conteúdo fora do lugar. Branco puro e #fffffe são aparados igual; um
+    // cantinho cinza claro de 4px nos quatro cantos segura os 1200x1200 e ninguém vê.
+    function travarOs1200(cv) {
+      var ctx = cv.getContext('2d');
+      ctx.fillStyle = '#ededed';
+      [[0, 0], [cv.width - 4, 0], [0, cv.height - 4], [cv.width - 4, cv.height - 4]]
+        .forEach(function(p) { ctx.fillRect(p[0], p[1], 4, 4); });
+      return cv;
+    }
+
     function telaParaArquivo(cv, nome) {
+      travarOs1200(cv);
       return new Promise(function(ok) {
         cv.toBlob(function(blob) {
           ok(new window.File([blob], nome, {type: 'image/jpeg'}));
@@ -889,7 +945,7 @@
           x += w + vao * escala;
         });
       }
-      carimbarMarca(ctx, pecas.marca, [[120, 80, 1100, 700], [60, 950, 1140, 1180]], L.marca);
+      carimbarMarca(ctx, pecas.marca, [[120, 80, 1100, 700], [60, 950, 1140, 1180]], L.marca, L);
       return cv;
     }
 
@@ -908,9 +964,9 @@
         var hl = L.logo, wl = pecas.logo.width * (hl / pecas.logo.height);
         desenharGirado(ctx, pecas.logo, L.logoDx || 0, L.logoDy || 0, wl, hl, (L.giro || {}).logo);
       }
-      if (textoTopo && textoTopo.length) escreverLinhas(ctx, textoTopo, L.textoTopo[0], L.textoTopo[1], L.textoTopo[2], 'right');
+      if (textoTopo && textoTopo.length) escreverLinhas(ctx, textoTopo, L.textoTopo[0], L.textoTopo[1], L.textoTopo[2], 'right', L.textoTopo[0] - 380);
       if (frases && frases.length) {
-        escreverLinhas(ctx, frases.map(function(t) { return '- ' + t; }), L.frases[0], L.frases[1], L.frases[2], 'left');
+        escreverLinhas(ctx, frases.map(function(t) { return '- ' + t; }), L.frases[0], L.frases[1], L.frases[2], 'left', 1150 - L.frases[0]);
       }
       if (pecas.selo) {
         // Empurrado pra fora da borda: o que sai é a quina vazia do círculo, e assim
@@ -918,7 +974,7 @@
         var hs = L.selo.altura, ws = pecas.selo.width * (hs / pecas.selo.height);
         desenharGirado(ctx, pecas.selo, 1200 - ws + L.selo.dx, 1200 - hs + L.selo.dy, ws, hs, (L.giro || {}).selo);
       }
-      carimbarMarca(ctx, pecas.marca, [[250, 300, 1000, 950]], L.marca);
+      carimbarMarca(ctx, pecas.marca, [[250, 300, 1000, 950]], L.marca, L);
       return cv;
     }
 
@@ -933,7 +989,7 @@
         telas.push({
           nome: 'secundaria-' + (i + 1),
           tela: montarSecundaria(p, i === 0 ? opcoes.textoTopo : (opcoes.textosExtras || [])[i - 1] || [],
-            opcoes.frases, L.secundaria),
+            opcoes.frases, secDe(L, i)),
         });
       });
       return Promise.all(telas.map(function(t) {
@@ -1071,6 +1127,7 @@
           ctx.imageSmoothingQuality = 'high';
           ctx.drawImage(img, (lado - w) / 2, (lado - h) / 2, w, h);
           URL.revokeObjectURL(url);
+          travarOs1200(tela);   // senão o ML apara a borda branca e a foto deixa de ser quadrada
           tela.toBlob(function(blob) {
             if (!blob) { falhou(new Error('não consegui converter a foto')); return; }
             ok(new window.File([blob], (arquivo.name || 'foto').replace(/\.[^.]+$/, '') + '-1200.jpg', {type: 'image/jpeg'}));
@@ -1441,16 +1498,28 @@
       var prontosSt = useState({}); var prontos = prontosSt[0]; var setProntos = prontosSt[1];
 
       var pecasEditaveis = ehCapa
-        ? [['produto', 'Produto'], ['caixa', 'Caixa'], ['carros', 'Carros']]
+        ? [['produto', 'Produto'], ['caixa', 'Caixa'], ['carros', 'Carros'], ['marca', "Marca d'água"]]
         : [['produto', 'Produto'], ['caixa', 'Caixa'], ['logo', 'Logo'], ['selo', 'Selo'],
-           ['textoTopo', 'Texto de cima'], ['frases', 'Frases']];
+           ['marca', "Marca d'água"], ['textoTopo', 'Texto de cima'], ['frases', 'Frases']];
+
+      // A marca d'água se acha sozinha até ele mexer nela. No primeiro arrasto, fixamos
+      // onde o automático tinha posto, pra ela não pular pro canto.
+      function fixarMarca(l) {
+        if (l.marcaPos || !props.pecas.marca) return l.marcaPos;
+        var cv = ehCapa ? montarCapa(props.pecas, L.capa)
+                        : montarSecundaria(props.pecas, props.textoTopo, props.frases, l);
+        var zonas = ehCapa ? [[120, 80, 1100, 700], [60, 950, 1140, 1180]] : [[250, 300, 1000, 950]];
+        var achados = lugaresDaMarca(cv.getContext('2d'), props.pecas.marca, zonas, l.marca);
+        l.marcaPos = achados[0] || {x: 600 - l.marca / 2, y: 560};
+        return l.marcaPos;
+      }
 
       function redesenhar() {
         var alvo = telaRef.current;
         if (!alvo) return;
         var cv = ehCapa
           ? montarCapa(props.pecas, L.capa)
-          : montarSecundaria(props.pecas, props.textoTopo, props.frases, L.secundaria);
+          : montarSecundaria(props.pecas, props.textoTopo, props.frases, secDe(L, props.indice || 0));
         var ctx = alvo.getContext('2d');
         ctx.clearRect(0, 0, 1200, 1200);
         ctx.drawImage(cv, 0, 0);
@@ -1481,7 +1550,7 @@
       // Move a peça escolhida. Cada uma guarda o que faz sentido pra ela: as que ocupam
       // uma área têm [x, y, largura, altura]; o selo tem deslocamento; texto tem posição.
       function mover(dx, dy) {
-        var l = ehCapa ? L.capa : L.secundaria;
+        var l = ehCapa ? L.capa : secDe(L, props.indice || 0);
         if (sel === 'produto' || sel === 'caixa') { l[sel][0] += dx; l[sel][1] += dy; }
         else if (sel === 'carros') {
           if (carroSel == null) { l.carros.base += dy; l.carros.dx = (l.carros.dx || 0) + dx; }
@@ -1493,6 +1562,7 @@
         }
         else if (sel === 'logo') { l.logoDx = (l.logoDx || 0) + dx; l.logoDy = (l.logoDy || 0) + dy; }
         else if (sel === 'selo') { l.selo.dx += dx; l.selo.dy += dy; }
+        else if (sel === 'marca') { var m = fixarMarca(l); if (m) { m.x += dx; m.y += dy; } }
         else if (sel === 'textoTopo' || sel === 'frases') { l[sel][0] += dx; l[sel][1] += dy; }
         props.onMudar(L);
       }
@@ -1500,13 +1570,14 @@
       // Girar: Shift + arrastar pro lado, ou os botões. Vale pra qualquer peça que seja
       // imagem — e, nos carros, gira a fileira toda ou só o carro que está marcado.
       function girar(graus) {
-        var l = ehCapa ? L.capa : L.secundaria;
+        var l = ehCapa ? L.capa : secDe(L, props.indice || 0);
         if (sel === 'textoTopo' || sel === 'frases') return;
         if (sel === 'carros' && carroSel != null) {
           l.carros.itens = l.carros.itens || [];
           var a = l.carros.itens[carroSel] = l.carros.itens[carroSel] || {};
           a.giro = ((a.giro || 0) + graus) % 360;
         } else {
+          if (sel === 'marca') fixarMarca(l);   // girar só aparece depois que ela tem lugar fixo
           l.giro = l.giro || {};
           l.giro[sel] = ((l.giro[sel] || 0) + graus) % 360;
         }
@@ -1514,7 +1585,7 @@
       }
 
       function redimensionar(passo) {
-        var l = ehCapa ? L.capa : L.secundaria;
+        var l = ehCapa ? L.capa : secDe(L, props.indice || 0);
         if (sel === 'produto' || sel === 'caixa') {
           var f = 1 + passo * 0.04;
           l[sel][2] = Math.max(80, l[sel][2] * f);
@@ -1530,6 +1601,11 @@
           l.logo = Math.max(60, l.logo * (1 + passo * 0.05));
         } else if (sel === 'selo') {
           l.selo.altura = Math.max(60, l.selo.altura * (1 + passo * 0.05));
+        } else if (sel === 'marca') {
+          // Cresce a partir do centro dela, senão parece que fugiu pro lado.
+          var antes = fixarMarca(l), largura = l.marca;
+          l.marca = Math.max(40, l.marca * (1 + passo * 0.05));
+          if (antes) { antes.x -= (l.marca - largura) / 2; antes.y -= (l.marca - largura) / 2; }
         } else if (sel === 'textoTopo' || sel === 'frases') {
           l[sel][2] = Math.max(14, l[sel][2] * (1 + passo * 0.05));
         }
@@ -1537,7 +1613,7 @@
       }
 
       function afastar(quanto) {
-        var l = ehCapa ? L.capa : L.secundaria;
+        var l = ehCapa ? L.capa : secDe(L, props.indice || 0);
         l.carros.vao = (l.carros.vao || 0) + quanto;
         props.onMudar(L);
       }
@@ -1581,7 +1657,7 @@
           e('span', {className: 'text-xs text-slate-400'}, 'na foto:'),
           // Clicar numa miniatura escolhe QUAL carro você está mexendo; o ✕ tira ele.
           props.pecas.carrosOpcoes.map(function(opcoes, i) {
-            var escolhida = opcoes[((ehCapa ? L.capa : L.secundaria).carroIdx || 0) % opcoes.length];
+            var escolhida = opcoes[((ehCapa ? L.capa : secDe(L, props.indice || 0)).carroIdx || 0) % opcoes.length];
             return e('div', {key: i, className: 'relative'},
               e('img', {src: escolhida.toDataURL('image/png'), title: 'mexer só no carro ' + (i + 1),
                 onClick: function() { setCarroSel(carroSel === i ? null : i); },
@@ -1611,7 +1687,7 @@
           podeGirar && e('button', {onClick: function() { girar(90); }, title: 'vira um quarto de volta',
             className: botao + 'bg-slate-800 border-slate-700 text-slate-200'}, '90°'),
           sel === 'carros' && e('button', {onClick: function() {
-            var l = ehCapa ? L.capa : L.secundaria;
+            var l = ehCapa ? L.capa : secDe(L, props.indice || 0);
             l.carroIdx = (l.carroIdx || 0) + 1;
             props.onMudar(L);
           }, className: botao + 'bg-slate-800 border-slate-700 text-slate-200'}, '🔄 trocar foto do carro'),
@@ -1992,9 +2068,19 @@
                   d.editando && d.pecas && e('div', {className: 'border-t border-slate-700 pt-2'},
                     e(EditorMontagem, {
                       tipo: d.editando.tipo, conta: conta,
+                      // Qual das três secundárias ele abriu: cada uma tem layout e texto
+                      // próprios (a 3ª leva os códigos, a 4ª só as frases).
+                      indice: Math.max(0, d.editando.indice - 1),
                       pecas: d.pecas[d.editando.tipo === 'capa' ? 0 : Math.max(0, d.editando.indice - 1)],
                       layout: d.layout || LAYOUT_PADRAO,
-                      textoTopo: d.textoTopo || [],
+                      textoTopo: (function() {
+                        var i = Math.max(0, d.editando.indice - 1);
+                        if (i === 0) {
+                          return (d.textoTopo && d.textoTopo.filter(Boolean).length)
+                            ? d.textoTopo : textoDeAplicacao(d.compat || []);
+                        }
+                        return [textoDeCodigos(d.valores || {}), []][i - 1] || [];
+                      })(),
                       frases: (d.frases && d.frases.filter(Boolean).length) ? d.frases : FRASES_PADRAO.slice(0, 3),
                       onMudar: function(novo) { mudar({layout: Object.assign({}, novo)}); },
                       // O nome que o sistema sugere ao guardar no acervo sai do que ele
@@ -2018,7 +2104,7 @@
                           return copia;
                         });
                         var L = d.layout || clonarLayout();
-                        [L.capa, L.secundaria].forEach(function(l) {
+                        [L.capa, secDe(L, 0), secDe(L, 1), secDe(L, 2)].forEach(function(l) {
                           if (l.carros && l.carros.itens) l.carros.itens.splice(indice, 1);
                         });
                         mudar({pecas: novas, layout: L});
