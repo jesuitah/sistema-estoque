@@ -752,15 +752,17 @@
     // O texto encolhe sozinho até caber na largura reservada. A foto dos códigos tinha
     // 5 linhas compridas ("ORIGINAL 96FB3290AC"...) e passava por cima do produto e do
     // logo — no MLB7702118128 ficou ilegível.
-    function escreverLinhas(ctx, linhas, x, y, tam, alinhar, larguraMax) {
+    function escreverLinhas(ctx, linhas, x, y, tam, alinhar, larguraMax, alturaMax) {
       var t = tam;
-      if (larguraMax) {
-        for (var i = 0; i < 14; i++) {
+      if (larguraMax || alturaMax) {
+        for (var i = 0; i < 30; i++) {
           ctx.font = '700 ' + t + 'px Arial, sans-serif';
           var maior = 0;
           linhas.forEach(function(l) { maior = Math.max(maior, ctx.measureText(l).width); });
-          if (maior <= larguraMax || t <= 16) break;
-          t = t * 0.92;
+          var alto = linhas.length * t * 1.25;
+          var cabe = (!larguraMax || maior <= larguraMax) && (!alturaMax || alto <= alturaMax);
+          if (cabe || t <= 15) break;
+          t = t * 0.94;
         }
       }
       ctx.font = '700 ' + t + 'px Arial, sans-serif';
@@ -964,9 +966,9 @@
         var hl = L.logo, wl = pecas.logo.width * (hl / pecas.logo.height);
         desenharGirado(ctx, pecas.logo, L.logoDx || 0, L.logoDy || 0, wl, hl, (L.giro || {}).logo);
       }
-      if (textoTopo && textoTopo.length) escreverLinhas(ctx, textoTopo, L.textoTopo[0], L.textoTopo[1], L.textoTopo[2], 'right', L.textoTopo[0] - 380);
+      if (textoTopo && textoTopo.length) escreverLinhas(ctx, textoTopo, L.textoTopo[0], L.textoTopo[1], L.textoTopo[2], 'right', 540, 200);
       if (frases && frases.length) {
-        escreverLinhas(ctx, frases.map(function(t) { return '- ' + t; }), L.frases[0], L.frases[1], L.frases[2], 'left', 1150 - L.frases[0]);
+        escreverLinhas(ctx, frases.map(function(t) { return '- ' + t; }), L.frases[0], L.frases[1], L.frases[2], 'left', 640, 260);
       }
       if (pecas.selo) {
         // Empurrado pra fora da borda: o que sai é a quina vazia do círculo, e assim
