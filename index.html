@@ -897,6 +897,49 @@
       });
     }
 
+    // Quais fotos de carro entram na montagem (uma por modelo; o botão "trocar foto do
+    // carro" anda no índice).
+    function carrosEscolhidos(pecas, L) {
+      var escolha = (L && L.carroIdx) || 0;
+      var lista = (pecas.carrosOpcoes || []).map(function(op) { return op[escolha % op.length]; }).filter(Boolean);
+      return lista.length ? lista : (pecas.carros || []).filter(Boolean);
+    }
+
+    // ONDE cada carro fica. O arranjo em fileira é só o ponto de partida: assim que ele
+    // mexe num carro no editor, aquele carro passa a ter posição PRÓPRIA (a.pos) e não
+    // depende mais dos vizinhos — foi o que ele pediu, "carro 1 e carro 2 coisas
+    // completamente distintas".
+    function posicoesDosCarros(carros, L) {
+      if (!carros.length) return [];
+      var area = L.carros.area, vao = L.carros.vao;
+      var medidas = carros.map(function(c) {
+        var e = Math.sqrt(area / (c.width * c.height));
+        return {w: c.width * e, h: c.height * e};
+      });
+      // Mesmo TAMANHO APARENTE: igualo a área, não a altura nem a largura — e limito a
+      // diferença de altura em 6%, senão a fileira fica com "dente".
+      var alturas = medidas.map(function(m) { return m.h; }).sort(function(a, b) { return a - b; });
+      var meio = alturas[Math.floor(alturas.length / 2)];
+      medidas.forEach(function(m) {
+        var alvo = Math.min(meio * 1.06, Math.max(meio * 0.94, m.h));
+        m.w = m.w * (alvo / m.h); m.h = alvo;
+      });
+      var total = medidas.reduce(function(s, m) { return s + m.w; }, 0) + vao * (carros.length - 1);
+      var escala = Math.min(1, 1190 / total);
+      var x = (1200 - total * escala) / 2 + (L.carros.dx || 0);
+      var ajustes = L.carros.itens || [];
+      var giroDaFileira = (L.giro || {}).carros || 0;
+      return carros.map(function(_c, i) {
+        var a = ajustes[i] || {};
+        var w = medidas[i].w * escala, h = medidas[i].h * escala;
+        var lugar = {x: x, y: L.carros.base - h, w: w, h: h, giro: a.giro || giroDaFileira};
+        x += w + vao * escala;
+        // Carro já ajustado à mão: vale a posição dele, ponto final.
+        if (a.pos) return {x: a.pos.x, y: a.pos.y, w: a.pos.w, h: a.pos.h, giro: a.giro || 0};
+        return lugar;
+      });
+    }
+
     // CAPA: caixa da marca no alto à esquerda, produto recortado por cima, carros
     // compatíveis encostados embaixo e dois carimbos da marca d'água.
     function montarCapa(pecas, L) {
@@ -907,46 +950,10 @@
 
       // Qual foto de cada modelo entra: o editor troca com o botão, e o número vale
       // pra todos (cada modelo volta ao começo quando acaba a lista dele).
-      var escolha = L.carroIdx || 0;
-      var carros = (pecas.carrosOpcoes || []).map(function(op) { return op[escolha % op.length]; }).filter(Boolean);
-      if (!carros.length) carros = (pecas.carros || []).filter(Boolean);
-      if (carros.length) {
-        // Mesmo TAMANHO APARENTE: igualo a área, não a altura nem a largura.
-        // Pela largura o carro de foto fechada virava um carrão; pela altura o carro
-        // curto virava um carrinho ao lado da picape. E limito a diferença de altura
-        // em 6%, senão a fileira fica com "dente".
-        var area = L.carros.area, vao = L.carros.vao;
-        var medidas = carros.map(function(c) {
-          var e = Math.sqrt(area / (c.width * c.height));
-          return {w: c.width * e, h: c.height * e};
-        });
-        var alturas = medidas.map(function(m) { return m.h; }).sort(function(a, b) { return a - b; });
-        var meio = alturas[Math.floor(alturas.length / 2)];
-        medidas.forEach(function(m) {
-          var alvo = Math.min(meio * 1.06, Math.max(meio * 0.94, m.h));
-          m.w = m.w * (alvo / m.h); m.h = alvo;
-        });
-        // Cada carro pode ter o seu próprio ajuste (posição e tamanho), por cima do
-        // que a fileira calculou — é o que permite mexer num carro só. O ajuste entra
-        // na conta da largura total, senão a fileira sai do centro quando um cresce.
-        var ajustes = L.carros.itens || [];
-        var total = medidas.reduce(function(s, m, i) {
-          return s + m.w * (((ajustes[i] || {}).escala) || 1);
-        }, 0) + vao * (carros.length - 1);
-        var escala = Math.min(1, 1190 / total);
-        var x = (1200 - total * escala) / 2 + (L.carros.dx || 0);
-        var giroDaFileira = (L.giro || {}).carros || 0;
-        carros.forEach(function(c, i) {
-          var a = ajustes[i] || {};
-          var f = a.escala || 1;
-          var w = medidas[i].w * escala * f, hh = medidas[i].h * escala * f;
-          desenharGirado(ctx, c, x + (a.dx || 0), L.carros.base - hh + (a.dy || 0), w, hh,
-            a.giro || giroDaFileira);
-          // Avança pela largura QUE ELE TEM AGORA, não pela que tinha antes de você
-          // aumentá-lo: senão o carro maior invade o vizinho e a fileira vira um borrão.
-          x += w + vao * escala;
-        });
-      }
+      var carros = carrosEscolhidos(pecas, L);
+      posicoesDosCarros(carros, L).forEach(function(p, i) {
+        desenharGirado(ctx, carros[i], p.x, p.y, p.w, p.h, p.giro);
+      });
       carimbarMarca(ctx, pecas.marca, [[120, 80, 1100, 700], [60, 950, 1140, 1180]], L.marca, L);
       return cv;
     }
@@ -1504,6 +1511,20 @@
         : [['produto', 'Produto'], ['caixa', 'Caixa'], ['logo', 'Logo'], ['selo', 'Selo'],
            ['marca', "Marca d'água"], ['textoTopo', 'Texto de cima'], ['frases', 'Frases']];
 
+      // Grava a posição de cada carro como ela está agora. A partir daí cada carro é uma
+      // peça solta: mexer num não mexe em mais ninguém.
+      function fixarCarros(l) {
+        var carros = carrosEscolhidos(props.pecas, l);
+        if (!carros.length) return [];
+        var pos = posicoesDosCarros(carros, l);
+        l.carros.itens = l.carros.itens || [];
+        pos.forEach(function(p, i) {
+          var a = l.carros.itens[i] = l.carros.itens[i] || {};
+          if (!a.pos) a.pos = {x: p.x, y: p.y, w: p.w, h: p.h};
+        });
+        return l.carros.itens;
+      }
+
       // A marca d'água se acha sozinha até ele mexer nela. No primeiro arrasto, fixamos
       // onde o automático tinha posto, pra ela não pular pro canto.
       function fixarMarca(l) {
@@ -1555,12 +1576,9 @@
         var l = ehCapa ? L.capa : secDe(L, props.indice || 0);
         if (sel === 'produto' || sel === 'caixa') { l[sel][0] += dx; l[sel][1] += dy; }
         else if (sel === 'carros') {
-          if (carroSel == null) { l.carros.base += dy; l.carros.dx = (l.carros.dx || 0) + dx; }
-          else {
-            l.carros.itens = l.carros.itens || [];
-            var a = l.carros.itens[carroSel] = l.carros.itens[carroSel] || {};
-            a.dx = (a.dx || 0) + dx; a.dy = (a.dy || 0) + dy;
-          }
+          var itens = fixarCarros(l);
+          if (carroSel == null) itens.forEach(function(a) { a.pos.x += dx; a.pos.y += dy; });
+          else if (itens[carroSel]) { itens[carroSel].pos.x += dx; itens[carroSel].pos.y += dy; }
         }
         else if (sel === 'logo') { l.logoDx = (l.logoDx || 0) + dx; l.logoDy = (l.logoDy || 0) + dy; }
         else if (sel === 'selo') { l.selo.dx += dx; l.selo.dy += dy; }
@@ -1574,10 +1592,11 @@
       function girar(graus) {
         var l = ehCapa ? L.capa : secDe(L, props.indice || 0);
         if (sel === 'textoTopo' || sel === 'frases') return;
-        if (sel === 'carros' && carroSel != null) {
-          l.carros.itens = l.carros.itens || [];
-          var a = l.carros.itens[carroSel] = l.carros.itens[carroSel] || {};
-          a.giro = ((a.giro || 0) + graus) % 360;
+        if (sel === 'carros') {
+          var itens = fixarCarros(l);
+          (carroSel == null ? itens : [itens[carroSel]]).forEach(function(a) {
+            if (a) a.giro = ((a.giro || 0) + graus) % 360;
+          });
         } else {
           if (sel === 'marca') fixarMarca(l);   // girar só aparece depois que ela tem lugar fixo
           l.giro = l.giro || {};
@@ -1593,12 +1612,17 @@
           l[sel][2] = Math.max(80, l[sel][2] * f);
           l[sel][3] = Math.max(80, l[sel][3] * f);
         } else if (sel === 'carros') {
-          if (carroSel == null) l.carros.area = Math.max(20000, l.carros.area * (1 + passo * 0.06));
-          else {
-            l.carros.itens = l.carros.itens || [];
-            var a = l.carros.itens[carroSel] = l.carros.itens[carroSel] || {};
-            a.escala = Math.max(0.2, Math.min(4, (a.escala || 1) * (1 + passo * 0.06)));
-          }
+          // Cresce a partir do pé do carro e do centro dele: o carro continua "no chão"
+          // e no mesmo lugar, só maior.
+          var itens = fixarCarros(l), fator = 1 + passo * 0.06;
+          var alvos = carroSel == null ? itens : [itens[carroSel]];
+          alvos.forEach(function(a) {
+            if (!a || !a.pos) return;
+            var w = Math.max(40, a.pos.w * fator), h = Math.max(30, a.pos.h * fator);
+            a.pos.x -= (w - a.pos.w) / 2;
+            a.pos.y -= (h - a.pos.h);
+            a.pos.w = w; a.pos.h = h;
+          });
         } else if (sel === 'logo') {
           l.logo = Math.max(60, l.logo * (1 + passo * 0.05));
         } else if (sel === 'selo') {
@@ -1614,9 +1638,14 @@
         props.onMudar(L);
       }
 
+      // Abre ou fecha o espaço entre os carros: cada um anda um tanto a mais que o
+      // anterior, e o conjunto continua centrado.
       function afastar(quanto) {
         var l = ehCapa ? L.capa : secDe(L, props.indice || 0);
-        l.carros.vao = (l.carros.vao || 0) + quanto;
+        var itens = fixarCarros(l);
+        if (itens.length < 2) { l.carros.vao = (l.carros.vao || 0) + quanto; props.onMudar(L); return; }
+        var meio = (itens.length - 1) / 2;
+        itens.forEach(function(a, i) { if (a && a.pos) a.pos.x += (i - meio) * quanto; });
         props.onMudar(L);
       }
 
@@ -1701,6 +1730,12 @@
           sel === 'carros' && carroSel == null && e('button', {onClick: function() { afastar(-20); },
             title: 'menos espaço entre os carros',
             className: botao + 'bg-slate-800 border-slate-700 text-slate-200'}, '→← aproximar'),
+          sel === 'carros' && carroSel != null && e('button', {onClick: function() {
+            var l = ehCapa ? L.capa : secDe(L, props.indice || 0);
+            if (l.carros.itens && l.carros.itens[carroSel]) l.carros.itens[carroSel] = {};
+            props.onMudar(L);
+          }, title: 'devolve este carro pro lugar que o sistema escolheu',
+            className: botao + 'bg-slate-800 border-slate-700 text-slate-400'}, '↺ este ao automático'),
           // Fecha o ajuste deste item: solta o carro marcado e deixa o ✓ na lista de cima.
           e('button', {onClick: function() {
             var chave = (sel === 'carros' && carroSel != null) ? 'carros' : sel;
