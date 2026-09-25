@@ -807,18 +807,24 @@
     // L.marca é a largura. Se ele tiver arrastado a marca d'água no editor, a posição
     // fica em L.marcaPos e o automático sai de cena — ele mandou: "quero poder
     // movimentar a marca d'água como qualquer outra coisa".
+    // Onde o automático procura lugar pra marca d'água (a capa leva dois carimbos).
+    var ZONAS_MARCA_CAPA = [[120, 80, 1100, 700], [60, 950, 1140, 1180]];
+    var ZONAS_MARCA_SECUNDARIA = [[250, 300, 1000, 950]];
+
     function carimbarMarca(ctx, marca, regioes, largura, L) {
       if (!marca) return;
       var alt = largura * (marca.height / marca.width);
+      var giros = (L && L.giro) || {};
+      // Cada carimbo é uma peça: o que ele já mexeu tem posição salva, o resto continua
+      // sendo colocado onde há mais conteúdo.
+      var fixas = (L && (L.marcasPos || (L.marcaPos ? [L.marcaPos] : []))) || [];
+      var autos = lugaresDaMarca(ctx, marca, regioes, largura);
       ctx.save();
       ctx.globalAlpha = 0.7;
-      var pos = L && L.marcaPos;
-      if (pos) {
-        desenharGirado(ctx, marca, pos.x, pos.y, largura, alt, (L.giro || {}).marca);
-      } else {
-        lugaresDaMarca(ctx, marca, regioes, largura).forEach(function(p) {
-          ctx.drawImage(marca, p.x, p.y, p.w, p.h);
-        });
+      for (var i = 0; i < Math.max(regioes.length, fixas.length); i++) {
+        var p = fixas[i] || autos[i];
+        if (!p) continue;
+        desenharGirado(ctx, marca, p.x, p.y, largura, alt, giros['marca:' + i] || (i === 0 ? giros.marca : 0));
       }
       ctx.restore();
     }
@@ -954,7 +960,7 @@
       posicoesDosCarros(carros, L).forEach(function(p, i) {
         desenharGirado(ctx, carros[i], p.x, p.y, p.w, p.h, p.giro);
       });
-      carimbarMarca(ctx, pecas.marca, [[120, 80, 1100, 700], [60, 950, 1140, 1180]], L.marca, L);
+      carimbarMarca(ctx, pecas.marca, ZONAS_MARCA_CAPA, L.marca, L);
       return cv;
     }
 
@@ -983,7 +989,7 @@
         var hs = L.selo.altura, ws = pecas.selo.width * (hs / pecas.selo.height);
         desenharGirado(ctx, pecas.selo, 1200 - ws + L.selo.dx, 1200 - hs + L.selo.dy, ws, hs, (L.giro || {}).selo);
       }
-      carimbarMarca(ctx, pecas.marca, [[250, 300, 1000, 950]], L.marca, L);
+      carimbarMarca(ctx, pecas.marca, ZONAS_MARCA_SECUNDARIA, L.marca, L);
       return cv;
     }
 
@@ -1502,14 +1508,29 @@
       var telaRef = useRef(null);
       var arrastandoSt = useState(null); var arrastando = arrastandoSt[0]; var setArrastando = arrastandoSt[1];
       var selSt = useState('produto'); var sel = selSt[0]; var setSel = selSt[1];
-      var carroSelSt = useState(null); var carroSel = carroSelSt[0]; var setCarroSel = carroSelSt[1];
       // O que ele já deu por pronto, só pra ele se achar no meio do caminho.
       var prontosSt = useState({}); var prontos = prontosSt[0]; var setProntos = prontosSt[1];
 
-      var pecasEditaveis = ehCapa
-        ? [['produto', 'Produto'], ['caixa', 'Caixa'], ['carros', 'Carros'], ['marca', "Marca d'água"]]
-        : [['produto', 'Produto'], ['caixa', 'Caixa'], ['logo', 'Logo'], ['selo', 'Selo'],
-           ['marca', "Marca d'água"], ['textoTopo', 'Texto de cima'], ['frases', 'Frases']];
+      // Um botão por CARRO e por MARCA D'ÁGUA: "Carro 1", "Carro 2", "Marca d'água 1"...
+      // Ele pediu assim com todas as letras — cada um é uma peça, mexe sozinho.
+      var quantosCarros = (props.pecas.carrosOpcoes || []).length || (props.pecas.carros || []).length;
+      var quantasMarcas = props.pecas.marca ? (ehCapa ? 2 : 1) : 0;
+      var pecasEditaveis = [['produto', 'Produto'], ['caixa', 'Caixa']];
+      if (!ehCapa) pecasEditaveis.push(['logo', 'Logo'], ['selo', 'Selo']);
+      for (var ci = 0; ci < quantosCarros; ci++) pecasEditaveis.push(['carro:' + ci, 'Carro ' + (ci + 1)]);
+      for (var mi = 0; mi < quantasMarcas; mi++) {
+        pecasEditaveis.push(['marca:' + mi, "Marca d'água" + (quantasMarcas > 1 ? ' ' + (mi + 1) : '')]);
+      }
+      if (!ehCapa) pecasEditaveis.push(['textoTopo', 'Texto de cima'], ['frases', 'Frases']);
+
+      if (ehCapa || quantosCarros) pecasEditaveis.push(['carro:novo', '＋ Carro']);
+
+      // Qual carro / qual marca d'água está escolhido agora (ou null).
+      var carroSel = /^carro:\d+$/.test(sel) ? Number(sel.split(':')[1]) : null;
+      var marcaSel = /^marca:\d+$/.test(sel) ? Number(sel.split(':')[1]) : null;
+      var tipoDaPeca = sel.split(':')[0];
+      // O painel do acervo é por TIPO: carro:0 e carro:novo veem a mesma pasta.
+      var pecaNoAcervo = tipoDaPeca === 'carro' ? 'carros' : tipoDaPeca;
 
       // Grava a posição de cada carro como ela está agora. A partir daí cada carro é uma
       // peça solta: mexer num não mexe em mais ninguém.
@@ -1527,14 +1548,16 @@
 
       // A marca d'água se acha sozinha até ele mexer nela. No primeiro arrasto, fixamos
       // onde o automático tinha posto, pra ela não pular pro canto.
-      function fixarMarca(l) {
-        if (l.marcaPos || !props.pecas.marca) return l.marcaPos;
+      function fixarMarca(l, i) {
+        if (!props.pecas.marca) return null;
+        l.marcasPos = l.marcasPos || (l.marcaPos ? [l.marcaPos] : []);   // formato antigo
+        if (l.marcasPos[i]) return l.marcasPos[i];
         var cv = ehCapa ? montarCapa(props.pecas, L.capa)
                         : montarSecundaria(props.pecas, props.textoTopo, props.frases, l);
-        var zonas = ehCapa ? [[120, 80, 1100, 700], [60, 950, 1140, 1180]] : [[250, 300, 1000, 950]];
+        var zonas = ehCapa ? ZONAS_MARCA_CAPA : ZONAS_MARCA_SECUNDARIA;
         var achados = lugaresDaMarca(cv.getContext('2d'), props.pecas.marca, zonas, l.marca);
-        l.marcaPos = achados[0] || {x: 600 - l.marca / 2, y: 560};
-        return l.marcaPos;
+        l.marcasPos[i] = achados[i] || achados[0] || {x: 600 - l.marca / 2, y: 300 + i * 500};
+        return l.marcasPos[i];
       }
 
       function redesenhar() {
@@ -1575,14 +1598,13 @@
       function mover(dx, dy) {
         var l = ehCapa ? L.capa : secDe(L, props.indice || 0);
         if (sel === 'produto' || sel === 'caixa') { l[sel][0] += dx; l[sel][1] += dy; }
-        else if (sel === 'carros') {
+        else if (carroSel != null) {
           var itens = fixarCarros(l);
-          if (carroSel == null) itens.forEach(function(a) { a.pos.x += dx; a.pos.y += dy; });
-          else if (itens[carroSel]) { itens[carroSel].pos.x += dx; itens[carroSel].pos.y += dy; }
+          if (itens[carroSel]) { itens[carroSel].pos.x += dx; itens[carroSel].pos.y += dy; }
         }
         else if (sel === 'logo') { l.logoDx = (l.logoDx || 0) + dx; l.logoDy = (l.logoDy || 0) + dy; }
         else if (sel === 'selo') { l.selo.dx += dx; l.selo.dy += dy; }
-        else if (sel === 'marca') { var m = fixarMarca(l); if (m) { m.x += dx; m.y += dy; } }
+        else if (marcaSel != null) { var m = fixarMarca(l, marcaSel); if (m) { m.x += dx; m.y += dy; } }
         else if (sel === 'textoTopo' || sel === 'frases') { l[sel][0] += dx; l[sel][1] += dy; }
         props.onMudar(L);
       }
@@ -1592,13 +1614,12 @@
       function girar(graus) {
         var l = ehCapa ? L.capa : secDe(L, props.indice || 0);
         if (sel === 'textoTopo' || sel === 'frases') return;
-        if (sel === 'carros') {
+        if (carroSel != null) {
           var itens = fixarCarros(l);
-          (carroSel == null ? itens : [itens[carroSel]]).forEach(function(a) {
-            if (a) a.giro = ((a.giro || 0) + graus) % 360;
-          });
+          var a = itens[carroSel];
+          if (a) a.giro = ((a.giro || 0) + graus) % 360;
         } else {
-          if (sel === 'marca') fixarMarca(l);   // girar só aparece depois que ela tem lugar fixo
+          if (marcaSel != null) fixarMarca(l, marcaSel);   // girar precisa dela com lugar fixo
           l.giro = l.giro || {};
           l.giro[sel] = ((l.giro[sel] || 0) + graus) % 360;
         }
@@ -1611,41 +1632,29 @@
           var f = 1 + passo * 0.04;
           l[sel][2] = Math.max(80, l[sel][2] * f);
           l[sel][3] = Math.max(80, l[sel][3] * f);
-        } else if (sel === 'carros') {
-          // Cresce a partir do pé do carro e do centro dele: o carro continua "no chão"
+        } else if (carroSel != null) {
+          // Cresce a partir do pé do carro e do centro dele: ele continua "no chão"
           // e no mesmo lugar, só maior.
           var itens = fixarCarros(l), fator = 1 + passo * 0.06;
-          var alvos = carroSel == null ? itens : [itens[carroSel]];
-          alvos.forEach(function(a) {
-            if (!a || !a.pos) return;
+          var a = itens[carroSel];
+          if (a && a.pos) {
             var w = Math.max(40, a.pos.w * fator), h = Math.max(30, a.pos.h * fator);
             a.pos.x -= (w - a.pos.w) / 2;
             a.pos.y -= (h - a.pos.h);
             a.pos.w = w; a.pos.h = h;
-          });
+          }
         } else if (sel === 'logo') {
           l.logo = Math.max(60, l.logo * (1 + passo * 0.05));
         } else if (sel === 'selo') {
           l.selo.altura = Math.max(60, l.selo.altura * (1 + passo * 0.05));
-        } else if (sel === 'marca') {
+        } else if (marcaSel != null) {
           // Cresce a partir do centro dela, senão parece que fugiu pro lado.
-          var antes = fixarMarca(l), largura = l.marca;
+          var antes = fixarMarca(l, marcaSel), largura = l.marca;
           l.marca = Math.max(40, l.marca * (1 + passo * 0.05));
           if (antes) { antes.x -= (l.marca - largura) / 2; antes.y -= (l.marca - largura) / 2; }
         } else if (sel === 'textoTopo' || sel === 'frases') {
           l[sel][2] = Math.max(14, l[sel][2] * (1 + passo * 0.05));
         }
-        props.onMudar(L);
-      }
-
-      // Abre ou fecha o espaço entre os carros: cada um anda um tanto a mais que o
-      // anterior, e o conjunto continua centrado.
-      function afastar(quanto) {
-        var l = ehCapa ? L.capa : secDe(L, props.indice || 0);
-        var itens = fixarCarros(l);
-        if (itens.length < 2) { l.carros.vao = (l.carros.vao || 0) + quanto; props.onMudar(L); return; }
-        var meio = (itens.length - 1) / 2;
-        itens.forEach(function(a, i) { if (a && a.pos) a.pos.x += (i - meio) * quanto; });
         props.onMudar(L);
       }
 
@@ -1662,11 +1671,11 @@
         e('div', {className: 'flex flex-wrap items-center gap-1'},
           e('span', {className: 'text-xs text-slate-400 mr-1'}, 'Mexer em:'),
           pecasEditaveis.map(function(p) {
-            return e('button', {key: p[0], onClick: function() { setSel(p[0]); setCarroSel(null); },
+            return e('button', {key: p[0], onClick: function() { setSel(p[0]); },
               className: botao + (sel === p[0] ? 'bg-blue-600 border-blue-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-300')},
               (prontos[p[0]] ? '✓ ' : '') + p[1]);
           }),
-          e('span', {className: 'ml-auto text-xs text-slate-500'}, 'arraste ou use as setas do teclado · rodinha ou +/− muda o tamanho · Shift+arrastar ou [ ] gira')),
+          e('span', {className: 'ml-auto text-xs text-slate-500'}, 'arraste ou use as setas do teclado · +/− muda o tamanho · Shift+arrastar ou [ ] gira')),
         e('canvas', {
           ref: telaRef, width: 1200, height: 1200,
           className: 'w-full max-w-[560px] bg-white rounded border border-slate-600 cursor-move',
@@ -1681,56 +1690,42 @@
           },
           onMouseUp: function() { setArrastando(null); },
           onMouseLeave: function() { setArrastando(null); },
-          onWheel: function(ev) { ev.preventDefault(); redimensionar(ev.deltaY < 0 ? 1 : -1); },
+          // Sem rodinha aqui: ele rola a página com ela e a peça mudava de tamanho sem
+          // querer. Tamanho é pelos botões ou pelo + e − do teclado.
         }),
         // Os carros que estão na foto agora, com o ✕ pra tirar cada um.
-        sel === 'carros' && (props.pecas.carrosOpcoes || []).length > 0 && e('div', {className: 'flex flex-wrap gap-2 items-center'},
+        carroSel != null && (props.pecas.carrosOpcoes || []).length > 0 && e('div', {className: 'flex flex-wrap gap-2 items-center'},
           e('span', {className: 'text-xs text-slate-400'}, 'na foto:'),
-          // Clicar numa miniatura escolhe QUAL carro você está mexendo; o ✕ tira ele.
+          // Clicar na miniatura pula pra aquele carro; o ✕ tira ele da foto.
           props.pecas.carrosOpcoes.map(function(opcoes, i) {
             var escolhida = opcoes[((ehCapa ? L.capa : secDe(L, props.indice || 0)).carroIdx || 0) % opcoes.length];
             return e('div', {key: i, className: 'relative'},
-              e('img', {src: escolhida.toDataURL('image/png'), title: 'mexer só no carro ' + (i + 1),
-                onClick: function() { setCarroSel(carroSel === i ? null : i); },
+              e('img', {src: escolhida.toDataURL('image/png'), title: 'mexer no carro ' + (i + 1),
+                onClick: function() { setSel('carro:' + i); },
                 className: 'w-16 h-12 object-contain bg-white rounded cursor-pointer border-2 ' +
                   (carroSel === i ? 'border-blue-400' : 'border-slate-600')}),
               e('div', {className: 'text-[9px] text-center ' + (carroSel === i ? 'text-blue-300' : 'text-slate-500')},
-                'carro ' + (i < 9 ? '0' : '') + (i + 1)),
-              e('button', {onClick: function() { props.onRemoverCarro(i); setCarroSel(null); }, title: 'tirar este carro',
+                'carro ' + (i + 1)),
+              e('button', {onClick: function() { props.onRemoverCarro(i); setSel('produto'); }, title: 'tirar este carro',
                 className: 'absolute -top-1 -right-1 bg-red-600 text-white rounded-full w-4 h-4 text-[10px] leading-none'}, '✕'));
-          }),
-          e('button', {onClick: function() { setCarroSel(null); },
-            className: 'px-2 py-1 rounded text-[11px] font-bold border ' +
-              (carroSel == null ? 'bg-blue-600 border-blue-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-300')},
-            'a fileira toda'),
-          e('span', {className: 'text-[11px] text-slate-500'},
-            carroSel == null ? 'arrastando move todos juntos' : 'arrastando move só o carro marcado')),
+          })),
 
         // Maior/menor/girar ficam logo embaixo da foto: quando o acervo está aberto ele
         // é comprido, e antes os botões acabavam fora da tela.
         e('div', {className: 'flex flex-wrap gap-2 items-center'},
-          e('span', {className: 'text-[11px] text-slate-500'},
-            sel === 'carros' && carroSel != null ? 'mexendo no carro marcado:' : 'mexendo em ' + rotuloDaPeca + ':'),
+          e('span', {className: 'text-[11px] text-slate-500'}, 'mexendo em ' + rotuloDaPeca + ':'),
           e('button', {onClick: function() { redimensionar(1); }, className: botao + 'bg-slate-800 border-slate-700 text-slate-200'}, '＋ maior'),
           e('button', {onClick: function() { redimensionar(-1); }, className: botao + 'bg-slate-800 border-slate-700 text-slate-200'}, '− menor'),
           podeGirar && e('button', {onClick: function() { girar(-5); }, className: botao + 'bg-slate-800 border-slate-700 text-slate-200'}, '↺ girar'),
           podeGirar && e('button', {onClick: function() { girar(5); }, className: botao + 'bg-slate-800 border-slate-700 text-slate-200'}, '↻ girar'),
           podeGirar && e('button', {onClick: function() { girar(90); }, title: 'vira um quarto de volta',
             className: botao + 'bg-slate-800 border-slate-700 text-slate-200'}, '90°'),
-          sel === 'carros' && e('button', {onClick: function() {
+          carroSel != null && e('button', {onClick: function() {
             var l = ehCapa ? L.capa : secDe(L, props.indice || 0);
             l.carroIdx = (l.carroIdx || 0) + 1;
             props.onMudar(L);
           }, className: botao + 'bg-slate-800 border-slate-700 text-slate-200'}, '🔄 trocar foto do carro'),
-          // Espaço entre os carros: o padrão é negativo (eles se tocam de propósito),
-          // mas com dois carros grandes isso vira um bloco só.
-          sel === 'carros' && carroSel == null && e('button', {onClick: function() { afastar(20); },
-            title: 'mais espaço entre os carros',
-            className: botao + 'bg-slate-800 border-slate-700 text-slate-200'}, '↔ afastar'),
-          sel === 'carros' && carroSel == null && e('button', {onClick: function() { afastar(-20); },
-            title: 'menos espaço entre os carros',
-            className: botao + 'bg-slate-800 border-slate-700 text-slate-200'}, '→← aproximar'),
-          sel === 'carros' && carroSel != null && e('button', {onClick: function() {
+          carroSel != null && e('button', {onClick: function() {
             var l = ehCapa ? L.capa : secDe(L, props.indice || 0);
             if (l.carros.itens && l.carros.itens[carroSel]) l.carros.itens[carroSel] = {};
             props.onMudar(L);
@@ -1738,17 +1733,19 @@
             className: botao + 'bg-slate-800 border-slate-700 text-slate-400'}, '↺ este ao automático'),
           // Fecha o ajuste deste item: solta o carro marcado e deixa o ✓ na lista de cima.
           e('button', {onClick: function() {
-            var chave = (sel === 'carros' && carroSel != null) ? 'carros' : sel;
-            var novo = Object.assign({}, prontos); novo[chave] = true;
+            var novo = Object.assign({}, prontos); novo[sel] = true;
             setProntos(novo);
-            if (carroSel != null) setCarroSel(null);
           }, className: botao + 'ml-auto bg-emerald-700 border-emerald-600 text-white'}, '✓ ok, este está pronto')),
 
         // Trocar a arte desta peça: acervo inteiro + colar de fora.
-        PASTA_DA_PECA[sel] && e(TrocarPeca, {
-          tipo: sel,
-          nomeSugerido: props.nomeSugerido ? props.nomeSugerido(sel) : '',
-          onEscolher: function(imagem, nomeDoAcervo) { props.onTrocarPeca(sel, imagem, nomeDoAcervo); },
+        PASTA_DA_PECA[pecaNoAcervo] && e(TrocarPeca, {
+          tipo: pecaNoAcervo,
+          nomeSugerido: props.nomeSugerido ? props.nomeSugerido(pecaNoAcervo) : '',
+          // Com um carro escolhido, a arte TROCA aquele carro; em "＋ Carro", entra um novo.
+          onEscolher: function(imagem, nomeDoAcervo) {
+            props.onTrocarPeca(pecaNoAcervo, imagem, nomeDoAcervo, carroSel);
+            if (sel === 'carro:novo') setSel('carro:' + quantosCarros);
+          },
         }),
         e('div', {className: 'flex flex-wrap gap-2'},
           e('button', {onClick: props.onPadrao, className: botao + 'bg-slate-800 border-slate-700 text-slate-400'}, '↺ voltar ao padrão'),
@@ -1837,7 +1834,7 @@
         if (!d.pecas || !d.pecas.length) return;
         desenharTudo(d.pecas, {
           textoTopo: d.textoTopo || [],
-          textosExtras: [textoDeCodigos(d.valores || {}), []],
+          textosExtras: [textoDeCodigos(d.valores || {}), textoDeCodigos(d.valores || {})],
           frases: (d.frases && d.frases.filter(Boolean).length) ? d.frases : FRASES_PADRAO.slice(0, 3),
         }, layout || d.layout || LAYOUT_PADRAO).then(function(prontas) {
           mudar({montadas: prontas});
@@ -1858,7 +1855,7 @@
           compat: d.compat || [],
           textoTopo: (d.textoTopo && d.textoTopo.filter(Boolean).length) ? d.textoTopo : textoDeAplicacao(d.compat || []),
           // 3ª foto leva os códigos de referência; a 4ª fica só com as frases.
-          textosExtras: [textoDeCodigos(d.valores || {}), []],
+          textosExtras: [textoDeCodigos(d.valores || {}), textoDeCodigos(d.valores || {})],
           frases: (d.frases && d.frases.filter(Boolean).length) ? d.frases : FRASES_PADRAO.slice(0, 3),
         }).then(function(r) {
           if (!r || r.erro) { mudar({montando: false}); alert((r && r.erro) || 'não consegui montar'); return; }
@@ -2116,7 +2113,7 @@
                           return (d.textoTopo && d.textoTopo.filter(Boolean).length)
                             ? d.textoTopo : textoDeAplicacao(d.compat || []);
                         }
-                        return [textoDeCodigos(d.valores || {}), []][i - 1] || [];
+                        return textoDeCodigos(d.valores || {});   // 3ª e 4ª levam os códigos
                       })(),
                       frases: (d.frases && d.frases.filter(Boolean).length) ? d.frases : FRASES_PADRAO.slice(0, 3),
                       onMudar: function(novo) { mudar({layout: Object.assign({}, novo)}); },
@@ -2147,20 +2144,21 @@
                         mudar({pecas: novas, layout: L});
                         desenharTudo(novas, {
                           textoTopo: (d.textoTopo && d.textoTopo.filter(Boolean).length) ? d.textoTopo : textoDeAplicacao(d.compat || []),
-                          textosExtras: [textoDeCodigos(d.valores || {}), []],
+                          textosExtras: [textoDeCodigos(d.valores || {}), textoDeCodigos(d.valores || {})],
                           frases: (d.frases && d.frases.filter(Boolean).length) ? d.frases : FRASES_PADRAO.slice(0, 3),
                         }, d.layout || LAYOUT_PADRAO).then(function(prontas) { mudar({montadas: prontas}); });
                       },
                       // Troca a arte de uma peça em TODAS as fotos montadas de uma vez.
-                      onTrocarPeca: function(peca, imagem) {
+                      onTrocarPeca: function(peca, imagem, _nome, indiceCarro) {
                         if (!d.pecas || !imagem) return;
                         var novas = d.pecas.map(function(p) {
                           var copia = Object.assign({}, p);
                           if (peca === 'carros') {
-                            // Entra no FIM da fila: os carros que ele já ajustou continuam
-                            // sendo o carro 01, 02... e não herdam o ajuste de ninguém.
                             var lista = (copia.carrosOpcoes || []).slice();
-                            lista.push([imagem]);
+                            // Com um carro escolhido, troca a foto DELE; senão entra um novo
+                            // no fim da fila (quem já foi ajustado continua onde está).
+                            if (indiceCarro != null && lista[indiceCarro]) lista[indiceCarro] = [imagem];
+                            else lista.push([imagem]);
                             copia.carrosOpcoes = lista.slice(0, 5);
                           } else {
                             copia[peca] = imagem;
@@ -2170,7 +2168,7 @@
                         mudar({pecas: novas});
                         desenharTudo(novas, {
                           textoTopo: (d.textoTopo && d.textoTopo.filter(Boolean).length) ? d.textoTopo : textoDeAplicacao(d.compat || []),
-                          textosExtras: [textoDeCodigos(d.valores || {}), []],
+                          textosExtras: [textoDeCodigos(d.valores || {}), textoDeCodigos(d.valores || {})],
                           frases: (d.frases && d.frases.filter(Boolean).length) ? d.frases : FRASES_PADRAO.slice(0, 3),
                         }, d.layout || LAYOUT_PADRAO).then(function(prontas) { mudar({montadas: prontas}); });
                       },
