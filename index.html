@@ -644,10 +644,6 @@
       return candidatos.map(function(c) { return c.nome; });
     }
 
-    function acharCarro(nomes, marcaModelo, anos) {
-      return acharCarros(nomes, marcaModelo, anos)[0] || null;
-    }
-
     function carregarImagem(url) {
       return new Promise(function(ok) {
         var i = new Image();
@@ -749,26 +745,44 @@
       ctx.restore();
     }
 
-    // O texto encolhe sozinho até caber na largura reservada. A foto dos códigos tinha
-    // 5 linhas compridas ("ORIGINAL 96FB3290AC"...) e passava por cima do produto e do
-    // logo — no MLB7702118128 ficou ilegível.
+    // Quebra a linha comprida em várias que caibam na largura, sem cortar palavra.
+    function quebrarLinhas(ctx, linhas, larguraMax) {
+      var saida = [];
+      linhas.forEach(function(linha) {
+        var palavras = String(linha).split(/\s+/).filter(Boolean);
+        if (!palavras.length) { saida.push(''); return; }
+        var atual = palavras[0];
+        for (var i = 1; i < palavras.length; i++) {
+          var teste = atual + ' ' + palavras[i];
+          if (ctx.measureText(teste).width <= larguraMax) atual = teste;
+          else { saida.push(atual); atual = palavras[i]; }
+        }
+        saida.push(atual);
+      });
+      return saida;
+    }
+
+    // O texto se vira sozinho pra caber no espaço reservado: primeiro quebra as linhas
+    // compridas, depois diminui a letra. Sem isso, a lista de códigos do MLB5305065161
+    // atravessou a foto e passou por cima do logo da montadora.
     function escreverLinhas(ctx, linhas, x, y, tam, alinhar, larguraMax, alturaMax) {
-      var t = tam;
+      var t = tam, usar = linhas;
       if (larguraMax || alturaMax) {
-        for (var i = 0; i < 30; i++) {
+        for (var i = 0; i < 40; i++) {
           ctx.font = '700 ' + t + 'px Arial, sans-serif';
+          usar = larguraMax ? quebrarLinhas(ctx, linhas, larguraMax) : linhas;
           var maior = 0;
-          linhas.forEach(function(l) { maior = Math.max(maior, ctx.measureText(l).width); });
-          var alto = linhas.length * t * 1.25;
+          usar.forEach(function(l) { maior = Math.max(maior, ctx.measureText(l).width); });
+          var alto = usar.length * t * 1.25;
           var cabe = (!larguraMax || maior <= larguraMax) && (!alturaMax || alto <= alturaMax);
-          if (cabe || t <= 15) break;
+          if (cabe || t <= 13) break;
           t = t * 0.94;
         }
       }
       ctx.font = '700 ' + t + 'px Arial, sans-serif';
       ctx.textAlign = alinhar;
       ctx.fillStyle = '#111';
-      linhas.forEach(function(l, i) { ctx.fillText(l, x, y + i * t * 1.25); });
+      usar.forEach(function(l, i) { ctx.fillText(l, x, y + i * t * 1.25); });
     }
 
     // Quanto daquele pedaço da foto já tem desenho (0 a 1).
@@ -856,10 +870,16 @@
     // a 2ª leva a aplicação, a 3ª leva os códigos (texto comprido) e a 4ª só as frases.
     // Com um layout só, arrumar uma estragava as outras — foi o que aconteceu no
     // MLB7702118128. Layout antigo (uma "secundaria" só) vira três na primeira abertura.
-    function secDe(L, i) {
-      if (!L.secundarias) L.secundarias = [];
-      if (!L.secundarias[i]) L.secundarias[i] = clonarLayout(L.secundaria || LAYOUT_PADRAO.secundaria);
-      return L.secundarias[i];
+    // AS TRÊS SECUNDÁRIAS USAM O MESMO LAYOUT. Já foi um layout por foto e o resultado
+    // foi o oposto do que ele queria: ajustar uma por uma nunca saía igual, e o padrão
+    // salvo da loja levava as três desencontradas (logo 158 numa e 215 na outra, selo
+    // pra fora numa e dentro na outra). Agora arruma numa, vale nas três.
+    function secDe(L) {
+      if (!L.secundaria) {
+        L.secundaria = clonarLayout((L.secundarias && L.secundarias[0]) || LAYOUT_PADRAO.secundaria);
+      }
+      delete L.secundarias;   // formato antigo, some na primeira vez que é lido
+      return L.secundaria;
     }
 
     function carregarLayoutDaLoja(conta) {
@@ -874,7 +894,7 @@
     // quatro, e os carros travados na posição do anterior nascem errados.
     function layoutParaLoja(layout) {
       var L = clonarLayout(layout);
-      [L.capa].concat(L.secundarias || [], L.secundaria ? [L.secundaria] : []).forEach(function(l) {
+      [L.capa, secDe(L)].forEach(function(l) {
         if (!l) return;
         if (l.carros) { delete l.carros.itens; }
         delete l.marcasPos; delete l.marcaPos; delete l.carroIdx;
@@ -1019,7 +1039,7 @@
         telas.push({
           nome: 'secundaria-' + (i + 1),
           tela: montarSecundaria(p, i === 0 ? opcoes.textoTopo : (opcoes.textosExtras || [])[i - 1] || [],
-            opcoes.frases, secDe(L, i)),
+            opcoes.frases, secDe(L)),
         });
       });
       return Promise.all(telas.map(function(t) {
@@ -1110,12 +1130,22 @@
       });
     }
 
-    // O texto da 3ª foto sai dos códigos que ele já digitou: Código OEM e número de peça.
+    // O texto da 3ª e da 4ª foto sai dos códigos que ele já digitou: Código OEM e número
+    // de peça. O número de peça costuma vir com TODOS os códigos numa linha só, e o OEM
+    // repete os mesmos um por linha — sem limpar, a foto saía com o texto duplicado
+    // (aconteceu no anúncio da bomba d'água: a lista inteira e depois item por item).
     function textoDeCodigos(valores) {
+      var brutos = [];
+      String(valores.PART_NUMBER || '').split('\n').forEach(function(c) { if (c.trim()) brutos.push(c.trim().toUpperCase()); });
+      String(valores.OEM || '').split('\n').forEach(function(c) { if (c.trim()) brutos.push(c.trim().toUpperCase()); });
       var codigos = [];
-      String(valores.OEM || '').split('\n').forEach(function(c) { if (c.trim()) codigos.push(c.trim()); });
-      var peca = String(valores.PART_NUMBER || '').trim();
-      if (peca && codigos.indexOf(peca) === -1) codigos.unshift(peca);
+      brutos.forEach(function(c) {
+        // já está escrito em algum outro? (igual, ou dentro de uma linha maior)
+        var repetido = brutos.some(function(outro) {
+          return outro !== c && outro.length > c.length && outro.indexOf(c) !== -1;
+        }) || codigos.indexOf(c) !== -1;
+        if (!repetido) codigos.push(c);
+      });
       if (!codigos.length) return [];
       return ['CÓDIGOS DE REFERÊNCIA'].concat(codigos.slice(0, 4));
     }
@@ -1581,7 +1611,7 @@
         if (!alvo) return;
         var cv = ehCapa
           ? montarCapa(props.pecas, L.capa)
-          : montarSecundaria(props.pecas, props.textoTopo, props.frases, secDe(L, props.indice || 0));
+          : montarSecundaria(props.pecas, props.textoTopo, props.frases, secDe(L));
         var ctx = alvo.getContext('2d');
         ctx.clearRect(0, 0, 1200, 1200);
         ctx.drawImage(cv, 0, 0);
@@ -1609,26 +1639,47 @@
         return function() { window.removeEventListener('keydown', tecla); };
       });
 
+      // Nenhuma peça pode sair inteira da foto: no anúncio MLB5305065161 o selo saiu de
+      // duas fotos e ninguém viu até subir. Sempre sobra um pedaço visível pra ele puxar
+      // de volta.
+      function presoNaFoto(valor, tamanho) {
+        var minimo = Math.min(80, tamanho || 80);
+        return Math.max(-(tamanho || 80) + minimo, Math.min(1200 - minimo, valor));
+      }
+
       // Move a peça escolhida. Cada uma guarda o que faz sentido pra ela: as que ocupam
       // uma área têm [x, y, largura, altura]; o selo tem deslocamento; texto tem posição.
       function mover(dx, dy) {
-        var l = ehCapa ? L.capa : secDe(L, props.indice || 0);
+        var l = ehCapa ? L.capa : secDe(L);
         if (sel === 'produto' || sel === 'caixa') { l[sel][0] += dx; l[sel][1] += dy; }
         else if (carroSel != null) {
           var itens = fixarCarros(l);
           if (itens[carroSel]) { itens[carroSel].pos.x += dx; itens[carroSel].pos.y += dy; }
         }
-        else if (sel === 'logo') { l.logoDx = (l.logoDx || 0) + dx; l.logoDy = (l.logoDy || 0) + dy; }
-        else if (sel === 'selo') { l.selo.dx += dx; l.selo.dy += dy; }
-        else if (marcaSel != null) { var m = fixarMarca(l, marcaSel); if (m) { m.x += dx; m.y += dy; } }
-        else if (sel === 'textoTopo' || sel === 'frases') { l[sel][0] += dx; l[sel][1] += dy; }
+        else if (sel === 'logo') {
+          l.logoDx = presoNaFoto((l.logoDx || 0) + dx, l.logo);
+          l.logoDy = presoNaFoto((l.logoDy || 0) + dy, l.logo);
+        }
+        else if (sel === 'selo') {
+          // dx/dy do selo contam a partir do canto de baixo à direita: 0 é encostado.
+          l.selo.dx = Math.max(-1200 + 120, Math.min(l.selo.altura - 60, l.selo.dx + dx));
+          l.selo.dy = Math.max(-1200 + 120, Math.min(l.selo.altura - 60, l.selo.dy + dy));
+        }
+        else if (marcaSel != null) {
+          var m = fixarMarca(l, marcaSel);
+          if (m) { m.x = presoNaFoto(m.x + dx, l.marca); m.y = presoNaFoto(m.y + dy, l.marca); }
+        }
+        else if (sel === 'textoTopo' || sel === 'frases') {
+          l[sel][0] = Math.max(0, Math.min(1200, l[sel][0] + dx));
+          l[sel][1] = Math.max(20, Math.min(1190, l[sel][1] + dy));
+        }
         props.onMudar(L);
       }
 
       // Girar: Shift + arrastar pro lado, ou os botões. Vale pra qualquer peça que seja
       // imagem — e, nos carros, gira a fileira toda ou só o carro que está marcado.
       function girar(graus) {
-        var l = ehCapa ? L.capa : secDe(L, props.indice || 0);
+        var l = ehCapa ? L.capa : secDe(L);
         if (sel === 'textoTopo' || sel === 'frases') return;
         if (carroSel != null) {
           var itens = fixarCarros(l);
@@ -1643,7 +1694,7 @@
       }
 
       function redimensionar(passo) {
-        var l = ehCapa ? L.capa : secDe(L, props.indice || 0);
+        var l = ehCapa ? L.capa : secDe(L);
         if (sel === 'produto' || sel === 'caixa') {
           var f = 1 + passo * 0.04;
           l[sel][2] = Math.max(80, l[sel][2] * f);
@@ -1714,7 +1765,7 @@
           e('span', {className: 'text-xs text-slate-400'}, 'na foto:'),
           // Clicar na miniatura pula pra aquele carro; o ✕ tira ele da foto.
           props.pecas.carrosOpcoes.map(function(opcoes, i) {
-            var escolhida = opcoes[((ehCapa ? L.capa : secDe(L, props.indice || 0)).carroIdx || 0) % opcoes.length];
+            var escolhida = opcoes[((ehCapa ? L.capa : secDe(L)).carroIdx || 0) % opcoes.length];
             return e('div', {key: i, className: 'relative'},
               e('img', {src: escolhida.toDataURL('image/png'), title: 'mexer no carro ' + (i + 1),
                 onClick: function() { setSel('carro:' + i); },
@@ -1737,12 +1788,12 @@
           podeGirar && e('button', {onClick: function() { girar(90); }, title: 'vira um quarto de volta',
             className: botao + 'bg-slate-800 border-slate-700 text-slate-200'}, '90°'),
           carroSel != null && e('button', {onClick: function() {
-            var l = ehCapa ? L.capa : secDe(L, props.indice || 0);
+            var l = ehCapa ? L.capa : secDe(L);
             l.carroIdx = (l.carroIdx || 0) + 1;
             props.onMudar(L);
           }, className: botao + 'bg-slate-800 border-slate-700 text-slate-200'}, '🔄 trocar foto do carro'),
           carroSel != null && e('button', {onClick: function() {
-            var l = ehCapa ? L.capa : secDe(L, props.indice || 0);
+            var l = ehCapa ? L.capa : secDe(L);
             if (l.carros.itens && l.carros.itens[carroSel]) l.carros.itens[carroSel] = {};
             props.onMudar(L);
           }, title: 'devolve este carro pro lugar que o sistema escolheu',
@@ -1767,7 +1818,7 @@
           e('button', {onClick: props.onPadrao, className: botao + 'bg-slate-800 border-slate-700 text-slate-400'}, '↺ voltar ao padrão'),
           e('button', {onClick: props.onSalvarLoja, className: botao + 'bg-emerald-700 border-emerald-600 text-white'}, '💾 salvar como padrão da ' + props.conta),
           !ehCapa && e('span', {className: 'text-[11px] text-slate-500'},
-            'ao dar Pronto, as outras fotos secundárias ficam iguais a esta'),
+            'o que você ajusta aqui vale nas três fotos secundárias'),
           e('button', {onClick: props.onFechar, className: botao + 'ml-auto bg-blue-600 border-blue-500 text-white'}, '✓ Pronto')));
     }
 
@@ -2178,7 +2229,7 @@
                           return copia;
                         });
                         var L = d.layout || clonarLayout();
-                        [L.capa, secDe(L, 0), secDe(L, 1), secDe(L, 2)].forEach(function(l) {
+                        [L.capa, secDe(L)].forEach(function(l) {
                           if (l.carros && l.carros.itens) l.carros.itens.splice(indice, 1);
                         });
                         mudar({pecas: novas, layout: L});
@@ -2219,24 +2270,7 @@
                             : 'Pronto: as próximas montagens da ' + conta + ' já saem assim.');
                         });
                       },
-                      // Dar Pronto numa secundária iguala as outras duas a ela: o logo, o
-                      // selo, as frases e a aplicação ficam no mesmo lugar e no mesmo
-                      // tamanho nas três. Ajustar uma por uma na mão nunca sai igual.
-                      onFechar: function() {
-                        var L = d.layout;
-                        if (L && d.editando && d.editando.tipo !== 'capa') {
-                          var i = Math.max(0, d.editando.indice - 1);
-                          var modelo = secDe(L, i);
-                          [0, 1, 2].forEach(function(j) {
-                            if (j !== i) L.secundarias[j] = clonarLayout(modelo);
-                          });
-                          mudar({layout: L, editando: null});
-                          redesenharMontagem(L);
-                          return;
-                        }
-                        mudar({editando: null});
-                        redesenharMontagem();
-                      },
+                      onFechar: function() { mudar({editando: null}); redesenharMontagem(); },
                     }))),
 
                 e('label', {className: 'text-xs text-slate-400 block'}, 'Embalagem de fábrica (medidas da expedição) — o envio vai "na embalagem de fábrica, sem nada extra"'),
@@ -2409,6 +2443,10 @@
       return e('div', {className: 'bg-slate-900 border-2 border-blue-700 rounded-xl p-4 space-y-4'},
         e('div', {className: 'flex flex-wrap items-center gap-3'},
           e('h3', {className: 'text-base font-bold'}, '🛠 Criar anúncios — ' + props.itens.length + ' na fila'),
+          // Dá pra saber, olhando, se o navegador está com a versão nova: o print de um
+          // problema já veio de uma tela velha em cache.
+          e('span', {className: 'text-[10px] text-slate-500', title: 'versão que o seu navegador carregou'},
+            'v. ' + new Date(document.lastModified).toLocaleString('pt-BR', {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'})),
           e('label', {className: 'text-sm text-slate-300'}, 'Loja: '),
           e('select', {value: conta, disabled: criando || feitos > 0, onChange: function(ev) { setConta(ev.target.value); },
             className: 'bg-slate-700 text-white rounded px-2 py-1 border border-slate-600 text-sm'},
