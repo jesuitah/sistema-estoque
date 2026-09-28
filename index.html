@@ -1753,9 +1753,10 @@
           var lw = im.width * e2, lh = im.height * e2;
           return [r[0] + (r[2] - lw) / 2, r[1] + (r[3] - lh) / 2, lw, lh];
         }
+        // NA ORDEM EM QUE SÃO DESENHADAS: a última desenhada está por cima e ganha o clique.
         var escondido = l.escondidos || {};
-        if (p.produto && !escondido.produto) areas.push(['produto', cabendo(p.produto, l.produto)]);
         if (p.caixa && !escondido.caixa) areas.push(['caixa', cabendo(p.caixa, l.caixa)]);
+        if (p.produto && !escondido.produto) areas.push(['produto', cabendo(p.produto, l.produto)]);
         if (ehCapa) {
           var carros = carrosEscolhidos(p, l);
           posicoesDosCarros(carros, l).forEach(function(c, i) {
@@ -1766,12 +1767,12 @@
             var hl = l.logo, wl = p.logo.width * (hl / p.logo.height);
             areas.push(['logo', [l.logoDx || 0, l.logoDy || 0, wl, hl]]);
           }
+          if (!escondido.textoTopo) areas.push(['textoTopo', [l.textoTopo[0] - 540, l.textoTopo[1] - l.textoTopo[2], 540, 200]]);
+          if (!escondido.frases) areas.push(['frases', [l.frases[0], l.frases[1] - l.frases[2], 880, 200]]);
           if (p.selo && !escondido.selo) {
             var hs = l.selo.altura, ws = p.selo.width * (hs / p.selo.height);
             areas.push(['selo', [1200 - ws + l.selo.dx, 1200 - hs + l.selo.dy, ws, hs]]);
           }
-          if (!escondido.textoTopo) areas.push(['textoTopo', [l.textoTopo[0] - 540, l.textoTopo[1] - l.textoTopo[2], 540, 200]]);
-          if (!escondido.frases) areas.push(['frases', [l.frases[0], l.frases[1] - l.frases[2], 880, 200]]);
         }
         if (p.marca && !escondido.marca) {
           var alt = l.marca * (p.marca.height / p.marca.width);
@@ -1786,17 +1787,16 @@
         return areas.filter(function(a) { return a[1]; });
       }
 
-      // Qual peça está debaixo do clique: entre as que pegam o ponto, vale a MENOR, pra
-      // clicar no logo não escolher o produto que está atrás.
+      // Qual peça está debaixo do clique: a que está POR CIMA. Como a lista vem na ordem
+      // do desenho, basta varrer de trás pra frente — clicar no logo pega o logo, e no
+      // meio da foto pega o produto, não a caixa que está atrás dele.
       function pecaNoPonto(pt) {
-        var achada = null, menor = Infinity;
-        areasDasPecas().forEach(function(a) {
-          var r = a[1];
-          if (pt.x < r[0] || pt.x > r[0] + r[2] || pt.y < r[1] || pt.y > r[1] + r[3]) return;
-          var area = r[2] * r[3];
-          if (area < menor) { menor = area; achada = a[0]; }
-        });
-        return achada;
+        var areas = areasDasPecas();
+        for (var i = areas.length - 1; i >= 0; i--) {
+          var r = areas[i][1];
+          if (pt.x >= r[0] && pt.x <= r[0] + r[2] && pt.y >= r[1] && pt.y <= r[1] + r[3]) return areas[i][0];
+        }
+        return null;
       }
 
       var botao = 'px-2 py-1 rounded text-xs font-bold border ';
