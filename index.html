@@ -714,6 +714,19 @@
       return cv;
     }
 
+    // Quanto de desenho tem numa imagem (pixels que não são transparentes nem brancos).
+    function quantoSobrou(im) {
+      var cv = document.createElement('canvas');
+      cv.width = Math.max(1, Math.round(im.width / 4)); cv.height = Math.max(1, Math.round(im.height / 4));
+      var ctx = cv.getContext('2d');
+      ctx.drawImage(im, 0, 0, cv.width, cv.height);
+      var d = ctx.getImageData(0, 0, cv.width, cv.height).data, n = 0;
+      for (var i = 0; i < d.length; i += 4) {
+        if (d[i + 3] > 60 && !(d[i] > 240 && d[i + 1] > 240 && d[i + 2] > 240)) n++;
+      }
+      return n;
+    }
+
     // Recorta a margem vazia em volta. Sem isso o tamanho pedido não é o que aparece:
     // o logo da VW ocupava um terço do próprio arquivo, e um carro com muita margem
     // saía menor que os outros mesmo com a mesma medida.
@@ -1841,10 +1854,16 @@
           var guardar = Object.assign({}, originais); guardar[sel] = original; setOriginais(guardar);
         }
         var forca = passo === 0 ? 0 : (tirouFundo[sel] || 0) + 1;
+        var nova = forca === 0 ? original : semMargemVazia(semFundoBranco(original, forca));
+        // Peça clara (prata, alumínio) some junto com o fundo se a força subir demais.
+        // Antes de aplicar, conta o que sobrou: se comeu a peça, nem aplica.
+        if (forca > 0 && quantoSobrou(nova) < quantoSobrou(original) * 0.25) {
+          alert('Esse corte apagaria a peça junto com o fundo (ela é clara demais).\n\n' +
+                'Ficou como estava. Se o fundo ainda incomoda, troque por uma foto com fundo branco.');
+          return;
+        }
         var cont = Object.assign({}, tirouFundo); cont[sel] = forca; setTirouFundo(cont);
-        props.onTrocarPeca(chaveAcervo,
-          forca === 0 ? original : semMargemVazia(semFundoBranco(original, forca)),
-          null, carroSel);
+        props.onTrocarPeca(chaveAcervo, nova, null, carroSel);
       }
 
       var botao = 'px-2 py-1 rounded text-xs font-bold border ';
