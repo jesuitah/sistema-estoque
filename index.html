@@ -1140,14 +1140,18 @@
       String(valores.OEM || '').split('\n').forEach(function(c) { if (c.trim()) brutos.push(c.trim().toUpperCase()); });
       var codigos = [];
       brutos.forEach(function(c) {
-        // já está escrito em algum outro? (igual, ou dentro de uma linha maior)
-        var repetido = brutos.some(function(outro) {
-          return outro !== c && outro.length > c.length && outro.indexOf(c) !== -1;
-        }) || codigos.indexOf(c) !== -1;
-        if (!repetido) codigos.push(c);
+        // Linha que engloba as outras sai fora: "INDISA 204008 URBA UB0950 NAKATA..."
+        // cede lugar aos códigos um por linha, que é como ele lê melhor.
+        var englobaOutra = brutos.some(function(outro) {
+          return outro !== c && outro.length < c.length && c.indexOf(outro) !== -1;
+        });
+        if (!englobaOutra && codigos.indexOf(c) === -1) codigos.push(c);
       });
+      // Se só sobrou a linha que junta tudo, ela mesma vale (a quebra de linha na hora
+      // de escrever dá conta).
+      if (!codigos.length) codigos = brutos.slice(0, 1);
       if (!codigos.length) return [];
-      return ['CÓDIGOS DE REFERÊNCIA'].concat(codigos.slice(0, 4));
+      return ['CÓDIGOS DE REFERÊNCIA'].concat(codigos.slice(0, 5));
     }
 
     // O texto de aplicação sai do que ele já marcou na compatibilidade.
