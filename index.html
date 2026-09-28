@@ -1532,13 +1532,14 @@
       var quantasMarcas = props.pecas.marca ? (ehCapa ? 2 : 1) : 0;
       var pecasEditaveis = [['produto', 'Produto'], ['caixa', 'Caixa']];
       if (!ehCapa) pecasEditaveis.push(['logo', 'Logo'], ['selo', 'Selo']);
-      for (var ci = 0; ci < quantosCarros; ci++) pecasEditaveis.push(['carro:' + ci, 'Carro ' + (ci + 1)]);
+      // Carro é coisa de capa: nas secundárias só entra produto, caixa e as artes fixas.
+      if (ehCapa) for (var ci = 0; ci < quantosCarros; ci++) pecasEditaveis.push(['carro:' + ci, 'Carro ' + (ci + 1)]);
       for (var mi = 0; mi < quantasMarcas; mi++) {
         pecasEditaveis.push(['marca:' + mi, "Marca d'água" + (quantasMarcas > 1 ? ' ' + (mi + 1) : '')]);
       }
       if (!ehCapa) pecasEditaveis.push(['textoTopo', 'Texto de cima'], ['frases', 'Frases']);
 
-      if (ehCapa || quantosCarros) pecasEditaveis.push(['carro:novo', '＋ Carro']);
+      if (ehCapa) pecasEditaveis.push(['carro:novo', '＋ Carro']);
 
       // Qual carro / qual marca d'água está escolhido agora (ou null).
       var carroSel = /^carro:\d+$/.test(sel) ? Number(sel.split(':')[1]) : null;
@@ -1762,9 +1763,11 @@
             if (sel === 'carro:novo') setSel('carro:' + quantosCarros);
           },
         }),
-        e('div', {className: 'flex flex-wrap gap-2'},
+        e('div', {className: 'flex flex-wrap gap-2 items-center'},
           e('button', {onClick: props.onPadrao, className: botao + 'bg-slate-800 border-slate-700 text-slate-400'}, '↺ voltar ao padrão'),
           e('button', {onClick: props.onSalvarLoja, className: botao + 'bg-emerald-700 border-emerald-600 text-white'}, '💾 salvar como padrão da ' + props.conta),
+          !ehCapa && e('span', {className: 'text-[11px] text-slate-500'},
+            'ao dar Pronto, as outras fotos secundárias ficam iguais a esta'),
           e('button', {onClick: props.onFechar, className: botao + 'ml-auto bg-blue-600 border-blue-500 text-white'}, '✓ Pronto')));
     }
 
@@ -2216,7 +2219,24 @@
                             : 'Pronto: as próximas montagens da ' + conta + ' já saem assim.');
                         });
                       },
-                      onFechar: function() { mudar({editando: null}); redesenharMontagem(); },
+                      // Dar Pronto numa secundária iguala as outras duas a ela: o logo, o
+                      // selo, as frases e a aplicação ficam no mesmo lugar e no mesmo
+                      // tamanho nas três. Ajustar uma por uma na mão nunca sai igual.
+                      onFechar: function() {
+                        var L = d.layout;
+                        if (L && d.editando && d.editando.tipo !== 'capa') {
+                          var i = Math.max(0, d.editando.indice - 1);
+                          var modelo = secDe(L, i);
+                          [0, 1, 2].forEach(function(j) {
+                            if (j !== i) L.secundarias[j] = clonarLayout(modelo);
+                          });
+                          mudar({layout: L, editando: null});
+                          redesenharMontagem(L);
+                          return;
+                        }
+                        mudar({editando: null});
+                        redesenharMontagem();
+                      },
                     }))),
 
                 e('label', {className: 'text-xs text-slate-400 block'}, 'Embalagem de fábrica (medidas da expedição) — o envio vai "na embalagem de fábrica, sem nada extra"'),
