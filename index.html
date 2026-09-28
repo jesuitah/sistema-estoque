@@ -868,9 +868,24 @@
         .catch(function() { return clonarLayout(); });
     }
 
+    // O padrão da loja guarda o ARRANJO (onde fica o produto, a caixa, o logo, o selo,
+    // o tamanho dos textos) — não os ajustes de um anúncio só. A posição fixa de cada
+    // carro e de cada marca d'água fica de fora: o próximo anúncio pode ter um carro ou
+    // quatro, e os carros travados na posição do anterior nascem errados.
+    function layoutParaLoja(layout) {
+      var L = clonarLayout(layout);
+      [L.capa].concat(L.secundarias || [], L.secundaria ? [L.secundaria] : []).forEach(function(l) {
+        if (!l) return;
+        if (l.carros) { delete l.carros.itens; }
+        delete l.marcasPos; delete l.marcaPos; delete l.carroIdx;
+      });
+      return L;
+    }
+
     function salvarLayoutDaLoja(conta, layout) {
       return supabase.from('ml_fotos_layout')
-        .upsert({conta: conta, layout: layout, atualizado_em: new Date().toISOString()}, {onConflict: 'conta'});
+        .upsert({conta: conta, layout: layoutParaLoja(layout), atualizado_em: new Date().toISOString()},
+          {onConflict: 'conta'});
     }
 
     function novaTela() {
