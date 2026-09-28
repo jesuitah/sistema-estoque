@@ -666,7 +666,10 @@
 
     // Tira o fundo branco entrando pelas BORDAS: branco cercado pela peça (um furo, um
     // reflexo) continua branco. Um "apagar tudo que é claro" comeria a peça.
-    function semFundoBranco(im) {
+    // `forca` (0 = normal) afrouxa o que conta como fundo. Foto de fornecedor quase
+    // nunca tem branco puro: tem sombra, degradê e sujeira de compressão, e o corte
+    // parava no primeiro pixel 230. O tom do fundo sai das bordas da própria foto.
+    function semFundoBranco(im, forca) {
       var cv = document.createElement('canvas');
       cv.width = im.width; cv.height = im.height;
       var ctx = cv.getContext('2d');
@@ -675,7 +678,27 @@
       var px = d.data, total = cv.width * cv.height;
       var visto = new Uint8Array(total);
       var fila = [];
-      function claro(i) { return px[i * 4] > 236 && px[i * 4 + 1] > 236 && px[i * 4 + 2] > 236; }
+
+      // Tom médio da moldura de 1px: é o fundo, seja ele branco ou cinza claro.
+      var somaR = 0, somaG = 0, somaB = 0, n = 0;
+      function amostrar(i) { somaR += px[i * 4]; somaG += px[i * 4 + 1]; somaB += px[i * 4 + 2]; n++; }
+      for (var ax = 0; ax < cv.width; ax++) { amostrar(ax); amostrar((cv.height - 1) * cv.width + ax); }
+      for (var ay = 0; ay < cv.height; ay++) { amostrar(ay * cv.width); amostrar(ay * cv.width + cv.width - 1); }
+      var fundo = [somaR / n, somaG / n, somaB / n];
+      var claroNaBorda = Math.min(fundo[0], fundo[1], fundo[2]) > 200;
+      var margem = 26 + (forca || 0) * 14;
+
+      function claro(i) {
+        var r = px[i * 4], g = px[i * 4 + 1], b = px[i * 4 + 2];
+        if (claroNaBorda) {
+          // perto do tom do fundo, e sem cor forte (senão come a peça clara)
+          var dif = Math.abs(r - fundo[0]) + Math.abs(g - fundo[1]) + Math.abs(b - fundo[2]);
+          var colorido = Math.max(r, g, b) - Math.min(r, g, b);
+          return dif <= margem * 3 && colorido < 30 + (forca || 0) * 10;
+        }
+        var limite = 236 - (forca || 0) * 12;
+        return r > limite && g > limite && b > limite;
+      }
       for (var x = 0; x < cv.width; x++) { fila.push(x); fila.push((cv.height - 1) * cv.width + x); }
       for (var y = 0; y < cv.height; y++) { fila.push(y * cv.width); fila.push(y * cv.width + cv.width - 1); }
       while (fila.length) {
@@ -1567,6 +1590,8 @@
       var selSt = useState('produto'); var sel = selSt[0]; var setSel = selSt[1];
       // O que ele já deu por pronto, só pra ele se achar no meio do caminho.
       var prontosSt = useState({}); var prontos = prontosSt[0]; var setProntos = prontosSt[1];
+      // Quantas vezes ele já pediu pra tirar mais fundo de cada peça.
+      var fundoSt = useState({}); var tirouFundo = fundoSt[0]; var setTirouFundo = fundoSt[1];
 
       // Um botão por CARRO e por MARCA D'ÁGUA: "Carro 1", "Carro 2", "Marca d'água 1"...
       // Ele pediu assim com todas as letras — cada um é uma peça, mexe sozinho.
@@ -1889,6 +1914,21 @@
             escondida ? '↩ trazer de volta' : '🗑 tirar da foto'),
           carroSel != null && e('button', {onClick: function() { props.onRemoverCarro(carroSel); setSel('produto'); },
             className: botao + 'bg-slate-800 border-slate-700 text-slate-300'}, '🗑 tirar este carro'),
+          // Fundo que não saiu sozinho: cada clique tira mais um pouco. A foto do
+          // fornecedor costuma ter sombra e degradê no lugar do branco.
+          (sel === 'produto' || sel === 'caixa' || carroSel != null || sel === 'marca:0' || sel === 'marca:1') &&
+            e('button', {onClick: function() {
+              var atual = carroSel != null
+                ? (props.pecas.carrosOpcoes[carroSel] || [])[0]
+                : props.pecas[sel.split(':')[0]];
+              if (!atual) return;
+              var forca = (tirouFundo[sel] || 0) + 1;
+              var novo = Object.assign({}, tirouFundo); novo[sel] = forca;
+              setTirouFundo(novo);
+              props.onTrocarPeca(sel.split(':')[0] === 'carro' ? 'carros' : sel.split(':')[0],
+                semMargemVazia(semFundoBranco(atual, forca)), null, carroSel);
+            }, title: 'tira o fundo que sobrou; pode clicar mais de uma vez',
+              className: botao + 'bg-slate-800 border-slate-700 text-slate-200'}, '🪄 tirar o fundo'),
           // Fecha o ajuste deste item: deixa o ✓ na lista de cima.
           e('button', {onClick: function() {
             var novo = Object.assign({}, prontos); novo[sel] = true;
