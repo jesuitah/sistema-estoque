@@ -1590,8 +1590,10 @@
       var selSt = useState('produto'); var sel = selSt[0]; var setSel = selSt[1];
       // O que ele já deu por pronto, só pra ele se achar no meio do caminho.
       var prontosSt = useState({}); var prontos = prontosSt[0]; var setProntos = prontosSt[1];
-      // Quantas vezes ele já pediu pra tirar mais fundo de cada peça.
+      // Quantas vezes ele já pediu pra tirar mais fundo de cada peça, e a foto como ela
+      // veio — peça prateada some junto com o fundo se insistir, e aí ele desfaz.
       var fundoSt = useState({}); var tirouFundo = fundoSt[0]; var setTirouFundo = fundoSt[1];
+      var origSt = useState({}); var originais = origSt[0]; var setOriginais = origSt[1];
 
       // Um botão por CARRO e por MARCA D'ÁGUA: "Carro 1", "Carro 2", "Marca d'água 1"...
       // Ele pediu assim com todas as letras — cada um é uma peça, mexe sozinho.
@@ -1824,6 +1826,27 @@
         return null;
       }
 
+      // Tira mais fundo da peça escolhida (ou devolve a foto original com passo 0). O
+      // corte sai SEMPRE da foto original, pra não acumular erro a cada clique.
+      var pecaBase = sel.split(':')[0];
+      var podeCortarFundo = pecaBase === 'produto' || pecaBase === 'caixa' || pecaBase === 'carro' || pecaBase === 'marca';
+      function cortarFundo(passo) {
+        var chaveAcervo = pecaBase === 'carro' ? 'carros' : pecaBase;
+        var atual = carroSel != null
+          ? (props.pecas.carrosOpcoes[carroSel] || [])[0]
+          : props.pecas[pecaBase];
+        var original = originais[sel] || atual;
+        if (!original) return;
+        if (!originais[sel]) {
+          var guardar = Object.assign({}, originais); guardar[sel] = original; setOriginais(guardar);
+        }
+        var forca = passo === 0 ? 0 : (tirouFundo[sel] || 0) + 1;
+        var cont = Object.assign({}, tirouFundo); cont[sel] = forca; setTirouFundo(cont);
+        props.onTrocarPeca(chaveAcervo,
+          forca === 0 ? original : semMargemVazia(semFundoBranco(original, forca)),
+          null, carroSel);
+      }
+
       var botao = 'px-2 py-1 rounded text-xs font-bold border ';
       // Texto só tem tamanho; todo o resto é imagem e pode virar.
       var podeGirar = sel !== 'textoTopo' && sel !== 'frases';
@@ -1916,19 +1939,13 @@
             className: botao + 'bg-slate-800 border-slate-700 text-slate-300'}, '🗑 tirar este carro'),
           // Fundo que não saiu sozinho: cada clique tira mais um pouco. A foto do
           // fornecedor costuma ter sombra e degradê no lugar do branco.
-          (sel === 'produto' || sel === 'caixa' || carroSel != null || sel === 'marca:0' || sel === 'marca:1') &&
-            e('button', {onClick: function() {
-              var atual = carroSel != null
-                ? (props.pecas.carrosOpcoes[carroSel] || [])[0]
-                : props.pecas[sel.split(':')[0]];
-              if (!atual) return;
-              var forca = (tirouFundo[sel] || 0) + 1;
-              var novo = Object.assign({}, tirouFundo); novo[sel] = forca;
-              setTirouFundo(novo);
-              props.onTrocarPeca(sel.split(':')[0] === 'carro' ? 'carros' : sel.split(':')[0],
-                semMargemVazia(semFundoBranco(atual, forca)), null, carroSel);
-            }, title: 'tira o fundo que sobrou; pode clicar mais de uma vez',
-              className: botao + 'bg-slate-800 border-slate-700 text-slate-200'}, '🪄 tirar o fundo'),
+          podeCortarFundo && e('button', {onClick: function() { cortarFundo(1); },
+            title: 'tira o fundo que sobrou; pode clicar mais de uma vez',
+            className: botao + 'bg-slate-800 border-slate-700 text-slate-200'},
+            '🪄 tirar o fundo' + (tirouFundo[sel] ? ' (' + tirouFundo[sel] + ')' : '')),
+          podeCortarFundo && tirouFundo[sel] > 0 && e('button', {onClick: function() { cortarFundo(0); },
+            title: 'volta a foto como ela veio',
+            className: botao + 'bg-slate-800 border-slate-700 text-slate-400'}, '↩ desfazer o corte'),
           // Fecha o ajuste deste item: deixa o ✓ na lista de cima.
           e('button', {onClick: function() {
             var novo = Object.assign({}, prontos); novo[sel] = true;
