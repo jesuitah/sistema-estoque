@@ -1874,11 +1874,6 @@
         return null;
       }
 
-      function pecaNoPonto(pt) {
-        var a = areaNoPonto(pt);
-        return a ? a[0] : null;
-      }
-
       // A VARINHA: o clique na prévia vira um ponto DENTRO da foto original da peça, e
       // dali some a mancha de cor parecida. É o que ele faz no Photoshop: clicar no
       // branco de dentro do círculo e apertar delete.
@@ -1966,11 +1961,12 @@
             (varinhaOn ? 'border-amber-500 cursor-crosshair' : 'border-slate-600 cursor-move'),
           // Clicou em cima de uma peça? Ela vira a peça escolhida na hora, e o arrasto
           // que começa já é dela.
+          // Clicar na foto arrasta a peça escolhida lá em cima — e só ela. Já tentamos
+          // deixar o clique trocar de peça e ficou ruim de usar: ele esbarrava numa arte
+          // e perdia a que estava ajustando.
           onMouseDown: function(ev) {
             var pt = posDoMouse(ev);
             if (varinhaOn) { usarVarinha(pt); return; }   // com a varinha ligada, o clique apaga
-            var achada = pecaNoPonto(pt);
-            if (achada && achada !== sel) setSel(achada);
             setArrastando(pt);
           },
           onMouseMove: function(ev) {
