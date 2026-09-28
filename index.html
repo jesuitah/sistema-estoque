@@ -1856,6 +1856,16 @@
         });
       }
 
+      // O que ele digita nos campos entra nas fotos sozinho, um instante depois de parar
+      // de digitar: antes dependia de lembrar do botão, e ele montava, digitava e as
+      // fotos subiam sem o texto.
+      useEffect(function() {
+        if (!d.montadas || !d.montadas.length || !d.pecas) return;
+        var t = setTimeout(function() { redesenharMontagem(); }, 700);
+        return function() { clearTimeout(t); };
+      }, [(d.textoTopo || []).join('\n'), (d.frases || []).join('\n'),
+          textoDeCodigos(d.valores || {}).join('\n')]);
+
       // Monta capa + secundárias no padrão da loja, a partir das fotos cruas já coladas.
       function montarFotos() {
         var fotos = d.fotos || [];
@@ -2084,11 +2094,23 @@
                         placeholder: FRASES_PADRAO.slice(0, 3).join('\n'),
                         onChange: function(ev) { mudar({frases: ev.target.value.split('\n')}); },
                         className: campo + ' text-xs'}))),
-                  // O texto digitado só entrava na próxima montagem; agora tem o botão.
+                  // O texto digitado entra sozinho (veja o efeito com atraso lá em cima);
+                  // o botão fica pra quem quiser forçar na hora.
                   (d.montadas || []).length > 0 && e('button', {onClick: function() { redesenharMontagem(); },
                     className: 'px-3 py-1 rounded text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white'},
-                    '✓ aplicar os textos nas fotos'),
+                    '✓ aplicar os textos nas fotos agora'),
                   d.faltandoArte && e('div', {className: 'text-xs text-amber-300'}, '⚠ não achei: ' + d.faltandoArte),
+                  // Por que a foto saiu sem o logo ou sem o texto de cima: quase sempre é
+                  // campo que ainda não foi preenchido, não defeito da montagem.
+                  (d.montadas || []).length > 0 && !(d.compat || []).length &&
+                    e('div', {className: 'text-xs text-amber-300'},
+                      '⚠ sem compatibilidade: não entra o logo da montadora nem os carros. Preencha a compatibilidade e monte de novo.'),
+                  (d.montadas || []).length > 0 && !textoDeCodigos(d.valores || {}).length &&
+                    e('div', {className: 'text-xs text-amber-300'},
+                      '⚠ o canto de cima da 3ª e da 4ª foto sai dos códigos: preencha o Código OEM / número de peça nas características.'),
+                  (d.montadas || []).length > 0 && !(d.textoTopo || []).filter(Boolean).length && !(d.compat || []).length &&
+                    e('div', {className: 'text-xs text-amber-300'},
+                      '⚠ a 2ª foto fica sem o texto de cima: digite a aplicação no campo acima ou preencha a compatibilidade.'),
                   // A ordem das miniaturas é a ordem que vai pro anúncio: a primeira é a
                   // capa que o comprador vê na busca.
                   (d.montadas || []).length > 0 && e('div', {className: 'flex flex-wrap gap-2'},
