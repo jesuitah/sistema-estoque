@@ -714,6 +714,37 @@
       return cv;
     }
 
+    // VARINHA MÁGICA, igual à do Photoshop: apaga a mancha de cor parecida que começa
+    // no ponto clicado. É o que o recorte automático não faz — ele só come o fundo que
+    // encosta na borda, então o branco de DENTRO do círculo da correia ficava lá.
+    function varinha(im, px, py, tolerancia) {
+      var cv = document.createElement('canvas');
+      cv.width = im.width; cv.height = im.height;
+      var ctx = cv.getContext('2d');
+      ctx.drawImage(im, 0, 0);
+      var d = ctx.getImageData(0, 0, cv.width, cv.height);
+      var p = d.data, total = cv.width * cv.height;
+      var ini = (Math.round(py) * cv.width + Math.round(px));
+      if (ini < 0 || ini >= total) return cv;
+      var alvo = [p[ini * 4], p[ini * 4 + 1], p[ini * 4 + 2]];
+      var limite = (tolerancia || 40) * 3;
+      var visto = new Uint8Array(total);
+      var fila = [ini];
+      while (fila.length) {
+        var i = fila.pop();
+        if (i < 0 || i >= total || visto[i]) continue;
+        var dif = Math.abs(p[i * 4] - alvo[0]) + Math.abs(p[i * 4 + 1] - alvo[1]) + Math.abs(p[i * 4 + 2] - alvo[2]);
+        if (p[i * 4 + 3] < 20 || dif > limite) continue;
+        visto[i] = 1; p[i * 4 + 3] = 0;
+        var cx = i % cv.width;
+        if (cx > 0) fila.push(i - 1);
+        if (cx < cv.width - 1) fila.push(i + 1);
+        fila.push(i - cv.width); fila.push(i + cv.width);
+      }
+      ctx.putImageData(d, 0, 0);
+      return cv;
+    }
+
     // Quanto de desenho tem numa imagem (pixels que não são transparentes nem brancos).
     function quantoSobrou(im) {
       var cv = document.createElement('canvas');
@@ -1607,6 +1638,9 @@
       // veio — peça prateada some junto com o fundo se insistir, e aí ele desfaz.
       var fundoSt = useState({}); var tirouFundo = fundoSt[0]; var setTirouFundo = fundoSt[1];
       var origSt = useState({}); var originais = origSt[0]; var setOriginais = origSt[1];
+      // Varinha ligada? E o quanto ela "perdoa" de diferença de cor.
+      var varinhaSt = useState(false); var varinhaOn = varinhaSt[0]; var setVarinhaOn = varinhaSt[1];
+      var tolSt = useState(40); var tolerancia = tolSt[0]; var setTolerancia = tolSt[1];
 
       // Um botão por CARRO e por MARCA D'ÁGUA: "Carro 1", "Carro 2", "Marca d'água 1"...
       // Ele pediu assim com todas as letras — cada um é uma peça, mexe sozinho.
@@ -1686,6 +1720,7 @@
           if (ev.key === '-' || ev.key === '_') { ev.preventDefault(); redimensionar(-1); return; }
           if (ev.key === '[') { ev.preventDefault(); girar(-5); return; }
           if (ev.key === ']') { ev.preventDefault(); girar(5); return; }
+          if (ev.key === 'Escape' && varinhaOn) { ev.preventDefault(); setVarinhaOn(false); return; }
         }
         window.addEventListener('keydown', tecla);
         return function() { window.removeEventListener('keydown', tecla); };
@@ -1830,13 +1865,56 @@
       // Qual peça está debaixo do clique: a que está POR CIMA. Como a lista vem na ordem
       // do desenho, basta varrer de trás pra frente — clicar no logo pega o logo, e no
       // meio da foto pega o produto, não a caixa que está atrás dele.
-      function pecaNoPonto(pt) {
+      function areaNoPonto(pt) {
         var areas = areasDasPecas();
         for (var i = areas.length - 1; i >= 0; i--) {
           var r = areas[i][1];
-          if (pt.x >= r[0] && pt.x <= r[0] + r[2] && pt.y >= r[1] && pt.y <= r[1] + r[3]) return areas[i][0];
+          if (pt.x >= r[0] && pt.x <= r[0] + r[2] && pt.y >= r[1] && pt.y <= r[1] + r[3]) return areas[i];
         }
         return null;
+      }
+
+      function pecaNoPonto(pt) {
+        var a = areaNoPonto(pt);
+        return a ? a[0] : null;
+      }
+
+      // A VARINHA: o clique na prévia vira um ponto DENTRO da foto original da peça, e
+      // dali some a mancha de cor parecida. É o que ele faz no Photoshop: clicar no
+      // branco de dentro do círculo e apertar delete.
+      function usarVarinha(pt) {
+        var achada = areaNoPonto(pt);
+        if (!achada) return;
+        var chave = achada[0], r = achada[1];
+        var base = chave.split(':')[0];
+        var indice = /:/.test(chave) ? Number(chave.split(':')[1]) : null;
+        var im = base === 'carro' ? (props.pecas.carrosOpcoes[indice] || [])[0]
+               : base === 'marca' ? props.pecas.marca
+               : props.pecas[base];
+        if (!im || base === 'textoTopo' || base === 'frases') return;
+
+        var l = ehCapa ? L.capa : secDe(L, props.indice || 0);
+        var giro = base === 'carro'
+          ? ((l.carros.itens || [])[indice] || {}).giro || (l.giro || {}).carros || 0
+          : (l.giro || {})[chave] || (l.giro || {})[base] || 0;
+        // desfaz o giro em volta do centro, senão o ponto cai no lugar errado
+        var px = pt.x, py = pt.y;
+        if (giro) {
+          var cx = r[0] + r[2] / 2, cy = r[1] + r[3] / 2, a = -giro * Math.PI / 180;
+          var dx = pt.x - cx, dy = pt.y - cy;
+          px = cx + dx * Math.cos(a) - dy * Math.sin(a);
+          py = cy + dx * Math.sin(a) + dy * Math.cos(a);
+        }
+        var ix = (px - r[0]) / r[2] * im.width;
+        var iy = (py - r[1]) / r[3] * im.height;
+        if (ix < 0 || iy < 0 || ix >= im.width || iy >= im.height) return;
+
+        if (!originais[chave]) {
+          var guardar = Object.assign({}, originais); guardar[chave] = im; setOriginais(guardar);
+        }
+        if (chave !== sel) setSel(chave);   // o desfazer passa a valer pra esta peça
+        props.onTrocarPeca(base === 'carro' ? 'carros' : base,
+          varinha(im, ix, iy, tolerancia), null, indice);
       }
 
       // Tira mais fundo da peça escolhida (ou devolve a foto original com passo 0). O
@@ -1884,11 +1962,13 @@
           e('span', {className: 'ml-auto text-xs text-slate-500'}, 'arraste ou use as setas do teclado · +/− muda o tamanho · Shift+arrastar ou [ ] gira')),
         e('canvas', {
           ref: telaRef, width: 1200, height: 1200,
-          className: 'w-full max-w-[560px] bg-white rounded border border-slate-600 cursor-move',
+          className: 'w-full max-w-[560px] bg-white rounded border ' +
+            (varinhaOn ? 'border-amber-500 cursor-crosshair' : 'border-slate-600 cursor-move'),
           // Clicou em cima de uma peça? Ela vira a peça escolhida na hora, e o arrasto
           // que começa já é dela.
           onMouseDown: function(ev) {
             var pt = posDoMouse(ev);
+            if (varinhaOn) { usarVarinha(pt); return; }   // com a varinha ligada, o clique apaga
             var achada = pecaNoPonto(pt);
             if (achada && achada !== sel) setSel(achada);
             setArrastando(pt);
@@ -1959,10 +2039,21 @@
           // Fundo que não saiu sozinho: cada clique tira mais um pouco. A foto do
           // fornecedor costuma ter sombra e degradê no lugar do branco.
           podeCortarFundo && e('button', {onClick: function() { cortarFundo(1); },
-            title: 'tira o fundo que sobrou; pode clicar mais de uma vez',
+            title: 'tira o fundo de fora que sobrou; pode clicar mais de uma vez',
             className: botao + 'bg-slate-800 border-slate-700 text-slate-200'},
-            '🪄 tirar o fundo' + (tirouFundo[sel] ? ' (' + tirouFundo[sel] + ')' : '')),
-          podeCortarFundo && tirouFundo[sel] > 0 && e('button', {onClick: function() { cortarFundo(0); },
+            '✂ tirar o fundo de fora' + (tirouFundo[sel] ? ' (' + tirouFundo[sel] + ')' : '')),
+          // Varinha: liga o modo e cada clique na foto apaga a mancha clicada.
+          e('button', {onClick: function() { setVarinhaOn(!varinhaOn); },
+            title: 'clique num ponto da foto pra apagar aquela cor — igual à varinha do Photoshop',
+            className: botao + (varinhaOn ? 'bg-amber-600 border-amber-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-200')},
+            varinhaOn ? '🪄 varinha LIGADA — clique no que quer apagar' : '🪄 varinha'),
+          varinhaOn && e('span', {className: 'flex items-center gap-1'},
+            e('button', {onClick: function() { setTolerancia(Math.max(8, tolerancia - 10)); },
+              title: 'apaga menos de uma vez', className: botao + 'bg-slate-800 border-slate-700 text-slate-300'}, '−'),
+            e('span', {className: 'text-[11px] text-slate-400'}, 'alcance ' + tolerancia),
+            e('button', {onClick: function() { setTolerancia(Math.min(150, tolerancia + 10)); },
+              title: 'apaga mais de uma vez', className: botao + 'bg-slate-800 border-slate-700 text-slate-300'}, '+')),
+          Object.keys(originais).length > 0 && e('button', {onClick: function() { cortarFundo(0); },
             title: 'volta a foto como ela veio',
             className: botao + 'bg-slate-800 border-slate-700 text-slate-400'}, '↩ desfazer o corte'),
           // Fecha o ajuste deste item: deixa o ✓ na lista de cima.
