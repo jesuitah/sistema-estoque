@@ -8311,6 +8311,7 @@
                       // as unidades que ficaram no galpão do ML.
                       return p.motivo_desistencia !== 'sem_estoque' && p.motivo_desistencia !== 'saiu_do_full';
                     });
+                    var foraDoFull = trav.filter(function(p) { return p.motivo_desistencia === 'saiu_do_full'; });
                     var verificandoAgora = andando && andando.conta === c;
 
                     // Acabou de passar aqui: o card fica verde por uns minutos, pra dar o
@@ -8399,7 +8400,25 @@
                         e('div', {className: 'text-xs ' + (recemVerificada ? 'text-emerald-300' : 'text-slate-500')},
                           u && u.erro
                             ? '⚠ ' + u.erro
-                            : 'Nenhum anúncio fora de venda nessa loja. ✅')
+                            : 'Nenhum anúncio fora de venda nessa loja. ✅'),
+
+                      // O QUE O ROBÔ DEIXOU DE LADO, EM UMA LINHA.
+                      //
+                      // Some da tela o que não é pra fazer nada — mas sumir por completo
+                      // fez ele abrir o painel do ML, ver recomendação e achar que o
+                      // sistema estava cego. Uma linha cinza responde "eu sei que estão
+                      // lá, e por quê", sem virar fila de trabalho.
+                      foraDoFull.length > 0 && e('div', {className: 'text-[11px] text-slate-500 mt-1'},
+                        foraDoFull.length + ' anúncio(s) desta loja saíram do Full e ainda aparecem no painel com sugestão. ' +
+                        'O robô não mexe: a sugestão é sobre a unidade que ficou no galpão. ' +
+                        'De 24 em 24h ele confere de novo — se voltarem pro Full, volta a trabalhar neles.',
+                        e('details', {className: 'mt-0.5'},
+                          e('summary', {className: 'cursor-pointer text-slate-400'}, 'ver quais'),
+                          e('div', {className: 'mt-1 space-y-0.5'},
+                            foraDoFull.map(function(p) {
+                              return e('div', {key: p.id, className: 'truncate'},
+                                '• ' + (p.titulo || p.codigo_ml));
+                            }))))
                     );
                   }),
 

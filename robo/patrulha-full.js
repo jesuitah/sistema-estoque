@@ -57,6 +57,10 @@ const RODADAS_POR_PASSADA = 5;
 // mundo na primeira passada.
 const PASSADAS_ATE_DESISTIR = 8;
 
+// De quanto em quanto tempo conferir de novo quem já foi dado como perdido. Um dia é
+// o bastante: o anúncio volta pro Full por decisão dele ou do ML, não de hora em hora.
+const REVER_DESISTENCIA_HORAS = 24;
+
 // O painel faz DOIS passos, não um: clicar abre um modal (VALIDATE) e o botão do
 // modal é que executa (ACTION). O robô fazia só o primeiro — por isso o ML respondia
 // "Pronto!" e nada acontecia, 31 tentativas seguidas.
@@ -399,7 +403,35 @@ async function patrulharConta(sb, conta, executar, log) {
       const { data: existente } = await sb.from('ml_patrulha_full')
         .select('id, tentativas, passadas, desistiu_em').eq('conta', conta).eq('codigo_ml', alvo.codigo_ml).maybeSingle();
 
-      if (existente?.desistiu_em) continue;                    // já desistimos deste
+      // DESISTIR NÃO É PRA SEMPRE.
+      //
+      // O anúncio que saiu do Full pode voltar, e o que estava travado pode destravar —
+      // mas a linha desistida era ignorada para sempre e o robô ficava parado com o
+      // painel cheio de recomendação. Aconteceu com o Coxim Freemont da ERP: desistiu
+      // em 23/09 como "saiu do Full" e hoje ele está no Full, pausado, esperando.
+      // Uma vez por dia conferimos na API quem desistiu: se voltou pro Full, a linha
+      // reabre e o robô volta a trabalhar nela.
+      if (existente?.desistiu_em) {
+        const horas = (Date.now() - new Date(existente.desistiu_em).getTime()) / 3600000;
+        if (horas < REVER_DESISTENCIA_HORAS || !up) continue;
+        const estado = await estadoReal(await autenticacao(sb, conta), up);
+        if (!estado || !estado.noFull) {
+          // continua fora do Full: só adia a próxima conferida
+          if (executar) await sb.from('ml_patrulha_full').update({ desistiu_em: new Date().toISOString() }).eq('id', existente.id);
+          continue;
+        }
+        log(`  ${conta}: ${alvo.codigo_ml} voltou pro Full — reabrindo a fila`);
+        if (executar) {
+          await sb.from('ml_patrulha_full')
+            .update({ desistiu_em: null, motivo_desistencia: null, passadas: 0, tentativas: 0 })
+            .eq('id', existente.id);
+          await sb.from('ml_log_acoes').insert({
+            conta, item_id: alvo.codigo_ml, title: alvo.titulo, acao: 'reaberto', origem: 'robo',
+            detalhe: 'estava dado como fora do Full, voltou — o robô vai tentar de novo',
+          });
+        }
+        existente.desistiu_em = null; existente.passadas = 0; existente.tentativas = 0;
+      }
       if (existente && (existente.passadas || 0) >= PASSADAS_ATE_DESISTIR) {
         // ANTES DE CHAMAR O MATHEUS, CONFERE NA API.
         //
