@@ -61,6 +61,10 @@ const PASSADAS_ATE_DESISTIR = 8;
 // o bastante: o anúncio volta pro Full por decisão dele ou do ML, não de hora em hora.
 const REVER_DESISTENCIA_HORAS = 24;
 
+// O anúncio que não cede depois de PASSADAS_ATE_DESISTIR não é abandonado: ele passa a
+// ser tentado uma vez por dia. Continua sendo feito, sem martelar o ML a cada hora.
+const RITMO_LENTO_HORAS = 24;
+
 // O painel faz DOIS passos, não um: clicar abre um modal (VALIDATE) e o botão do
 // modal é que executa (ACTION). O robô fazia só o primeiro — por isso o ML respondia
 // "Pronto!" e nada acontecia, 31 tentativas seguidas.
@@ -411,57 +415,35 @@ async function patrulharConta(sb, conta, executar, log) {
       // em 23/09 como "saiu do Full" e hoje ele está no Full, pausado, esperando.
       // Uma vez por dia conferimos na API quem desistiu: se voltou pro Full, a linha
       // reabre e o robô volta a trabalhar nela.
+      // Linha desistida de antes: reabre e volta pra fila. Enquanto o painel oferecer a
+      // ação, o robô faz — no ritmo lento se for teimoso.
       if (existente?.desistiu_em) {
-        const horas = (Date.now() - new Date(existente.desistiu_em).getTime()) / 3600000;
-        if (horas < REVER_DESISTENCIA_HORAS || !up) continue;
-        const estado = await estadoReal(await autenticacao(sb, conta), up);
-        if (!estado || !estado.noFull) {
-          // continua fora do Full: só adia a próxima conferida
-          if (executar) await sb.from('ml_patrulha_full').update({ desistiu_em: new Date().toISOString() }).eq('id', existente.id);
-          continue;
-        }
-        log(`  ${conta}: ${alvo.codigo_ml} voltou pro Full — reabrindo a fila`);
+        log(`  ${conta}: ${alvo.codigo_ml} estava desistido — reabrindo`);
         if (executar) {
           await sb.from('ml_patrulha_full')
-            .update({ desistiu_em: null, motivo_desistencia: null, passadas: 0, tentativas: 0 })
+            .update({ desistiu_em: null, motivo_desistencia: null })
             .eq('id', existente.id);
           await sb.from('ml_log_acoes').insert({
             conta, item_id: alvo.codigo_ml, title: alvo.titulo, acao: 'reaberto', origem: 'robo',
-            detalhe: 'estava dado como fora do Full, voltou — o robô vai tentar de novo',
+            detalhe: 'o painel ainda oferece a ação, então o robô volta a tentar',
           });
         }
-        existente.desistiu_em = null; existente.passadas = 0; existente.tentativas = 0;
+        existente.desistiu_em = null;
       }
-      if (existente && (existente.passadas || 0) >= PASSADAS_ATE_DESISTIR) {
-        // ANTES DE CHAMAR O MATHEUS, CONFERE NA API.
-        //
-        // Em 23/09/2026 cinco anúncios foram parar em "precisa de você" e nenhum
-        // precisava: eles tinham SAÍDO do Full (viraram envio próprio, com 89 un) e o
-        // que sobrou no galpão foi 1 unidade "não apta". A tela do Full continua
-        // sugerindo coisa pra esse resto, e o robô clicava há dias. Quando o anúncio
-        // não está mais no Full, não há o que reativar — a linha fecha sozinha.
-        let foraDoFull = false;
-        if (up) {
-          const estado = await estadoReal(await autenticacao(sb, conta), up);
-          foraDoFull = !!estado && !estado.noFull;
-        }
-        if (executar) {
-          await sb.from('ml_patrulha_full')
-            .update({
-              desistiu_em: new Date().toISOString(),
-              motivo_desistencia: foraDoFull ? 'saiu_do_full' : 'nao_cedeu',
-            })
-            .eq('id', existente.id);
-          await sb.from('ml_log_acoes').insert({
-            conta, item_id: alvo.codigo_ml, title: alvo.titulo,
-            acao: foraDoFull ? 'ignorado' : 'falhou', origem: 'robo',
-            detalhe: foraDoFull
-              ? 'o anúncio não está mais no Full — nada a reativar; a sugestão do painel é sobre as unidades que ficaram no galpão'
-              : `o Mercado Livre não reativou em ${existente.passadas} passadas (${existente.tentativas} tentativas) — precisa de você`,
-          });
-        }
-        log(`  ${conta}: ${foraDoFull ? 'fora do Full, fechando' : 'desistindo de'} ${alvo.codigo_ml} após ${existente.passadas} passadas`);
-        continue;
+      // TEM BOTÃO NO PAINEL? ENTÃO O ROBÔ CLICA.
+      //
+      // Decisão dele, 29/09/2026: "se tiver uma dessas opções tem que ser feito,
+      // independente". Antes o robô desistia depois de 8 passadas (e de vez, quando o
+      // anúncio tinha saído do Full) — e ficava parado olhando o painel cheio de
+      // recomendação. Agora ninguém é aposentado: o que não cede vai pro RITMO LENTO,
+      // uma tentativa por dia, o bastante pra não martelar o ML de hora em hora.
+      const teimoso = existente && (existente.passadas || 0) >= PASSADAS_ATE_DESISTIR;
+      if (teimoso) {
+        const desdeUltima = existente.ultima_acao_em
+          ? (Date.now() - new Date(existente.ultima_acao_em).getTime()) / 3600000
+          : 999;
+        if (desdeUltima < RITMO_LENTO_HORAS) continue;   // hoje já tentamos; amanhã de novo
+        log(`  ${conta}: ${alvo.codigo_ml} é teimoso (${existente.passadas} passadas) — tentativa do dia`);
       }
       // Sem o id não dá pra agir. Isto NÃO pode passar batido: foi exatamente assim
       // que o robô ficou 110 passadas sem consertar nada parecendo saudável — ele
@@ -504,10 +486,13 @@ async function patrulharConta(sb, conta, executar, log) {
         log(`  ${conta}: ${item.codigo_ml} já está certo (a tela é que está atrasada)`);
         item.jaEstava = true;
       } else if (!podeOferecerFull(item.acao, estado)) {
-        // Não é falha: é o robô respeitando a decisão do outro fluxo.
-        log(`  ${conta}: ${item.codigo_ml} sem estoque — NÃO volta pro Full (é caso de Inativos)`);
+        // Sem estoque o robô também tenta: decisão dele em 29/09/2026 — se o painel
+        // oferece a ação, é pra fazer. Fica contado à parte só pro relatório, e a
+        // insistência nesses é a do ritmo lento, pra não martelar o ML.
+        log(`  ${conta}: ${item.codigo_ml} está sem estoque, mas o painel oferece — tentando assim mesmo`);
         item.semEstoque = true;
         semEstoque++;
+        precisamMesmo.push(item);
       } else {
         precisamMesmo.push(item);
       }
@@ -593,22 +578,6 @@ async function patrulharConta(sb, conta, executar, log) {
       // cederam — o robô continua tentando". O robô NÃO estava tentando; tinha
       // decidido não mexer. O aviso mentia. Dois anúncios da ERP ficaram assim
       // por mais de um dia. Agora a linha sai da fila com o motivo verdadeiro.
-      if (item.semEstoque) {
-        if (item.registro && !item.registro.desistiu_em) {
-          await sb.from('ml_patrulha_full')
-            .update({
-              desistiu_em: new Date().toISOString(), vista_em: new Date().toISOString(),
-              motivo_desistencia: 'sem_estoque',
-            })
-            .eq('id', item.registro.id);
-          await sb.from('ml_log_acoes').insert({
-            conta, item_id: item.codigo_ml, title: item.titulo, acao: 'ignorado', origem: 'robo',
-            detalhe: 'sem estoque — não volta pro Full; quem cuida é o fluxo de Inativos',
-          });
-        }
-        continue;
-      }
-
       const tentativas = tentativasPorItem[item.codigo_ml] || 1;
       const saiu = !aindaTravados.has(item.codigo_ml);
       if (saiu) agidos++;
