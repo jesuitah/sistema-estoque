@@ -998,6 +998,20 @@
       });
     }
 
+    // A ORDEM DAS CAMADAS, como no Photoshop: quem vem depois fica por cima. É a ordem
+    // padrão, e o editor muda com Ctrl+[ e Ctrl+] — foi o que ele pediu pra conseguir
+    // jogar o carro pra trás do produto.
+    var ORDEM_CAPA = ['caixa', 'produto', 'carros', 'marca'];
+    var ORDEM_SECUNDARIA = ['caixa', 'produto', 'logo', 'textoTopo', 'frases', 'selo', 'marca'];
+
+    // A ordem guardada no layout, completada com o que faltar (peça nova não some).
+    function ordemDe(L, padrao) {
+      var guardada = (L && L.ordem) || [];
+      var vale = guardada.filter(function(k) { return padrao.indexOf(k) !== -1; });
+      padrao.forEach(function(k) { if (vale.indexOf(k) === -1) vale.push(k); });
+      return vale;
+    }
+
     // Quais fotos de carro entram na montagem (uma por modelo; o botão "trocar foto do
     // carro" anda no índice).
     function carrosEscolhidos(pecas, L) {
@@ -1047,16 +1061,20 @@
       L = L || LAYOUT_PADRAO.capa;
       var cv = novaTela(), ctx = cv.getContext('2d');
       var fora = L.escondidos || {};   // o que ele tirou da foto no editor
-      if (!fora.caixa) desenharCabendo(ctx, pecas.caixa, L.caixa[0], L.caixa[1], L.caixa[2], L.caixa[3], (L.giro || {}).caixa);
-      if (!fora.produto) desenharCabendo(ctx, pecas.produto, L.produto[0], L.produto[1], L.produto[2], L.produto[3], (L.giro || {}).produto);
-
-      // Qual foto de cada modelo entra: o editor troca com o botão, e o número vale
-      // pra todos (cada modelo volta ao começo quando acaba a lista dele).
-      var carros = carrosEscolhidos(pecas, L);
-      posicoesDosCarros(carros, L).forEach(function(p, i) {
-        desenharGirado(ctx, carros[i], p.x, p.y, p.w, p.h, p.giro);
-      });
-      if (!fora.marca) carimbarMarca(ctx, pecas.marca, ZONAS_MARCA_CAPA, L.marca, L);
+      var passos = {
+        caixa: function() { desenharCabendo(ctx, pecas.caixa, L.caixa[0], L.caixa[1], L.caixa[2], L.caixa[3], (L.giro || {}).caixa); },
+        produto: function() { desenharCabendo(ctx, pecas.produto, L.produto[0], L.produto[1], L.produto[2], L.produto[3], (L.giro || {}).produto); },
+        // Qual foto de cada modelo entra: o editor troca com o botão, e o número vale
+        // pra todos (cada modelo volta ao começo quando acaba a lista dele).
+        carros: function() {
+          var carros = carrosEscolhidos(pecas, L);
+          posicoesDosCarros(carros, L).forEach(function(p, i) {
+            desenharGirado(ctx, carros[i], p.x, p.y, p.w, p.h, p.giro);
+          });
+        },
+        marca: function() { carimbarMarca(ctx, pecas.marca, ZONAS_MARCA_CAPA, L.marca, L); },
+      };
+      ordemDe(L, ORDEM_CAPA).forEach(function(k) { if (!fora[k] && passos[k]) passos[k](); });
       return cv;
     }
 
@@ -1066,27 +1084,36 @@
       L = L || LAYOUT_PADRAO.secundaria;
       var cv = novaTela(), ctx = cv.getContext('2d');
       var fora = L.escondidos || {};   // o que ele tirou da foto no editor
-      if (pecas.caixa && !fora.caixa) {
-        ctx.save(); ctx.globalAlpha = 0.22;
-        desenharCabendo(ctx, pecas.caixa, L.caixa[0], L.caixa[1], L.caixa[2], L.caixa[3], (L.giro || {}).caixa);
-        ctx.restore();
-      }
-      if (!fora.produto) desenharCabendo(ctx, pecas.produto, L.produto[0], L.produto[1], L.produto[2], L.produto[3], (L.giro || {}).produto);
-      if (pecas.logo && !fora.logo) {
-        var hl = L.logo, wl = pecas.logo.width * (hl / pecas.logo.height);
-        desenharGirado(ctx, pecas.logo, L.logoDx || 0, L.logoDy || 0, wl, hl, (L.giro || {}).logo);
-      }
-      if (textoTopo && textoTopo.length && !fora.textoTopo) escreverLinhas(ctx, textoTopo, L.textoTopo[0], L.textoTopo[1], L.textoTopo[2], 'right', 540, 200);
-      if (frases && frases.length && !fora.frases) {
-        escreverLinhas(ctx, frases.map(function(t) { return '- ' + t; }), L.frases[0], L.frases[1], L.frases[2], 'left', 880, 280);
-      }
-      if (pecas.selo && !fora.selo) {
-        // Empurrado pra fora da borda: o que sai é a quina vazia do círculo, e assim
-        // ele fica realmente encostado no canto.
-        var hs = L.selo.altura, ws = pecas.selo.width * (hs / pecas.selo.height);
-        desenharGirado(ctx, pecas.selo, 1200 - ws + L.selo.dx, 1200 - hs + L.selo.dy, ws, hs, (L.giro || {}).selo);
-      }
-      if (!fora.marca) carimbarMarca(ctx, pecas.marca, ZONAS_MARCA_SECUNDARIA, L.marca, L);
+      var passos = {
+        caixa: function() {
+          if (!pecas.caixa) return;
+          ctx.save(); ctx.globalAlpha = 0.22;
+          desenharCabendo(ctx, pecas.caixa, L.caixa[0], L.caixa[1], L.caixa[2], L.caixa[3], (L.giro || {}).caixa);
+          ctx.restore();
+        },
+        produto: function() { desenharCabendo(ctx, pecas.produto, L.produto[0], L.produto[1], L.produto[2], L.produto[3], (L.giro || {}).produto); },
+        logo: function() {
+          if (!pecas.logo) return;
+          var hl = L.logo, wl = pecas.logo.width * (hl / pecas.logo.height);
+          desenharGirado(ctx, pecas.logo, L.logoDx || 0, L.logoDy || 0, wl, hl, (L.giro || {}).logo);
+        },
+        textoTopo: function() {
+          if (textoTopo && textoTopo.length) escreverLinhas(ctx, textoTopo, L.textoTopo[0], L.textoTopo[1], L.textoTopo[2], 'right', 540, 200);
+        },
+        frases: function() {
+          if (!frases || !frases.length) return;
+          escreverLinhas(ctx, frases.map(function(t) { return '- ' + t; }), L.frases[0], L.frases[1], L.frases[2], 'left', 880, 280);
+        },
+        selo: function() {
+          if (!pecas.selo) return;
+          // Empurrado pra fora da borda: o que sai é a quina vazia do círculo, e assim
+          // ele fica realmente encostado no canto.
+          var hs = L.selo.altura, ws = pecas.selo.width * (hs / pecas.selo.height);
+          desenharGirado(ctx, pecas.selo, 1200 - ws + L.selo.dx, 1200 - hs + L.selo.dy, ws, hs, (L.giro || {}).selo);
+        },
+        marca: function() { carimbarMarca(ctx, pecas.marca, ZONAS_MARCA_SECUNDARIA, L.marca, L); },
+      };
+      ordemDe(L, ORDEM_SECUNDARIA).forEach(function(k) { if (!fora[k] && passos[k]) passos[k](); });
       return cv;
     }
 
@@ -1633,6 +1660,8 @@
       var tolSt = useState(40); var tolerancia = tolSt[0]; var setTolerancia = tolSt[1];
       // Tamanho da borracha, medido na arte de 1200.
       var pincelSt = useState(26); var pincel = pincelSt[0]; var setPincel = pincelSt[1];
+      // Zoom da prévia (só de ver; não muda a foto). Ctrl + / Ctrl − / Ctrl 0.
+      var zoomSt = useState(1); var zoom = zoomSt[0]; var setZoom = zoomSt[1];
 
       // Um botão por CARRO e por MARCA D'ÁGUA: "Carro 1", "Carro 2", "Marca d'água 1"...
       // Ele pediu assim com todas as letras — cada um é uma peça, mexe sozinho.
@@ -1705,6 +1734,18 @@
           var alvo = ev.target || {};
           var nome = (alvo.tagName || '').toUpperCase();
           if (nome === 'INPUT' || nome === 'TEXTAREA' || alvo.isContentEditable) return;
+          // Com Ctrl é comando de TELA (zoom) ou de CAMADA, não de peça.
+          var comCtrl = ev.ctrlKey || ev.metaKey;
+          if (comCtrl && (ev.key === '+' || ev.key === '=')) {
+            ev.preventDefault(); setZoom(Math.min(4, Math.round((zoom + 0.25) * 100) / 100)); return;
+          }
+          if (comCtrl && (ev.key === '-' || ev.key === '_')) {
+            ev.preventDefault(); setZoom(Math.max(1, Math.round((zoom - 0.25) * 100) / 100)); return;
+          }
+          if (comCtrl && ev.key === '0') { ev.preventDefault(); setZoom(1); return; }
+          if (comCtrl && ev.key === '[') { ev.preventDefault(); moverCamada(-1); return; }
+          if (comCtrl && ev.key === ']') { ev.preventDefault(); moverCamada(1); return; }
+
           var passo = ev.shiftKey ? 20 : 4;
           var setas = {ArrowLeft: [-passo, 0], ArrowRight: [passo, 0], ArrowUp: [0, -passo], ArrowDown: [0, passo]};
           if (setas[ev.key]) { ev.preventDefault(); mover(setas[ev.key][0], setas[ev.key][1]); return; }
@@ -1964,6 +2005,21 @@
 
       var pecaBase = sel.split(':')[0];
 
+      // CAMADAS, como no Photoshop: Ctrl+[ manda pra trás, Ctrl+] traz pra frente.
+      // O carro estava sempre por cima do produto e não havia como inverter.
+      function moverCamada(passo) {
+        var l = ehCapa ? L.capa : secParaMexer(L, props.indice || 0);
+        var padrao = ehCapa ? ORDEM_CAPA : ORDEM_SECUNDARIA;
+        var chave = pecaBase === 'carro' ? 'carros' : pecaBase;
+        if (padrao.indexOf(chave) === -1) return;
+        var ordem = ordemDe(l, padrao);
+        var de = ordem.indexOf(chave), para = de + passo;
+        if (para < 0 || para >= ordem.length) return;
+        ordem.splice(para, 0, ordem.splice(de, 1)[0]);
+        l.ordem = ordem;
+        props.onMudar(L);
+      }
+
       // CTRL+Z DA VARINHA. Errou o ponto e comeu o que não devia? Volta um passo. Cada
       // clique guarda a foto de antes, então dá pra voltar quantas vezes precisar.
       function desfazerVarinha() {
@@ -1990,11 +2046,17 @@
               (prontos[p[0]] ? '✓ ' : '') + p[1]);
           }),
           e('span', {className: 'ml-auto text-xs text-slate-500'},
-            'arraste ou use as setas · +/− tamanho · Shift+arrastar gira · ',
-            e('b', {className: borrachaOn ? 'text-rose-300' : ''}, 'E'), ' = borracha · Ctrl+Z desfaz')),
+            'setas movem · +/− tamanho · Shift+arrastar gira · ',
+            e('b', {className: borrachaOn ? 'text-rose-300' : ''}, 'E'), ' = borracha · Ctrl+Z desfaz · ',
+            'Ctrl+/− zoom · Ctrl+[ ] camada')),
+        // O zoom cresce a foto dentro desta janela, que ganha barra de rolagem —
+        // igual a ampliar no Photoshop pra mexer num detalhe.
+        e('div', {className: 'max-w-[560px] ' + (zoom > 1 ? 'overflow-auto border border-slate-700 rounded' : ''),
+            style: zoom > 1 ? {maxHeight: '560px'} : null},
         e('canvas', {
           ref: telaRef, width: 1200, height: 1200,
-          className: 'w-full max-w-[560px] bg-white rounded border ' +
+          style: {width: Math.round(560 * zoom) + 'px', height: Math.round(560 * zoom) + 'px', maxWidth: 'none'},
+          className: 'bg-white rounded border ' +
             (borrachaOn ? 'border-rose-500 cursor-cell'
               : varinhaOn ? 'border-amber-500 cursor-crosshair' : 'border-slate-600 cursor-move'),
           // Clicar na foto arrasta a peça escolhida lá em cima — e só ela. Já tentamos
@@ -2022,7 +2084,7 @@
           onMouseLeave: function() { setArrastando(null); borrachaRef.current = null; },
           // Sem rodinha aqui: ele rola a página com ela e a peça mudava de tamanho sem
           // querer. Tamanho é pelos botões ou pelo + e − do teclado.
-        }),
+        })),
         // Os carros que estão na foto agora, com o ✕ pra tirar cada um.
         carroSel != null && (props.pecas.carrosOpcoes || []).length > 0 && e('div', {className: 'flex flex-wrap gap-2 items-center'},
           e('span', {className: 'text-xs text-slate-400'}, 'na foto:'),
@@ -2050,6 +2112,20 @@
           podeGirar && e('button', {onClick: function() { girar(5); }, className: botao + 'bg-slate-800 border-slate-700 text-slate-200'}, '↻ girar'),
           podeGirar && e('button', {onClick: function() { girar(90); }, title: 'vira um quarto de volta',
             className: botao + 'bg-slate-800 border-slate-700 text-slate-200'}, '90°'),
+          // Camadas: o que está na frente de quê.
+          e('button', {onClick: function() { moverCamada(-1); }, title: 'manda esta peça pra trás (Ctrl+[)',
+            className: botao + 'bg-slate-800 border-slate-700 text-slate-200'}, '⬓ pra trás'),
+          e('button', {onClick: function() { moverCamada(1); }, title: 'traz esta peça pra frente (Ctrl+])',
+            className: botao + 'bg-slate-800 border-slate-700 text-slate-200'}, '⬒ pra frente'),
+          // Zoom: só de ver, não mexe na foto.
+          e('span', {className: 'flex items-center gap-1 ml-1'},
+            e('button', {onClick: function() { setZoom(Math.max(1, Math.round((zoom - 0.25) * 100) / 100)); },
+              title: 'menos zoom (Ctrl −)', className: botao + 'bg-slate-800 border-slate-700 text-slate-300'}, '🔍−'),
+            e('span', {className: 'text-[11px] ' + (zoom > 1 ? 'text-sky-300' : 'text-slate-500')}, Math.round(zoom * 100) + '%'),
+            e('button', {onClick: function() { setZoom(Math.min(4, Math.round((zoom + 0.25) * 100) / 100)); },
+              title: 'mais zoom (Ctrl +)', className: botao + 'bg-slate-800 border-slate-700 text-slate-300'}, '🔍+'),
+            zoom > 1 && e('button', {onClick: function() { setZoom(1); },
+              title: 'voltar ao tamanho normal (Ctrl 0)', className: botao + 'bg-slate-800 border-slate-700 text-slate-400'}, '↺')),
           carroSel != null && e('button', {onClick: function() {
             var l = ehCapa ? L.capa : secParaMexer(L, props.indice || 0);
             l.carroIdx = (l.carroIdx || 0) + 1;
@@ -2556,7 +2632,15 @@
                       // Troca a arte de uma peça em TODAS as fotos montadas de uma vez.
                       onTrocarPeca: function(peca, imagem, _nome, indiceCarro) {
                         if (!d.pecas || !imagem) return;
-                        var novas = d.pecas.map(function(p) {
+                        // O PRODUTO É DE CADA FOTO. Caixa, logo, selo, marca d'água e
+                        // carros são os mesmos nas quatro; a foto do produto não — cada
+                        // secundária mostra uma foto crua diferente. Trocar o produto em
+                        // todas fazia a foto que ele acabou de limpar se espalhar por
+                        // cima das outras, e as fotos do anúncio saíam repetidas.
+                        var soNesta = peca === 'produto'
+                          ? (d.editando && d.editando.tipo !== 'capa' ? Math.max(0, d.editando.indice - 1) : 0)
+                          : null;
+                        var novas = d.pecas.map(function(p, iFoto) {
                           var copia = Object.assign({}, p);
                           if (peca === 'carros') {
                             var lista = (copia.carrosOpcoes || []).slice();
@@ -2565,7 +2649,7 @@
                             if (indiceCarro != null && lista[indiceCarro]) lista[indiceCarro] = [imagem];
                             else lista.push([imagem]);
                             copia.carrosOpcoes = lista.slice(0, 5);
-                          } else {
+                          } else if (soNesta == null || soNesta === iFoto) {
                             copia[peca] = imagem;
                           }
                           return copia;
