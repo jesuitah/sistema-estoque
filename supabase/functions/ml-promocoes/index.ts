@@ -69,6 +69,9 @@ function motivoEmPortugues(bruto: string) {
   if (/already.*(participat|in.*promotion)/i.test(t)) {
     return 'este anúncio já está nesta promoção';
   }
+  if (/internal_capacity_conflict|capacity constraints/i.test(t)) {
+    return 'o Mercado Livre segurou por excesso de pedidos de uma vez — não é problema do anúncio; tente só ele daqui a pouco';
+  }
   if (/internal_server_error|Something went wrong/i.test(t)) {
     return 'o Mercado Livre falhou (erro interno dele) nas 5 tentativas — não é problema do anúncio; tente de novo daqui a pouco';
   }
@@ -88,12 +91,28 @@ function motivoEmPortugues(bruto: string) {
 // mais do que os 3,6 segundos que a gente dava antes, e o anúncio voltava como "falhou"
 // sem ter nada de errado com ele — aconteceu com a Bomba Carcaça d'Água da LTS em
 // 02/10/2026, com a campanha OUT já com 197 anúncios dentro.
+// NEM TODO 4xx É RECUSA DEFINITIVA.
+//
+// Em 02/10/2026 o ML passou a responder "internal_capacity_conflict — The request could
+// not be completed due to internal capacity constraints. Please try again shortly".
+// Ele próprio manda tentar de novo, mas isso vem como 409 (um 4xx), e o código tratava
+// todo 4xx como "não adianta insistir" e devolvia na hora. Era quando a lista era
+// grande: 197 anúncios de uma vez e o ML começa a frear.
+function pedeParaTentarDepois(status: number, corpo: string) {
+  if (status === 429 || status === 409) return true;
+  return /internal_capacity_conflict|capacity constraints|try again shortly|too many requests/i.test(corpo);
+}
+
 async function chamarComInsistencia(url: string, opcoes: RequestInit, tentativas = 5) {
   let ultima: Response | null = null;
   for (let i = 1; i <= tentativas; i++) {
     try {
       const r = await fetch(url, opcoes);
-      if (r.ok || (r.status >= 400 && r.status < 500)) return r;
+      if (r.ok) return r;
+      if (r.status >= 400 && r.status < 500) {
+        const corpo = await r.clone().text().catch(() => '');
+        if (!pedeParaTentarDepois(r.status, corpo)) return r;   // recusa de verdade
+      }
       ultima = r;
     } catch (_e) {
       ultima = null;
@@ -143,7 +162,15 @@ async function ativar(corpo: {
   const ativados: unknown[] = [];
   const recusados: unknown[] = [];
 
+  let primeiro = true;
   for (const itemId of itens) {
+    // Um respiro entre um anúncio e outro. Mandando tudo emendado, o ML começa a
+    // responder "internal_capacity_conflict" no meio da lista — foi o que aconteceu
+    // com os 197 anúncios da LTS. Um quarto de segundo não atrasa nada (50 anúncios
+    // = 12 segundos a mais) e evita a recusa por volume.
+    if (!primeiro) await espera(250);
+    primeiro = false;
+
     const info = porItem.get(itemId);
     if (!info) { recusados.push({ item_id: itemId, motivo: 'não está no cache — refaça a varredura' }); continue; }
 
