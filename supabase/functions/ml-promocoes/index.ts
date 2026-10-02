@@ -70,7 +70,7 @@ function motivoEmPortugues(bruto: string) {
     return 'este anúncio já está nesta promoção';
   }
   if (/internal_server_error|Something went wrong/i.test(t)) {
-    return 'o Mercado Livre falhou (erro interno dele) mesmo depois de 3 tentativas — tente de novo daqui a pouco';
+    return 'o Mercado Livre falhou (erro interno dele) nas 5 tentativas — não é problema do anúncio; tente de novo daqui a pouco';
   }
   return t;
 }
@@ -84,7 +84,11 @@ function motivoEmPortugues(bruto: string) {
 //
 // 5xx e falha de rede: tenta de novo, com espera crescente.
 // 4xx: e recusa de verdade (regra, dado errado) — insistir só atrasaria a resposta.
-async function chamarComInsistencia(url: string, opcoes: RequestInit, tentativas = 3) {
+// 5 tentativas, esperando mais a cada vez (1,5s · 3s · 6s · 12s): o engasgo do ML dura
+// mais do que os 3,6 segundos que a gente dava antes, e o anúncio voltava como "falhou"
+// sem ter nada de errado com ele — aconteceu com a Bomba Carcaça d'Água da LTS em
+// 02/10/2026, com a campanha OUT já com 197 anúncios dentro.
+async function chamarComInsistencia(url: string, opcoes: RequestInit, tentativas = 5) {
   let ultima: Response | null = null;
   for (let i = 1; i <= tentativas; i++) {
     try {
@@ -94,7 +98,7 @@ async function chamarComInsistencia(url: string, opcoes: RequestInit, tentativas
     } catch (_e) {
       ultima = null;
     }
-    if (i < tentativas) await espera(i * 1200);
+    if (i < tentativas) await espera(Math.min(12000, 1500 * Math.pow(2, i - 1)));
   }
   return ultima;
 }
