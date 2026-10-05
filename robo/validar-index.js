@@ -134,10 +134,6 @@ const CONHECIDOS = new Set([
   'window', 'document', 'console', 'alert', 'confirm', 'prompt', 'fetch', 'navigator',
   'location', 'localStorage', 'sessionStorage', 'setTimeout', 'clearTimeout',
   'setInterval', 'clearInterval', 'requestAnimationFrame', 'FileReader', 'Blob',
-  // `File` entrou em 05/10/2026: a foto do fabricante vem do acervo como blob e vira
-  // arquivo pra entrar no mesmo caminho das fotos coladas à mão. Irmão do Blob, que já
-  // estava aqui — faltava só por não ter sido usado antes.
-  'File',
   'URL', 'FormData', 'Image', 'Audio', 'AbortController', 'Uint8Array', 'atob', 'btoa',
   'CustomEvent', 'Event', 'MutationObserver', 'ResizeObserver', 'getComputedStyle',
   // A família do fetch. Faltavam aqui e o validador acusou `Response` como nome solto
