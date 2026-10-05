@@ -1506,7 +1506,44 @@
     // cadastrada, carro que não está na pasta, logo diferente. Aqui ele vê TODO o
     // acervo daquele tipo, e pode colar uma imagem de fora (Ctrl+V ou arrastar). Se
     // quiser, guarda no acervo — e o nome certo o sistema sugere sozinho.
-    var PASTA_DA_PECA = {caixa: 'caixa', logo: 'logo', selo: 'selo', carros: 'carro', marca: 'marca-dagua'};
+    var PASTA_DA_PECA = {caixa: 'caixa', logo: 'logo', selo: 'selo', carros: 'carro', marca: 'marca-dagua',
+      produto: 'produto'};
+
+    // O fabricante publica a foto de cada peça, e elas ficam guardadas em produto/<SKU>.
+    // Devolve a foto daquele SKU como arquivo, pra entrar como foto crua do anúncio.
+    // É acervo de passagem: a foto pode ser apagada depois sem perder nada, porque a
+    // fonte é pública e dá pra repor quando quiser.
+    // Tira do acervo a foto dos SKUs que já viraram anúncio: a pasta produto/ é de
+    // passagem, não parte do sistema. Se precisar de novo, é só repor do fabricante.
+    function tirarDoAcervoDeProduto(skus) {
+      var lista = (skus || []).filter(Boolean);
+      if (!lista.length) return Promise.resolve(0);
+      return listarArtes('produto').then(function(nomes) {
+        var alvos = lista.map(function(sku) { return acharArte(nomes, sku); }).filter(Boolean);
+        if (!alvos.length) return 0;
+        return Promise.all(alvos.map(function(nome) {
+          return fetch('https://pylkufhziohxvwbbaued.supabase.co/storage/v1/object/artes/produto/' +
+            encodeURIComponent(nome), {method: 'DELETE',
+            headers: {apikey: supabaseKey, Authorization: 'Bearer ' + supabaseKey}}).catch(function() {});
+        })).then(function() {
+          delete artesCache['produto'];   // senão a lista velha continua valendo
+          return alvos.length;
+        });
+      }).catch(function() { return 0; });
+    }
+
+    function fotoDoProdutoNoAcervo(sku) {
+      if (!sku) return Promise.resolve(null);
+      return listarArtes('produto').then(function(nomes) {
+        var nome = acharArte(nomes, sku);
+        if (!nome) return null;
+        return fetch(ARTES_URL + 'produto/' + encodeURIComponent(nome)).then(function(r) {
+          return r.ok ? r.blob() : null;
+        }).then(function(b) {
+          return b ? new File([b], nome, {type: b.type || 'image/jpeg'}) : null;
+        });
+      }).catch(function() { return null; });
+    }
 
     function TrocarPeca(props) {
       var pasta = PASTA_DA_PECA[props.tipo];
@@ -2354,6 +2391,19 @@
         }).catch(function(err) { mudar({convertendo: false}); alert(err.message); });
       }
 
+      // Se o fabricante tem foto dessa peça no acervo, o cartão já abre com ela pronta:
+      // não precisa colar nem fotografar nada. Só na primeira vez e só com o cartão vazio,
+      // pra nunca passar por cima de uma foto que ele mesmo escolheu.
+      var buscouNoAcervo = useRef(false);
+      useEffect(function() {
+        if (buscouNoAcervo.current || props.criando) return;
+        if ((d.fotos || []).length || d.convertendo) return;
+        buscouNoAcervo.current = true;
+        fotoDoProdutoNoAcervo(it.sku).then(function(arquivo) {
+          if (arquivo) escolherFotos([arquivo]);
+        });
+      }, [it.sku]);
+
       var faltando = [];
       if (!d.titulo || !d.titulo.trim()) faltando.push('título');
       if (!d.categoria) faltando.push('categoria');
@@ -2832,7 +2882,16 @@
         if (!confirm('Criar ' + lista.length + ' anúncio(s) na ' + conta + '?\n\nTodos nascem PAUSADOS, com 89 unidades, pra você revisar antes de ativar.')) return;
         setCriando(true);
         lista.reduce(function(p, it) { return p.then(function() { return criarUm(it); }); }, Promise.resolve())
-          .then(function() { setCriando(false); if (props.onCriados) props.onCriados(); });
+          .then(function() {
+            setCriando(false);
+            // Anúncio feito, a foto do fabricante não precisa mais ficar guardada.
+            setEstados(function(cur) {
+              tirarDoAcervoDeProduto(lista.filter(function(it) { return (cur[it.chave] || {}).ok; })
+                .map(function(it) { return it.sku; }));
+              return cur;
+            });
+            if (props.onCriados) props.onCriados();
+          });
       }
 
       var n = prontos().length;
