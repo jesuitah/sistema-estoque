@@ -2404,6 +2404,18 @@
         });
       }, [it.sku]);
 
+      // "Montar todas": o cartão monta o seu quando o pedido muda. Quem já está montado
+      // e sem foto nova fica quieto, pra não desfazer ajuste fino que ele já tenha feito.
+      var montouNoPedido = useRef(0);
+      useEffect(function() {
+        if (!props.pedidoMontar || montouNoPedido.current === props.pedidoMontar) return;
+        montouNoPedido.current = props.pedidoMontar;
+        if (props.criando || d.montando) return;
+        if (!(d.fotos || []).length) return;
+        if ((d.montadas || []).length && !d.montagemVelha) return;
+        montarFotos();
+      }, [props.pedidoMontar]);
+
       var faltando = [];
       if (!d.titulo || !d.titulo.trim()) faltando.push('título');
       if (!d.categoria) faltando.push('categoria');
@@ -2783,6 +2795,8 @@
       var estadosSt = useState({}); var estados = estadosSt[0]; var setEstados = estadosSt[1];
       var criandoSt = useState(false); var criando = criandoSt[0]; var setCriando = criandoSt[1];
       var dupSt = useState({}); var duplicados = dupSt[0]; var setDuplicados = dupSt[1];
+      // Sobe de 1 quando ele manda montar tudo; cada cartão escuta e monta o seu.
+      var montarSt = useState(0); var pedidoMontar = montarSt[0]; var setPedidoMontar = montarSt[1];
 
       // Descrição padrão já no cartão, pra completar ali mesmo.
       useEffect(function() {
@@ -2915,12 +2929,19 @@
           'e o anúncio já nasce completo. Ele fica pausado: no ML é só ativar.'),
         props.itens.map(function(it) {
           return e(CartaoCriacao, {key: it.chave, item: it, conta: conta, estado: estados[it.chave], criando: criando,
+            pedidoMontar: pedidoMontar,
             dados: dados[it.chave] || {}, duplicados: duplicados[it.chave],
             setDados: function(fn) { setDados(function(atual) { var o = Object.assign({}, atual); o[it.chave] = fn(atual[it.chave] || {}); return o; }); },
             onTirar: function() { props.onTirar(it.chave); }});
         }),
         e('div', {className: 'sticky bottom-0 bg-slate-900 py-3 flex justify-end items-center gap-3 border-t border-slate-700'},
           feitos > 0 && e('span', {className: 'text-sm text-emerald-300'}, '✅ ' + feitos + ' criado(s)'),
+          // Montar de uma vez. Com 3 anúncios dava pra clicar cartão por cartão; com 50
+          // não dava, e era isso que impedia de atacar o estoque parado em lote.
+          props.itens.length > 1 && e('button', {onClick: function() { setPedidoMontar(pedidoMontar + 1); },
+            disabled: criando, title: 'monta no padrão da loja todos os cartões que já têm foto',
+            className: 'px-4 py-2.5 rounded-lg font-bold text-sm bg-purple-700 hover:bg-purple-600 text-white'},
+            '🎨 Montar todas no padrão da ' + conta),
           e('button', {onClick: criarTodos, disabled: !n || criando,
             className: 'px-5 py-2.5 rounded-lg font-bold text-sm ' + (n && !criando ? 'bg-emerald-600 hover:bg-emerald-500 text-white' : 'bg-slate-700 text-slate-500 cursor-not-allowed')},
             criando ? '⏳ Criando...' : '🚀 Criar ' + n + ' anúncio(s) pausado(s)')));
