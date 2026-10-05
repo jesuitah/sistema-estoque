@@ -1509,6 +1509,21 @@
     var PASTA_DA_PECA = {caixa: 'caixa', logo: 'logo', selo: 'selo', carros: 'carro', marca: 'marca-dagua',
       produto: 'produto'};
 
+    // Balcão de automação: deixa a montagem das fotos alcançável de fora da tela, pra
+    // uma leva de anúncios poder ser montada sem ninguém sentado no sistema. É o MESMO
+    // caminho que o botão "Montar no padrão" usa — nada aqui é uma segunda versão da
+    // montagem, senão o padrão da loja sairia diferente do feito à mão. Só lê e desenha:
+    // não cria, não pausa e não apaga nada.
+    window.montagem = {
+      layoutDaLoja: carregarLayoutDaLoja,
+      montar: montarFotosDoAnuncio,
+      paraArquivo: telaParaArquivo,
+      fotoDoProduto: fotoDoProdutoNoAcervo,
+      textoDeAplicacao: textoDeAplicacao,
+      textoDeCodigos: textoDeCodigos,
+      frasesPadrao: FRASES_PADRAO,
+    };
+
     // O fabricante publica a foto de cada peça, e elas ficam guardadas em produto/<SKU>.
     // Devolve a foto daquele SKU como arquivo, pra entrar como foto crua do anúncio.
     // É acervo de passagem: a foto pode ser apagada depois sem perder nada, porque a
