@@ -501,6 +501,147 @@
           }));
     }
 
+    // ── ABA PÓS-VENDA ────────────────────────────────────────────────────────────
+    //
+    // Combinado com o Matheus em 06/10/2026, pra facilitar a vida da Letícia.
+    //
+    // O problema: depois que a reclamação abre, o Mercado Livre põe o assistente dele e
+    // ela não fala mais com o comprador. A ÚNICA janela que sobra é antes — dúvida,
+    // trânsito, chegada — e essa janela fecha sozinha por silêncio. Já perdemos uma
+    // assim, de um comprador dizendo que a peça não parecia original, que é dos motivos
+    // que sempre batem na reputação.
+    //
+    // Por isso a tela é ordenada por QUEM ESTÁ ESPERANDO, não por data: o que importa é
+    // não deixar passar, e "está aberta ainda?" vale mais que "chegou quando?".
+    var CONVERSAS_URL = 'https://pylkufhziohxvwbbaued.supabase.co/functions/v1/ml-conversas';
+
+    // O ML devolve o motivo do bloqueio em código. Em português dá pra agir.
+    var MOTIVO_FECHADA = {
+      blocked_by_ai_assistant_contact_closed: 'o Mercado Livre encerrou por falta de resposta',
+      blocked_by_conversation_initiated_by_seller_limited: 'o ML não deixa iniciar conversa neste pedido',
+      blocked_by_fulfillment: 'pedido Full — a conversa é com o Mercado Livre',
+      blocked_by_cancelled_order: 'pedido cancelado',
+      blocked_by_claim: 'virou reclamação — agora é com o assistente do ML',
+    };
+
+    function tempoDesde(quando) {
+      if (!quando) return '';
+      var h = (Date.now() - new Date(quando).getTime()) / 36e5;
+      if (h < 1) return Math.max(1, Math.round(h * 60)) + ' min';
+      if (h < 48) return Math.round(h) + 'h';
+      return Math.round(h / 24) + ' dias';
+    }
+
+    function AbaPosVenda() {
+      var listaSt = useState(null); var lista = listaSt[0]; var setLista = listaSt[1];
+      var ocupadoSt = useState(''); var ocupado = ocupadoSt[0]; var setOcupado = ocupadoSt[1];
+      var recadoSt = useState(''); var recado = recadoSt[0]; var setRecado = recadoSt[1];
+
+      function carregar() {
+        supabase.from('ml_conversas').select('*').order('ultima_em', {ascending: false}).limit(300)
+          .then(function(r) { if (!r.error) setLista(r.data || []); });
+      }
+      React.useEffect(function() {
+        carregar();
+        var t = setInterval(carregar, 60000);
+        return function() { clearInterval(t); };
+      }, []);
+
+      function varrer() {
+        setOcupado('procurando conversas novas...'); setRecado('');
+        fetch(CONVERSAS_URL, {method: 'POST', headers: {'Content-Type': 'application/json', Authorization: 'Bearer ' + supabaseKey},
+          body: JSON.stringify({acao: 'varrer', dias: 3})})
+          .then(function(r) { return r.json(); })
+          .then(function(r) {
+            setOcupado('');
+            setRecado(r.erro ? ('Não consegui: ' + r.erro) : ('✓ ' + r.gravadas + ' conversas conferidas · ' + r.esperando + ' esperando resposta'));
+            carregar();
+          })
+          .catch(function() { setOcupado(''); setRecado('Não consegui falar com o servidor.'); });
+      }
+
+      var esperando = (lista || []).filter(function(c) { return c.esperando; });
+      var abertas = (lista || []).filter(function(c) { return !c.esperando && c.status === 'active'; });
+      var fechadas = (lista || []).filter(function(c) { return c.status !== 'active'; });
+      // Conversa que o ML encerrou por silêncio é a que dói: era uma janela aberta.
+      var perdidas = fechadas.filter(function(c) { return c.substatus === 'blocked_by_ai_assistant_contact_closed'; });
+
+      return e('div', {className: 'space-y-4 max-w-5xl'},
+        e('div', {className: 'flex flex-wrap items-center gap-3'},
+          e('h2', {className: 'text-lg font-bold'}, '💬 Pós-venda — conversas com compradores'),
+          e('span', {className: 'text-xs text-slate-400'}, 'KMP, ERP e LTS'),
+          e('button', {onClick: varrer, disabled: !!ocupado,
+            className: 'ml-auto px-3 py-1.5 rounded-lg text-xs font-bold ' + (ocupado ? 'bg-slate-700 text-slate-400' : 'bg-blue-700 hover:bg-blue-600 text-white')},
+            ocupado || '🔄 Procurar novas')),
+        recado && e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200'}, recado),
+
+        perdidas.length > 0 && e('div', {className: 'bg-amber-900 bg-opacity-30 border border-amber-700 rounded-lg px-3 py-2 text-sm text-amber-200'},
+          '⚠️ ' + perdidas.length + ' conversa(s) o Mercado Livre encerrou por falta de resposta. ' +
+          'Essas eram janelas abertas que fecharam sozinhas.'),
+
+        lista === null ? e('p', {className: 'text-slate-400 text-sm'}, 'Carregando...')
+        : !lista.length ? e('p', {className: 'text-slate-400 text-sm'}, 'Nenhuma conversa ainda — clique em "Procurar novas".')
+        : e('div', {className: 'space-y-4'},
+            e('div', null,
+              e('h3', {className: 'text-sm font-bold text-emerald-300 mb-2'},
+                '🔔 Esperando resposta (' + esperando.length + ')'),
+              !esperando.length ? e('p', {className: 'text-xs text-slate-500'}, 'Ninguém esperando. 👌')
+                : esperando.map(function(c) { return e(CartaoConversa, {key: c.pack_id, c: c, onMudou: carregar}); })),
+            e('div', null,
+              e('h3', {className: 'text-sm font-bold text-slate-300 mb-2'},
+                '💬 Conversas abertas (' + abertas.length + ')'),
+              abertas.map(function(c) { return e(CartaoConversa, {key: c.pack_id, c: c, onMudou: carregar}); })),
+            e('div', null,
+              e('h3', {className: 'text-sm font-bold text-slate-500 mb-2'},
+                '🔒 Fechadas (' + fechadas.length + ')'),
+              fechadas.map(function(c) { return e(CartaoConversa, {key: c.pack_id, c: c, onMudou: carregar}); }))));
+    }
+
+    function CartaoConversa(props) {
+      var c = props.c;
+      var textoSt = useState(''); var texto = textoSt[0]; var setTexto = textoSt[1];
+      var enviandoSt = useState(false); var enviando = enviandoSt[0]; var setEnviando = enviandoSt[1];
+      var erroSt = useState(''); var erro = erroSt[0]; var setErro = erroSt[1];
+      var aberta = c.status === 'active';
+
+      function enviar() {
+        if (!texto.trim()) return;
+        setEnviando(true); setErro('');
+        fetch(CONVERSAS_URL, {method: 'POST', headers: {'Content-Type': 'application/json', Authorization: 'Bearer ' + supabaseKey},
+          body: JSON.stringify({acao: 'responder', pack_id: c.pack_id, texto: texto.trim()})})
+          .then(function(r) { return r.json(); })
+          .then(function(r) {
+            setEnviando(false);
+            if (r.erro) { setErro(r.erro); return; }
+            setTexto(''); props.onMudou();
+          })
+          .catch(function() { setEnviando(false); setErro('Não consegui falar com o servidor.'); });
+      }
+
+      return e('div', {className: 'bg-slate-800 border rounded-xl p-3 space-y-2 ' +
+        (c.esperando ? 'border-emerald-600' : 'border-slate-700')},
+        e('div', {className: 'flex flex-wrap items-center gap-2 text-xs'},
+          e('span', {className: 'px-2 py-0.5 rounded bg-slate-700 text-slate-200 font-bold'}, c.conta),
+          e('span', {className: 'text-white font-bold'}, c.buyer_nome || 'comprador'),
+          e('span', {className: 'text-slate-400'}, c.item_title || ''),
+          c.sku && e('span', {className: 'text-slate-500'}, '· ' + c.sku),
+          e('span', {className: 'ml-auto text-slate-400'}, tempoDesde(c.ultima_em))),
+        e('div', {className: 'text-sm ' + (c.ultima_de === 'comprador' ? 'text-emerald-200' : 'text-slate-400')},
+          e('span', {className: 'text-xs text-slate-500'}, c.ultima_de === 'comprador' ? 'comprador: ' : 'nós: '),
+          (c.ultima_texto || '').slice(0, 300)),
+        aberta
+          ? e('div', {className: 'flex gap-2 items-start'},
+              e('textarea', {value: texto, rows: 2, placeholder: 'responder ' + (c.buyer_nome || '') + '...',
+                onChange: function(ev) { setTexto(ev.target.value); },
+                className: 'flex-1 bg-slate-900 text-slate-100 rounded px-2 py-1 border border-slate-600 text-sm'}),
+              e('button', {onClick: enviar, disabled: enviando || !texto.trim(),
+                className: 'px-3 py-2 rounded text-xs font-bold ' + (enviando || !texto.trim() ? 'bg-slate-700 text-slate-500' : 'bg-emerald-600 hover:bg-emerald-500 text-white')},
+                enviando ? '⏳' : 'Enviar'))
+          : e('div', {className: 'text-xs text-slate-500'},
+              '🔒 ' + (MOTIVO_FECHADA[c.substatus] || 'conversa fechada')),
+        erro && e('div', {className: 'text-xs text-red-300'}, erro));
+    }
+
     function EditorRapida(props) {
       var r = props.rapida;
       var nomeSt = useState(r.nome); var nome = nomeSt[0]; var setNome = nomeSt[1];
@@ -3442,6 +3583,20 @@
         contar();
         var t = setInterval(contar, 60000);
         return function() { clearInterval(t); };
+      }, []);
+      // Compradores esperando resposta, no selo da aba Pós-venda: enquanto a conversa
+      // está aberta dá pra salvar a venda; depois o Mercado Livre fecha e acabou.
+      var conversasEsperandoState = useState(0);
+      var conversasEsperando = conversasEsperandoState[0];
+      var setConversasEsperando = conversasEsperandoState[1];
+      useEffect(function() {
+        function contarConversas() {
+          supabase.from('ml_conversas').select('pack_id', {count: 'exact', head: true}).eq('esperando', true)
+            .then(function(r) { if (!r.error) setConversasEsperando(r.count || 0); });
+        }
+        contarConversas();
+        var t2 = setInterval(contarConversas, 60000);
+        return function() { clearInterval(t2); };
       }, []);
       var alertaAbertoState = useState(null);   // id do aviso com o "Como resolver" aberto
       var alertaAberto = alertaAbertoState[0];
@@ -6892,6 +7047,10 @@
               onClick: function() { setActiveTab('perguntas'); },
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'perguntas' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
             }, '❓ Perguntas', perguntasAbertas > 0 && e('span', {className: 'ml-1 bg-red-600 text-white text-xs rounded-full px-1.5 py-0.5'}, perguntasAbertas)),
+            podeVerAba(perfilAtivo, 'posvenda') && e('button', {
+              onClick: function() { setActiveTab('posvenda'); },
+              className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'posvenda' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
+            }, '💬 Pós-venda', conversasEsperando > 0 && e('span', {className: 'ml-1 bg-emerald-600 text-white text-xs rounded-full px-1.5 py-0.5'}, conversasEsperando)),
             podeVerAba(perfilAtivo, 'tarefas') && e('button', {
               onClick: function() { setActiveTab('tarefas'); },
               className: 'py-4 px-6 font-bold text-sm transition-colors whitespace-nowrap ' + (activeTab === 'tarefas' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white')
@@ -10124,6 +10283,7 @@
           ),
 
           activeTab === 'perguntas' && e(AbaPerguntas),
+          activeTab === 'posvenda' && e(AbaPosVenda),
 
           activeTab === 'tarefas' && (function() {
             var modalItens = kanbanModalCartao ? kanbanItens.filter(function(i) { return i.cartao_id === kanbanModalCartao.id; }) : [];
