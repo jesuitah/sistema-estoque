@@ -336,6 +336,30 @@ Deno.serve(async (req) => {
       return json({ conversas: data ?? [] });
     }
 
+    // A conversa inteira de um pedido. Guardar só a última mensagem deixava recado sem
+    // pé nem cabeça na tela: "Siena 1.0 16V 2002" é resposta à pergunta de aplicação,
+    // mas sem a pergunta ninguém entende o que está acontecendo.
+    if (c.acao === "conversa") {
+      const { data: conv } = await sb.from("ml_conversas").select("conta, buyer_nome")
+        .eq("pack_id", String(c.pack_id)).maybeSingle();
+      if (!conv) return json({ erro: "conversa nao encontrada" }, 404);
+      const t = await token(conv.conta);
+      // mark_as_read=false tambem aqui: abrir na nossa tela nao pode sumir do painel dela.
+      const d = await lerJson(
+        `/messages/packs/${c.pack_id}/sellers/${t.seller}?tag=post_sale&mark_as_read=false`, t.auth);
+      const msgs = (d?.messages ?? []).slice().sort((a: any, b: any) =>
+        String(a.message_date?.received ?? a.message_date ?? "").localeCompare(
+          String(b.message_date?.received ?? b.message_date ?? "")));
+      return json({
+        mensagens: msgs.map((m: any) => ({
+          de: String(m.from?.user_id ?? "") === t.seller ? "vendedor" : "comprador",
+          texto: String(m.text ?? ""),
+          quando: m.message_date?.received ?? m.message_date ?? null,
+          anexos: (m.attachments ?? []).length,
+        })),
+      });
+    }
+
     if (c.acao === "visto") {
       await sb.from("ml_conversas").update({ visto_em: new Date().toISOString() }).eq("pack_id", String(c.pack_id));
       return json({ ok: true });

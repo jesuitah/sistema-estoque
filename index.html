@@ -98,7 +98,7 @@
       // (reativar, clonar, entrar em promoção), e nenhuma delas passa pelo `from` acima.
       // ...menos as que SÓ LEEM. O perfil Visualização enxerga tudo: barrar a leitura
       // deixava o card de reputação vazio, parecendo defeito em vez de permissão.
-      var ACOES_SO_LEITURA = {reputacao: true, listar: true};
+      var ACOES_SO_LEITURA = {reputacao: true, listar: true, conversa: true};
       function soLeitura(opcoes) {
         try {
           var corpo = opcoes && opcoes.body;
@@ -854,7 +854,20 @@
       var textoSt = useState(''); var texto = textoSt[0]; var setTexto = textoSt[1];
       var enviandoSt = useState(false); var enviando = enviandoSt[0]; var setEnviando = enviandoSt[1];
       var erroSt = useState(''); var erro = erroSt[0]; var setErro = erroSt[1];
+      var histSt = useState(null); var historico = histSt[0]; var setHistorico = histSt[1];
+      var abertoSt = useState(false); var aberto = abertoSt[0]; var setAberto = abertoSt[1];
       var aberta = c.status === 'active';
+
+      // A conversa inteira, buscada só quando ele abre o cartão. Sem ela, uma resposta
+      // como "Siena 1.0 16V 2002" fica sem sentido — é resposta à pergunta de aplicação.
+      function verConversa() {
+        if (aberto) { setAberto(false); return; }
+        setAberto(true);
+        if (historico) return;
+        chamarConversas({acao: 'conversa', pack_id: c.pack_id})
+          .then(function(r) { setHistorico((r && r.mensagens) || []); })
+          .catch(function() { setHistorico([]); });
+      }
 
       function enviar() {
         if (!texto.trim()) return;
@@ -878,6 +891,25 @@
         e('div', {className: 'text-sm ' + (c.ultima_de === 'comprador' ? 'text-emerald-200' : 'text-slate-400')},
           e('span', {className: 'text-xs text-slate-500'}, c.ultima_de === 'comprador' ? 'comprador: ' : 'nós: '),
           (c.ultima_texto || '').slice(0, 300)),
+
+        (c.total_msgs > 1 || aberto) && e('button', {onClick: verConversa,
+          className: 'text-[11px] text-blue-400 underline'},
+          aberto ? 'esconder conversa' : 'ver conversa inteira (' + (c.total_msgs || 0) + ')'),
+
+        aberto && e('div', {className: 'bg-slate-900 rounded-lg p-2 space-y-2 max-h-72 overflow-y-auto'},
+          historico === null ? e('p', {className: 'text-xs text-slate-500'}, 'Carregando...')
+          : !historico.length ? e('p', {className: 'text-xs text-slate-500'}, 'Não consegui ler a conversa.')
+          : historico.map(function(m, i) {
+              var meu = m.de === 'vendedor';
+              return e('div', {key: i, className: 'flex ' + (meu ? 'justify-end' : 'justify-start')},
+                e('div', {className: 'max-w-[85%] rounded-lg px-2 py-1 text-xs ' +
+                  (meu ? 'bg-blue-900 text-blue-100' : 'bg-slate-700 text-slate-100')},
+                  e('div', {className: 'text-[10px] opacity-60 mb-0.5'},
+                    (meu ? 'nós' : (c.buyer_nome || 'comprador')) +
+                    (m.quando ? ' · ' + new Date(m.quando).toLocaleString('pt-BR', {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'}) : '')),
+                  m.texto || (m.anexos ? '(anexo)' : '')));
+            })),
+
         aberta
           ? e('div', {className: 'flex gap-2 items-start'},
               e('textarea', {value: texto, rows: 2, placeholder: 'responder ' + (c.buyer_nome || '') + '...',
