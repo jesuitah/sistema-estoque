@@ -615,8 +615,12 @@
       var abertas = msgs.filter(function(x) { return !x.esperando && x.status === 'active'; });
       var fechadas = msgs.filter(function(x) { return x.status !== 'active'; });
       var recl = daLoja(reclamacoes, loja);
+      // Só os tipos que têm algo hoje viram coluna — coluna vazia só rouba espaço.
+      var blocosComItem = BLOCOS_RECLAMACAO.map(function(b) {
+        return {titulo: b.titulo, cor: b.cor, nota: b.nota, itens: recl.filter(b.filtro)};
+      }).filter(function(b) { return b.itens.length; });
 
-      return e('div', {className: 'space-y-4 max-w-5xl'},
+      return e('div', {className: 'space-y-4 max-w-7xl'},
         e('div', {className: 'flex flex-wrap items-center gap-3'},
           e('button', {onClick: function() { setLoja(null); },
             className: 'px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-700 hover:bg-slate-600 text-slate-200'}, '← lojas'),
@@ -627,32 +631,38 @@
         recado && e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200'}, recado),
 
         // Cada tipo é um trabalho diferente: na mediação ela não fala mais com o
-        // comprador e espera encerrar; na devolução ainda dá pra agir. Misturar os dois
-        // num bloco só escondia essa diferença.
-        BLOCOS_RECLAMACAO.map(function(b) {
-          var doTipo = recl.filter(b.filtro);
-          if (!doTipo.length) return null;
-          return e('div', {key: b.titulo},
-            e('h3', {className: 'text-sm font-bold mb-2 ' + b.cor}, b.titulo + ' (' + doTipo.length + ')'),
-            b.nota && e('p', {className: 'text-[11px] text-slate-500 mb-2 -mt-1'}, b.nota),
-            doTipo.map(function(r) { return e(CartaoReclamacao, {key: r.claim_id, r: r}); }));
-        }),
+        // comprador e espera encerrar; na devolução ainda dá pra agir. Lado a lado dá
+        // pra bater o olho e ver o todo sem rolar a tela.
+        // Classe inteira, não montada na mão: o Tailwind do CDN não enxerga
+        // 'lg:grid-cols-' + n e a coluna simplesmente não sairia.
+        e('div', {className: 'grid gap-4 items-start ' + COLUNAS[Math.min(3, blocosComItem.length)]},
+          blocosComItem.map(function(b) {
+            return e('div', {key: b.titulo, className: 'bg-slate-900 bg-opacity-50 rounded-xl p-3'},
+              e('h3', {className: 'text-sm font-bold mb-1 ' + b.cor}, b.titulo + ' (' + b.itens.length + ')'),
+              b.nota && e('p', {className: 'text-[11px] text-slate-500 mb-2'}, b.nota),
+              b.itens.map(function(r) { return e(CartaoReclamacao, {key: r.claim_id, r: r}); }));
+          })),
 
         // Daqui pra baixo é outro assunto: aqui ela ainda fala com o comprador.
-        e('div', {className: 'border-t border-slate-700 pt-4 mt-2'},
-          e('h3', {className: 'text-sm font-bold text-emerald-300 mb-2'}, '🔔 Esperando resposta (' + esperando.length + ')'),
-          !esperando.length ? e('p', {className: 'text-xs text-slate-500'}, 'Ninguém esperando.')
-            : esperando.map(function(c) { return e(CartaoConversa, {key: c.pack_id, c: c, onMudou: carregar}); })),
-        abertas.length > 0 && e('div', null,
-          e('h3', {className: 'text-sm font-bold text-slate-300 mb-2'}, '💬 Conversas abertas (' + abertas.length + ')'),
-          abertas.map(function(c) { return e(CartaoConversa, {key: c.pack_id, c: c, onMudou: carregar}); })),
-        fechadas.length > 0 && e('div', null,
-          e('h3', {className: 'text-sm font-bold text-slate-500 mb-2'}, '🔒 Fechadas (' + fechadas.length + ')'),
-          fechadas.map(function(c) { return e(CartaoConversa, {key: c.pack_id, c: c, onMudou: carregar}); })));
+        e('div', {className: 'border-t border-slate-700 pt-4 mt-2 grid gap-4 items-start lg:grid-cols-3'},
+          e('div', {className: 'bg-slate-900 bg-opacity-50 rounded-xl p-3'},
+            e('h3', {className: 'text-sm font-bold text-emerald-300 mb-2'}, '🔔 Esperando resposta (' + esperando.length + ')'),
+            !esperando.length ? e('p', {className: 'text-xs text-slate-500'}, 'Ninguém esperando.')
+              : esperando.map(function(c) { return e(CartaoConversa, {key: c.pack_id, c: c, onMudou: carregar}); })),
+          e('div', {className: 'bg-slate-900 bg-opacity-50 rounded-xl p-3'},
+            e('h3', {className: 'text-sm font-bold text-slate-300 mb-2'}, '💬 Conversas abertas (' + abertas.length + ')'),
+            !abertas.length ? e('p', {className: 'text-xs text-slate-500'}, 'Nenhuma.')
+              : abertas.map(function(c) { return e(CartaoConversa, {key: c.pack_id, c: c, onMudou: carregar}); })),
+          e('div', {className: 'bg-slate-900 bg-opacity-50 rounded-xl p-3'},
+            e('h3', {className: 'text-sm font-bold text-slate-500 mb-2'}, '🔒 Fechadas (' + fechadas.length + ')'),
+            !fechadas.length ? e('p', {className: 'text-xs text-slate-500'}, 'Nenhuma.')
+              : fechadas.map(function(c) { return e(CartaoConversa, {key: c.pack_id, c: c, onMudou: carregar}); }))));
     }
 
     // Os mesmos nomes que o ML usa no painel dele, pra conferir lado a lado.
     var NOME_INDICADOR = {claims: 'Reclamações', envios: 'Envios incorretos', cancel: 'Canceladas por você'};
+
+    var COLUNAS = {0: '', 1: '', 2: 'lg:grid-cols-2', 3: 'lg:grid-cols-3'};
 
     // Um bloco por tipo, na ordem do que mais pesa. A mediação vem primeiro porque é a
     // que o Mercado Livre decide — e perder mediação custa reputação.
