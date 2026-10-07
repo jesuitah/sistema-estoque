@@ -30,6 +30,7 @@ const { coletar: coletarFretes } = require('./coletar-fretes');
 const { calcular: calcularTarifas, atualizarFaixasDeFrete } = require('./calcular-tarifas');
 const { coletar: coletarFreteOficial } = require('./coletar-frete-oficial');
 const { vigiar } = require('./vigia');
+const { enviarMensagem } = require('./mensagem-aplicacao');
 
 const SUPABASE_URL = 'https://pylkufhziohxvwbbaued.supabase.co';
 const SUPABASE_KEY = process.env.SUPABASE_KEY || lerChaveDoSite();
@@ -304,7 +305,9 @@ async function enfileirarSemEstoque() {
 // pausa. Uma tentativa a cada meia hora basta pra perceber sozinho quando alguém entrar
 // de novo na conta — sem 30 tentativas por hora, sem fila entupida, sem avisos repetidos.
 const ESPERA_SESSAO_CAIDA_MS = 30 * 60 * 1000;
-const TIPOS_QUE_USAM_NAVEGADOR = new Set(['tirar_do_full', 'ligar_flex', 'desligar_flex']);
+// mensagem_aplicacao entra aqui: a API recusa o vendedor iniciar conversa (403), então
+// a única porta é o painel — e com isso ela também respeita a pausa por sessão caída.
+const TIPOS_QUE_USAM_NAVEGADOR = new Set(['tirar_do_full', 'ligar_flex', 'desligar_flex', 'mensagem_aplicacao']);
 const ERRO_SESSAO_CAIDA = 'a sessão da';
 
 let sessoesCache = {};          // conta -> linha de robo_sessoes
@@ -827,6 +830,11 @@ const EXECUTORES = {
   tirar_do_full: tirarDoFull,
   ligar_flex: ligarFlex,
   desligar_flex: desligarFlex,
+  mensagem_aplicacao: (nav, pagina, tarefa, token) =>
+    enviarMensagem(nav, pagina, tarefa, token, {
+      log,
+      sellerDaConta: async (conta) => USER_IDS_ESPERADOS[conta],
+    }),
 };
 
 // ── Ciclo principal ──────────────────────────────────────────────────────────
@@ -1150,6 +1158,8 @@ async function processar(tarefa, navegadores) {
               : ''}`,
         ligar_flex: resultado.nada_a_fazer ? 'Flex já estava ligado' : 'Flex ligado',
         desligar_flex: resultado.nada_a_fazer ? 'Flex já estava desligado' : 'Flex desligado',
+        mensagem_aplicacao: resultado.nada_a_fazer ? 'já havia conversa com o comprador'
+          : `pedimos veículo/ano/motor para ${resultado.nome || 'o comprador'}`,
       };
       if (detalhes[tarefa.tipo]) {
         await registrarAcao({

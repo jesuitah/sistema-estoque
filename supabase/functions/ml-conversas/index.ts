@@ -200,6 +200,96 @@ async function varrerReclamacoes() {
   return { ok: true, reclamacoes: gravadas };
 }
 
+// A mensagem de confirmação de aplicação, que a Letícia manda hoje na mão em toda
+// venda que não é Full: "me confirme veículo / ano / motor". É o que evita a devolução
+// por "não serve no meu carro" — o motivo campeão nas 3 lojas.
+//
+// Só enfileira. Quem envia é o robô, no painel: a API do ML recusa o vendedor INICIAR
+// conversa (403 blocked_by_conversation_initiated_by_seller_limited).
+const SAUDACAO = (h: number) => (h < 12 ? "Bom dia" : h < 18 ? "Boa tarde" : "Boa noite");
+
+function horaDeBrasilia() {
+  const h = new Date().getUTCHours() - 3;
+  return h < 0 ? h + 24 : h;
+}
+
+// O texto fica no banco (respostas_rapidas, nome APLICACAO), não aqui: assim ele muda
+// a mensagem sem mexer em código, e o acento não depende de como o arquivo foi enviado.
+// Marcadores: {saudacao} e {nome}.
+async function modeloDaMensagem() {
+  const { data } = await sb.from("respostas_rapidas").select("texto").eq("nome", "APLICACAO").maybeSingle();
+  return data?.texto ?? "{saudacao} {nome}, tudo bem? Confirme seu veiculo / ano / motor, por favor.";
+}
+
+function textoDaMensagem(modelo: string, nome: string, hora: number) {
+  return modelo.replace(/\{saudacao\}/g, SAUDACAO(hora)).replace(/\{nome\}/g, nome);
+}
+
+async function enfileirarMensagens(soListar: boolean) {
+  const desde = new Date(Date.now() - 2 * 864e5).toISOString().slice(0, 10);
+  const candidatos: any[] = [];
+  const modelo = await modeloDaMensagem();
+
+  for (const conta of CONTAS) {
+    const t = await token(conta);
+    const busca = await lerJson(
+      `/orders/search?seller=${t.seller}&order.status=paid&order.date_created.from=${desde}T00:00:00.000-03:00&limit=50`,
+      t.auth,
+    );
+    for (const ped of (busca?.results ?? [])) {
+      const pack = String(ped.pack_id ?? ped.id);
+
+      // Full não entra: a conversa ali é com o Mercado Livre, não com o comprador.
+      const env = ped.shipping?.id ? await lerJson(`/shipments/${ped.shipping.id}`, t.auth) : null;
+      await espera(100);
+      const tipoEnvio = env?.logistic?.type ?? env?.logistic_type ?? null;
+      if (tipoEnvio === "fulfillment") continue;
+
+      // Já falamos com esse comprador? Então não começa de novo.
+      const conv = await lerJson(`/messages/packs/${pack}/sellers/${t.seller}?tag=post_sale&mark_as_read=false`, t.auth);
+      await espera(100);
+      if ((conv?.paging?.total ?? 0) > 0) continue;
+
+      // Já tem tarefa pra esse pedido? (inclusive feita — não mandar duas vezes)
+      const { count } = await sb.from("ml_tarefas_robo")
+        .select("id", { count: "exact", head: true })
+        .eq("tipo", "mensagem_aplicacao").eq("conta", conta)
+        .filter("params->>pack_id", "eq", pack);
+      if ((count ?? 0) > 0) continue;
+
+      const det = await lerJson(`/orders/${ped.id}`, t.auth);
+      await espera(100);
+      const nome = primeiroNome(det?.buyer?.first_name) || String(det?.buyer?.nickname ?? "");
+      if (!nome) continue;
+
+      const item = (ped.order_items ?? [])[0] ?? {};
+      const linha = {
+        conta,
+        tipo: "mensagem_aplicacao",
+        status: "pendente",
+        criado_por: "sistema",
+        params: {
+          pack_id: pack,
+          order_id: String(ped.id),
+          buyer_id: String(det?.buyer?.id ?? ped.buyer?.id ?? ""),
+          nome,
+          item_title: item.item?.title ?? null,
+          // Texto gravado AGORA, com a saudação da hora em que entrou na fila — assim
+          // dá pra conferir na tela exatamente o que vai sair, antes de sair.
+          texto: textoDaMensagem(modelo, nome, horaDeBrasilia()),
+        },
+      };
+      candidatos.push(linha);
+    }
+  }
+
+  if (soListar) return { ok: true, candidatos: candidatos.length, exemplos: candidatos.slice(0, 5) };
+  if (!candidatos.length) return { ok: true, enfileiradas: 0 };
+  const { error } = await sb.from("ml_tarefas_robo").insert(candidatos);
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true, enfileiradas: candidatos.length };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   try {
@@ -208,6 +298,8 @@ Deno.serve(async (req) => {
     if (c.acao === "varrer") return json(await varrer(Number(c.dias) || 7));
 
     if (c.acao === "varrer_reclamacoes") return json(await varrerReclamacoes());
+
+    if (c.acao === "enfileirar_mensagens") return json(await enfileirarMensagens(!!c.so_listar));
 
     // A régua do ML, do jeito que ele mostra no painel. "Mediações" NÃO vem na API:
     // só reclamações, envios e cancelamentos. Melhor faltar um do que inventar o número.
