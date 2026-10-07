@@ -134,12 +134,107 @@ async function varrer(dias: number) {
   return { ok: true, gravadas, esperando, resumo };
 }
 
+// Os motivos vêm em código (PDD9939). O nome em inglês que a API devolve é o que
+// distingue "comprou errado" de "não é o que estava no anúncio" — e é essa diferença
+// que decide se bate na reputação. Guardamos a tradução pra não pedir duas vezes.
+const motivoCache = new Map<string, string>();
+async function motivoDe(id: string, auth: string) {
+  if (!id) return null;
+  if (motivoCache.has(id)) return motivoCache.get(id)!;
+  const r = await lerJson(`/post-purchase/v1/claims/reasons/${id}`, auth);
+  const nome = r?.name ?? null;
+  if (nome) motivoCache.set(id, nome);
+  return nome;
+}
+
+async function varrerReclamacoes() {
+  let gravadas = 0;
+  for (const conta of CONTAS) {
+    const t = await token(conta);
+    // A busca EXIGE um filtro de situação, e ignora filtro de data e ordenação —
+    // por isso vamos pelas abertas, que são as que precisam de alguém.
+    const busca = await lerJson(`/post-purchase/v1/claims/search?status=opened&limit=50`, t.auth);
+    for (const cl of (busca?.data ?? [])) {
+      const motivo = await motivoDe(String(cl.reason_id ?? ""), t.auth);
+      await espera(100);
+      // A conversa da reclamação é separada da conversa do pedido.
+      const msgs = await lerJson(`/post-purchase/v1/claims/${cl.id}/messages`, t.auth);
+      const ultima = Array.isArray(msgs) ? msgs[msgs.length - 1] : null;
+      await espera(100);
+
+      let titulo = null, sku = null, pedido = null;
+      if (cl.resource === "order" && cl.resource_id) {
+        pedido = String(cl.resource_id);
+        const ped = await lerJson(`/orders/${pedido}`, t.auth);
+        const item = (ped?.order_items ?? [])[0] ?? {};
+        titulo = item.item?.title ?? null;
+        sku = item.item?.seller_sku ?? null;
+        await espera(100);
+      }
+
+      const { error } = await sb.from("ml_reclamacoes").upsert({
+        claim_id: String(cl.id),
+        conta,
+        tipo: cl.type ?? null,
+        estagio: cl.stage ?? null,
+        situacao: cl.status ?? null,
+        motivo_id: cl.reason_id ?? null,
+        motivo,
+        order_id: pedido,
+        item_title: titulo,
+        sku,
+        ultima_msg: String(ultima?.message ?? "").slice(0, 600),
+        aberta_em: cl.date_created ?? null,
+        mexida_em: cl.last_updated ?? null,
+        atualizado_em: new Date().toISOString(),
+      }, { onConflict: "claim_id" });
+      if (!error) gravadas++;
+    }
+    // Some da lista o que foi resolvido fora daqui.
+    const abertas = (busca?.data ?? []).map((x: any) => String(x.id));
+    if (abertas.length) {
+      await sb.from("ml_reclamacoes").update({ situacao: "closed" })
+        .eq("conta", conta).eq("situacao", "opened").not("claim_id", "in", `(${abertas.join(",")})`);
+    }
+  }
+  return { ok: true, reclamacoes: gravadas };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   try {
     const c = await req.json().catch(() => ({}));
 
     if (c.acao === "varrer") return json(await varrer(Number(c.dias) || 7));
+
+    if (c.acao === "varrer_reclamacoes") return json(await varrerReclamacoes());
+
+    // A régua do ML, do jeito que ele mostra no painel. "Mediações" NÃO vem na API:
+    // só reclamações, envios e cancelamentos. Melhor faltar um do que inventar o número.
+    if (c.acao === "reputacao") {
+      const contas: any[] = [];
+      for (const conta of CONTAS) {
+        const t = await token(conta);
+        const me = await lerJson(`/users/me`, t.auth);
+        const r = me?.seller_reputation ?? {};
+        const m = r.metrics ?? {};
+        contas.push({
+          conta,
+          nivel: r.level_id ?? null,
+          categoria: r.power_seller_status ?? null,   // gold / silver / platinum
+          vendas: m.sales?.completed ?? null,
+          periodo: m.sales?.period ?? "60 days",
+          // limite = o teto que o ML aceita antes de puxar a reputação pra baixo
+          // Chave, não texto: quem escreve o nome em português é a tela.
+          indicadores: [
+            { id: "claims", taxa: m.claims?.rate ?? 0, qtd: m.claims?.value ?? 0, limite: 0.01 },
+            { id: "envios", taxa: m.delayed_handling_time?.rate ?? 0, qtd: m.delayed_handling_time?.value ?? 0, limite: 0.06 },
+            { id: "cancel", taxa: m.cancellations?.rate ?? 0, qtd: m.cancellations?.value ?? 0, limite: 0.005 },
+          ],
+        });
+      }
+      return json({ contas });
+    }
 
     if (c.acao === "listar") {
       let q = sb.from("ml_conversas").select("*").order("ultima_em", { ascending: false }).limit(300);
