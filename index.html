@@ -626,11 +626,20 @@
             ocupado || '🔄 Atualizar')),
         recado && e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200'}, recado),
 
-        recl.length > 0 && e('div', null,
-          e('h3', {className: 'text-sm font-bold text-amber-300 mb-2'}, '⚖️ Reclamações abertas (' + recl.length + ')'),
-          recl.map(function(r) { return e(CartaoReclamacao, {key: r.claim_id, r: r}); })),
+        // Cada tipo é um trabalho diferente: na mediação ela não fala mais com o
+        // comprador e espera encerrar; na devolução ainda dá pra agir. Misturar os dois
+        // num bloco só escondia essa diferença.
+        BLOCOS_RECLAMACAO.map(function(b) {
+          var doTipo = recl.filter(b.filtro);
+          if (!doTipo.length) return null;
+          return e('div', {key: b.titulo},
+            e('h3', {className: 'text-sm font-bold mb-2 ' + b.cor}, b.titulo + ' (' + doTipo.length + ')'),
+            b.nota && e('p', {className: 'text-[11px] text-slate-500 mb-2 -mt-1'}, b.nota),
+            doTipo.map(function(r) { return e(CartaoReclamacao, {key: r.claim_id, r: r}); }));
+        }),
 
-        e('div', null,
+        // Daqui pra baixo é outro assunto: aqui ela ainda fala com o comprador.
+        e('div', {className: 'border-t border-slate-700 pt-4 mt-2'},
           e('h3', {className: 'text-sm font-bold text-emerald-300 mb-2'}, '🔔 Esperando resposta (' + esperando.length + ')'),
           !esperando.length ? e('p', {className: 'text-xs text-slate-500'}, 'Ninguém esperando.')
             : esperando.map(function(c) { return e(CartaoConversa, {key: c.pack_id, c: c, onMudou: carregar}); })),
@@ -644,6 +653,20 @@
 
     // Os mesmos nomes que o ML usa no painel dele, pra conferir lado a lado.
     var NOME_INDICADOR = {claims: 'Reclamações', envios: 'Envios incorretos', cancel: 'Canceladas por você'};
+
+    // Um bloco por tipo, na ordem do que mais pesa. A mediação vem primeiro porque é a
+    // que o Mercado Livre decide — e perder mediação custa reputação.
+    var BLOCOS_RECLAMACAO = [
+      {titulo: '⚖️ Mediações', cor: 'text-red-300',
+       nota: 'o Mercado Livre está decidindo — a conversa aqui é com o assistente dele, não com o comprador',
+       filtro: function(r) { return r.tipo === 'mediations'; }},
+      {titulo: '↩️ Devoluções', cor: 'text-amber-300',
+       filtro: function(r) { return r.tipo === 'returns'; }},
+      {titulo: '✖️ Cancelamentos', cor: 'text-slate-300',
+       filtro: function(r) { return r.tipo === 'cancel_purchase' || r.tipo === 'cancel_sale'; }},
+      {titulo: '📦 Full', cor: 'text-slate-300',
+       filtro: function(r) { return r.tipo === 'fulfillment'; }},
+    ];
 
     function CardLoja(props) {
       var rep = props.rep;
