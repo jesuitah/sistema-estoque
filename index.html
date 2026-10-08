@@ -4863,8 +4863,14 @@
       var custoPorSku = useMemo(function() {
         var mapa = {};
         (precos || []).forEach(function(p) {
-          if (p.custo == null || Number(p.custo) <= 0) return;
-          mapa[normMarca(p.marca) + '|' + normStr(p.sku)] = Number(p.custo);
+          // As duas colunas, não só `custo`. Era isto que fazia 170 anúncios aparecerem
+          // sem custo e sem a margem em amarelo: o valor estava em `custo_ml`, de uma
+          // importação antiga, e esta tela não olhava lá. As colunas foram juntadas em
+          // 08/10/2026 — ler as duas fica como garantia de um resquício não sumir de novo.
+          var c = Number(p.custo) > 0 ? Number(p.custo)
+                : Number(p.custo_ml) > 0 ? Number(p.custo_ml) : 0;
+          if (!(c > 0)) return;
+          mapa[normMarca(p.marca) + '|' + normStr(p.sku)] = c;
         });
         return mapa;
       }, [precos]);
@@ -6905,8 +6911,12 @@
         // salvando 1,23 no lugar de 1.234,56.
         var novoCusto = lerMoeda(custoEditValue);
         if (novoCusto == null || novoCusto <= 0) { alert('Custo inválido.'); return; }
-        var usaCustoML = p.custo_ml !== null && p.custo_ml !== undefined && Number(p.custo_ml) > 0;
-        var update = usaCustoML ? { custo_ml: novoCusto } : { custo: novoCusto };
+        // Uma coluna só, sempre. Havia uma segunda (`custo_ml`, de uma importação antiga
+        // de planilha) e a regra era "atualiza a coluna que já tem valor" — então o custo
+        // de 236 peças seguia caindo lá. A aba Preços lia as duas e mostrava certo; a de
+        // Promoções lia só `custo` e dizia "sem custo" em 170 anúncios, escondendo a
+        // margem bem na hora de decidir desconto. As colunas foram juntadas em 08/10/2026.
+        var update = { custo: novoCusto, custo_ml: null };
         supabase.from('precos').update(update).eq('marca', p.marca).eq('sku', p.sku).then(function(res) {
           if (res.error) { alert('Erro ao salvar: ' + res.error.message); return; }
           setPrecos(function(prev) {
@@ -9708,11 +9718,15 @@
                 var custoPor = {};
                 var precoMLPor = {};
                 (precos || []).forEach(function(p) {
-                  if (p.custo != null && Number(p.custo) > 0) {
+                  // As duas colunas de custo, pelo mesmo motivo da aba de promoções:
+                  // o valor de 236 peças morava em `custo_ml` e esta tela não olhava lá.
+                  var custoDaPeca = Number(p.custo) > 0 ? Number(p.custo)
+                                  : Number(p.custo_ml) > 0 ? Number(p.custo_ml) : 0;
+                  if (custoDaPeca > 0) {
                     var ch = normMarca(p.marca) + '|' + normStr(p.sku);
-                    custoPor[ch] = Number(p.custo);
+                    custoPor[ch] = custoDaPeca;
                     // Mesma conta do "Preço ML" da aba Preços — preço fixado vence o calculado.
-                    var custoML = p.custo_ml ? Number(p.custo_ml) : Number(p.custo);
+                    var custoML = custoDaPeca;
                     var cfg = markupsML[p.marca] || {};
                     var mk = cfg.markup !== undefined ? cfg.markup : 60;
                     var taxa = cfg.taxa !== undefined ? cfg.taxa : 23;
@@ -10350,7 +10364,11 @@
                 e('p', {className: 'text-slate-500 text-xs mb-4'}, 'Exibindo ' + exibidos.length + ' de ' + filtrados.length + ' produtos'),
                 e('div', {className: 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4'},
                   exibidos.map(function(p) {
-                    var custoML = p.custo_ml ? Number(p.custo_ml) : Number(p.custo);
+                    // Mesma ordem das outras telas: `custo` primeiro. Aqui era o contrário,
+                    // e telas que leem o custo em ordens diferentes foi exatamente o que
+                    // deixou 170 anúncios "sem custo" na aba de promoções.
+                    var custoML = Number(p.custo) > 0 ? Number(p.custo)
+                                : Number(p.custo_ml) > 0 ? Number(p.custo_ml) : 0;
                     var cfg = markupsML[p.marca] || {};
                     var markupML = cfg.markup !== undefined ? cfg.markup : 60;
                     var taxa = cfg.taxa !== undefined ? cfg.taxa : 23;
