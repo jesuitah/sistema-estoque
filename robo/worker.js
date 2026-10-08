@@ -273,12 +273,28 @@ async function enfileirarSemEstoque() {
   for (const [conta, res] of Object.entries(dados)) {
     if (!res || typeof res !== 'object') continue;
     for (const item of res.precisa_acao_manual_full || []) {
-      // Não duplica: se já existe tarefa esperando pra este anúncio, deixa quieto.
-      const { data: ja } = await sb.from('ml_tarefas_robo')
-        .select('id').eq('conta', conta).eq('tipo', 'tirar_do_full')
-        .in('status', ['pendente', 'rodando'])
-        .contains('params', { item_id: item.item_id }).limit(1);
-      if (ja && ja.length) continue;
+      // Não duplica — e "já feito há pouco" também conta.
+      //
+      // Olhar só a fila (pendente/rodando) não bastava: assim que a tarefa virava
+      // 'feito' ela sumia desta checagem, mas o Mercado Livre leva HORAS pra refletir
+      // a saída do Full. A verificação continuava listando o mesmo anúncio na hora
+      // seguinte e a tarefa renascia, de hora em hora, indefinidamente.
+      //
+      // Em 08/10/2026 isso deu 613 execuções para 54 anúncios em 24h — 11 vezes cada,
+      // todas com sucesso, todas desnecessárias. Volume repetido assim é o que faz o ML
+      // começar a recusar por capacidade, como já aconteceu nas promoções.
+      const desdeQuando = new Date(Date.now() - 12 * 3600e3).toISOString();
+      const { data: recentes } = await sb.from('ml_tarefas_robo')
+        .select('status, concluido_em')
+        .eq('conta', conta).eq('tipo', 'tirar_do_full')
+        .contains('params', { item_id: item.item_id })
+        .order('id', { ascending: false }).limit(5);
+      const jaCuidado = (recentes || []).some((t) =>
+        t.status === 'pendente' || t.status === 'rodando'
+        || (t.status === 'feito' && t.concluido_em && t.concluido_em > desdeQuando));
+      // 12 horas: tempo de sobra pro ML se acertar, e ainda permite tentar de novo no
+      // dia seguinte se a saída do Full realmente não tiver pegado.
+      if (jaCuidado) continue;
 
       await sb.from('ml_tarefas_robo').insert({
         conta, tipo: 'tirar_do_full', status: 'pendente',
