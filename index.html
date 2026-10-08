@@ -6324,10 +6324,16 @@
       // inteira fazendo isso: um `useMemo` lá em cima (o índice de custo, linha ~1500)
       // roda durante o corpo do componente, muito antes desta linha — e lia o mapa
       // ainda `undefined`. Função é içada com o corpo junto; `var` só reserva o nome.
+      // A mesma marca escrita de dois jeitos em cadastros diferentes faz o custo "sumir":
+      // a chave não bate e a tela conclui que a peça não tem custo. Foi o que aconteceu
+      // com PERFECT/PERFECT POWER — 57 anúncios sem margem na aba de promoções. Os dados
+      // foram unificados em 08/10/2026; isto aqui fica como rede, pra um cadastro novo
+      // com a grafia antiga não trazer o problema de volta.
       function normMarca(s) {
         var m = normStr(s);
         if (m === 'KINTOP') return 'KK';
         if (m === 'MULTIQUALITA') return 'KQ';
+        if (m === 'PERFECT POWER') return 'PERFECT';
         return m;
       }
 
