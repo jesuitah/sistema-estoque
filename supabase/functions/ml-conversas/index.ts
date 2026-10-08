@@ -54,8 +54,12 @@ async function lerJson(url: string, auth: string) {
   return null;
 }
 
+// Primeiro nome, com a inicial maiúscula. O ML devolve o cadastro como a pessoa digitou
+// — vem "anselmo", "ANSELMO", "AnSelmo" — e isso ia direto pro "Bom dia {nome}" que o
+// comprador lê. A Letícia escreveria "Anselmo".
 function primeiroNome(nome: string | null | undefined) {
-  return String(nome || "").trim().split(/\s+/)[0] || "";
+  const p = String(nome || "").trim().split(/\s+/)[0] || "";
+  return p ? p.charAt(0).toUpperCase() + p.slice(1).toLowerCase() : "";
 }
 
 async function varrer(dias: number) {
