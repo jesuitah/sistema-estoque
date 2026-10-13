@@ -671,7 +671,12 @@
     // devolução por "não serve no meu carro", o motivo campeão nas 3 lojas.
     //
     // Quem envia é o robô, no painel: a API do ML recusa o vendedor INICIAR conversa
-    // (403 blocked_by_conversation_initiated_by_seller_limited em 17 de 30 pedidos).
+    // (403 blocked_by_conversation_initiated_by_seller_limited).
+    //
+    // Atenção pra não repetir o erro de 13/10/2026: esse mesmo status aparece na
+    // CONSULTA da API em pedidos onde o painel mostra o "Iniciar conversa" ativo e a
+    // mensagem sai normalmente. Ele não serve pra decidir se dá ou não pra mandar —
+    // quem decide é o painel.
     function RoboMensagem() {
       var filaSt = useState(null); var fila = filaSt[0]; var setFila = filaSt[1];
       var ocupadoSt = useState(''); var ocupado = ocupadoSt[0]; var setOcupado = ocupadoSt[1];
