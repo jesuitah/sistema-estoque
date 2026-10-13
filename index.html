@@ -3244,7 +3244,24 @@
             var causa = r.detalhe && r.detalhe.cause ? r.detalhe.cause.map(function(c) { return c.message; }).join(' · ') : '';
             throw new Error((r.erro || 'falhou') + (causa ? ': ' + causa : r.detalhe ? ': ' + JSON.stringify(r.detalhe).slice(0, 200) : ''));
           }
-          marcar(it.chave, {ok: r.item_id, compat: r.compat, avisos: r.avisos});
+          // ENVIOS FLEX: o anúncio nasce sem, e ligar NÃO existe na API — é só pelo
+          // painel, por isso vai pro robô (que já sabe fazer: tarefa ligar_flex).
+          //
+          // Apareceu em 09/10/2026, quando ele criou dois anúncios do zero na ERP e o
+          // próprio painel do ML sugeria "Entregue no mesmo dia com o Envios Flex" num
+          // anúncio recém-criado — teve que ligar na mão nos dois.
+          //
+          // Se o anúncio não aceitar Flex, a própria tarefa responde isso e encerra.
+          var avisos = (r.avisos || []).slice();
+          supabase.from('ml_tarefas_robo').insert({
+            conta: conta, tipo: 'ligar_flex', status: 'pendente', criado_por: 'criacao-anuncio',
+            params: {item_id: r.item_id, title: d.titulo, sku_bruto: it.marca + ': ' + it.sku},
+          }).then(function(res) {
+            marcar(it.chave, {ok: r.item_id, compat: r.compat,
+              avisos: avisos.concat([res.error
+                ? '⚠ não consegui pedir o Flex pro robô — ligue no painel'
+                : '🤖 Envios Flex: pedido ao robô'])});
+          });
         }).catch(function(err) { marcar(it.chave, {erro: err.message}); });
       }
 
