@@ -73,12 +73,19 @@ async function enviarMensagem(navegador, pagina, tarefa, accessToken, deps) {
   if (antes.total > 0) {
     return { ok: true, nada_a_fazer: true, motivo: 'a conversa já tinha mensagem' };
   }
-  // Depois que a encomenda é entregue o ML fecha a conversa do lado do vendedor.
-  // Não é falha: é o fim da janela, e a tarefa não tem mais como dar certo.
-  if (antes.substatus && /contact_closed|initiated_by_seller_limited/i.test(antes.substatus)) {
+  // NÃO desistimos por causa do substatus da API.
+  //
+  // A API devolve blocked_by_conversation_initiated_by_seller_limited em pedidos onde
+  // o painel mostra o "Iniciar conversa" ativo e a Letícia manda normalmente (conferido
+  // em 13/10/2026 no pedido 2000018959344254 da KMP, print do painel). Quem manda aqui
+  // é o painel, não a API: o substatus dela vale como aviso, não como veredito.
+  //
+  // O único "não" que respeitamos de verdade é contact_closed — aí a tela mostra
+  // "Conversa desabilitada" e não existe botão nenhum pra clicar.
+  if (antes.substatus && /contact_closed/i.test(antes.substatus)) {
     return {
       ok: true, nada_a_fazer: true,
-      motivo: 'o Mercado Livre não aceita mais iniciar conversa neste pedido',
+      motivo: 'a conversa deste pedido está encerrada no painel',
     };
   }
 
