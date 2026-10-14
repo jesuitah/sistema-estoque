@@ -556,6 +556,7 @@
       var repSt = useState(null); var reputacao = repSt[0]; var setReputacao = repSt[1];
       var ocupadoSt = useState(''); var ocupado = ocupadoSt[0]; var setOcupado = ocupadoSt[1];
       var recadoSt = useState(''); var recado = recadoSt[0]; var setRecado = recadoSt[1];
+      var abaSt = useState('reclamacoes'); var aba = abaSt[0]; var setAba = abaSt[1];
 
       function carregar() {
         supabase.from('ml_conversas').select('*').order('ultima_em', {ascending: false}).limit(400)
@@ -587,19 +588,23 @@
 
       function daLoja(lista, c) { return (lista || []).filter(function(x) { return x.conta === c; }); }
 
-      // Tela 1 — DOIS CARDS NO TOPO, O ROBÔ EMBAIXO (refeita em 14/10/2026)
+      // Tela 1 — NO FORMATO DO PAINEL DO MERCADO LIVRE (refeita em 14/10/2026)
       //
-      // Três versões anteriores foram rejeitadas. O que ele pediu desta vez, com prints
-      // na mão:
-      //   · dois blocos em destaque, um âmbar e um azul: quem espera resposta e as
-      //     reclamações. São as duas perguntas que ele faz ao abrir a tela.
-      //   · da reputação, SÓ reclamações e mediações. "Envios incorretos" e "canceladas
-      //     por você" não interessam aqui — estavam ocupando metade do card à toa.
-      //   · a lista do robô de mensagens vai pro rodapé: é acompanhamento, não decisão.
+      // Quatro versões minhas foram rejeitadas. Na quinta ele mandou prints do painel
+      // do ML e disse pra fazer quase igual, só que melhor. É o que está aqui:
       //
-      // As três lojas ficam DENTRO de cada bloco, uma linha cada. Antes era o contrário
-      // (um card por loja, com tudo dentro) e obrigava a comparar três caixas pra
-      // responder "onde tem gente esperando?".
+      //   · "Para atender" — o card de resumo do ML: um número grande e, embaixo,
+      //     mensagens não lidas e reclamações/mediações. É a primeira coisa da tela
+      //     porque é a única pergunta que importa ao abrir: onde tem trabalho?
+      //   · "Variáveis sobre suas vendas" — o nome que o ML usa. Um card por métrica,
+      //     com a taxa, quantas vendas são, o teto e o recado ("Continue assim!").
+      //   · O robô saiu daqui. O histórico de mensagem enviada não é decisão de
+      //     ninguém, e ele pediu pra tirar: foi pra aba Robô, junto dos outros.
+      //
+      // MEDIAÇÃO NÃO TEM TAXA AQUI. O painel mostra 0,07% de 0,5%, mas a API só
+      // entrega claims, delayed_handling_time e cancellations — conferido em
+      // 14/10/2026 no /users/me da KMP. Mostramos a CONTAGEM real das mediações
+      // abertas, que é dado nosso, em vez de inventar um número que parece oficial.
       if (!loja) {
         var lojas = ['KMP', 'ERP', 'LTS'].map(function(c) {
           var msgs = daLoja(conversas, c);
@@ -616,6 +621,8 @@
             vendas: rep && rep.vendas,
             taxa: claims && claims.taxa,
             limite: claims && claims.limite,
+            // "São 8 das suas vendas" — o mesmo texto do painel.
+            reclamacoesNoPeriodo: claims && claims.qtd,
           };
         });
         var totalEsperando = lojas.reduce(function(s, l) { return s + l.esperando; }, 0);
@@ -631,29 +638,29 @@
           recado && e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200'}, recado),
 
           e('div', {},
-            e(Secao, {titulo: 'Precisa de você',
-              descricao: 'o que não pode esperar: comprador aguardando resposta e reclamação em aberto nas 3 lojas'}),
-            e('div', {className: 'grid gap-4 lg:grid-cols-2 items-start'},
-              e(BlocoEsperando, {lojas: lojas, total: totalEsperando, onAbrir: setLoja}),
-              e(BlocoReclamacoes, {lojas: lojas, total: totalReclamacoes,
-                mediacoes: totalMediacoes, onAbrir: setLoja}))),
+            e(Secao, {titulo: 'Para atender',
+              descricao: 'uma loja por card — o número é o que está esperando alguém agora'}),
+            e('div', {className: 'grid gap-4 md:grid-cols-3 items-start'},
+              lojas.map(function(l) {
+                return e(CardParaAtender, {key: l.conta, l: l,
+                  onAbrir: function() { setLoja(l.conta); }});
+              }))),
 
           e('div', {},
-            e(Secao, {titulo: 'Automático',
-              descricao: 'o que o robô faz sozinho — você só acompanha'}),
-            e(RoboMensagem)));
+            e(Secao, {titulo: 'Variáveis sobre suas vendas',
+              descricao: 'os últimos 60 dias, do jeito que o Mercado Livre conta'}),
+            e('div', {className: 'grid gap-4 md:grid-cols-3 items-start'},
+              lojas.map(function(l) {
+                return e(CardMetricas, {key: l.conta, l: l});
+              }))));
       }
 
-      // Tela 2: dentro da loja, as mensagens e as reclamações dela.
+      // Tela 2: dentro da loja, uma aba por assunto — igual ao painel do ML.
       var msgs = daLoja(conversas, loja);
       var esperando = msgs.filter(function(x) { return x.esperando; });
       var abertas = msgs.filter(function(x) { return !x.esperando && x.status === 'active'; });
       var fechadas = msgs.filter(function(x) { return x.status !== 'active'; });
       var recl = daLoja(reclamacoes, loja);
-      // Só os tipos que têm algo hoje viram coluna — coluna vazia só rouba espaço.
-      var blocosComItem = BLOCOS_RECLAMACAO.map(function(b) {
-        return {titulo: b.titulo, cor: b.cor, nota: b.nota, itens: recl.filter(b.filtro)};
-      }).filter(function(b) { return b.itens.length; });
 
       return e('div', {className: 'space-y-4 max-w-7xl'},
         e('div', {className: 'flex flex-wrap items-center gap-3'},
@@ -665,37 +672,27 @@
             ocupado || '🔄 Atualizar')),
         recado && e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200'}, recado),
 
-        // CONVERSAS PRIMEIRO. Aqui ela ainda fala com o comprador — é a única janela que
-        // existe, e ela fecha sozinha por silêncio. Reclamação já aberta é com o
-        // assistente do ML, então pode esperar a rolagem.
-        e('div', {},
-          e(Secao, {titulo: 'Conversas', contagem: msgs.length,
-            descricao: 'a única janela em que dá pra falar com o comprador — depois que vira reclamação, quem responde é o assistente do Mercado Livre'}),
-          e('div', {className: 'grid gap-4 items-start lg:grid-cols-3'},
-            e(ColunaConversas, {titulo: '🔔 Esperando resposta', cor: 'text-amber-300',
-              itens: esperando, vazio: 'Ninguém esperando.', onMudou: carregar}),
-            e(ColunaConversas, {titulo: '💬 Abertas', cor: 'text-slate-300',
-              itens: abertas, vazio: 'Nenhuma.', onMudou: carregar}),
-            e(ColunaConversas, {titulo: '🔒 Fechadas', cor: 'text-slate-500',
-              itens: fechadas, vazio: 'Nenhuma.', onMudou: carregar}))),
+        // ABAS, COMO NO PAINEL DO MERCADO LIVRE
+        //
+        // Lá são três: "Reclamações e mediações", "Mensagens" e "Devoluções", cada uma
+        // com o seu contador. Antes isto era tudo na mesma tela, uma coisa embaixo da
+        // outra, e dava rolagem sem fim. A Letícia trabalha um assunto por vez.
+        e('div', {className: 'flex flex-wrap gap-2 border-b border-slate-700 pb-2'},
+          ABAS_POSVENDA.map(function(a) {
+            var n = a.conta({msgs: msgs, esperando: esperando, recl: recl});
+            var atual = aba === a.id;
+            return e('button', {key: a.id, onClick: function() { setAba(a.id); },
+              className: 'px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 '
+                + (atual ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-slate-200')},
+              a.nome,
+              n > 0 && e('span', {className: 'px-1.5 rounded-full text-[10px] '
+                + (atual ? 'bg-amber-600 text-white' : 'bg-slate-700 text-slate-300')}, n));
+          })),
 
-        // Cada tipo é um trabalho diferente: na mediação ela não fala mais com o
-        // comprador e espera encerrar; na devolução ainda dá pra agir. Lado a lado dá
-        // pra bater o olho e ver o todo sem rolar a tela.
-        // Classe inteira, não montada na mão: o Tailwind do CDN não enxerga
-        // 'lg:grid-cols-' + n e a coluna simplesmente não sairia.
-        e('div', {},
-          e(Secao, {titulo: 'Reclamações', contagem: recl.length,
-            descricao: 'separadas por tipo, porque o trabalho de cada uma é diferente'}),
-          !blocosComItem.length
-            ? e('p', {className: 'text-xs text-emerald-300'}, '🎉 Nenhuma reclamação aberta nesta loja.')
-            : e('div', {className: 'grid gap-4 items-start ' + COLUNAS[Math.min(3, blocosComItem.length)]},
-                blocosComItem.map(function(b) {
-                  return e('div', {key: b.titulo, className: 'bg-slate-800 border border-slate-700 rounded-xl p-3'},
-                    e('h4', {className: 'text-sm font-bold mb-1 ' + b.cor}, b.titulo + ' (' + b.itens.length + ')'),
-                    b.nota && e('p', {className: 'text-[11px] text-slate-500 mb-2'}, b.nota),
-                    b.itens.map(function(r) { return e(CartaoReclamacao, {key: r.claim_id, r: r}); }));
-                }))));
+        aba === 'reclamacoes' ? e(PainelReclamacoes, {recl: recl})
+        : aba === 'devolucoes' ? e(PainelReclamacoes, {recl: recl, so: 'returns'})
+        : e(PainelMensagens, {esperando: esperando, abertas: abertas,
+            fechadas: fechadas, onMudou: carregar}));
     }
 
 
@@ -717,6 +714,7 @@
       var filaSt = useState(null); var fila = filaSt[0]; var setFila = filaSt[1];
       var ocupadoSt = useState(''); var ocupado = ocupadoSt[0]; var setOcupado = ocupadoSt[1];
       var recadoSt = useState(''); var recado = recadoSt[0]; var setRecado = recadoSt[1];
+      var verFalhasSt = useState(false); var verFalhas = verFalhasSt[0]; var setVerFalhas = verFalhasSt[1];
 
       function carregar() {
         supabase.from('ml_tarefas_robo')
@@ -774,45 +772,88 @@
 
         recado && e('div', {className: 'text-xs text-slate-200 bg-slate-900 rounded px-2 py-1'}, recado),
 
-        e('div', {className: 'flex flex-wrap gap-4 text-xs border-t border-slate-700 pt-2'},
+        // SÓ O PLACAR, SEM O HISTÓRICO.
+        //
+        // Aqui havia a lista das últimas 20 mensagens enviadas. Ninguém decidia nada
+        // com ela — "o Antônio recebeu a mensagem" não pede ação nenhuma. O Matheus
+        // mandou tirar em 14/10/2026. O que falhou continua aparecendo, porque isso sim
+        // precisa de gente.
+        e('div', {className: 'flex flex-wrap items-center gap-4 text-xs border-t border-slate-700 pt-2'},
           e('span', {className: 'text-emerald-300'}, '✓ ' + feitas.length + ' enviadas'),
-          falhas.length > 0 && e('span', {className: 'text-red-300'}, '⚠ ' + falhas.length + ' falharam'),
+          falhas.length > 0 && e('button', {
+            onClick: function() { setVerFalhas(!verFalhas); },
+            className: 'text-red-300 underline'},
+            '⚠ ' + falhas.length + ' falharam' + (verFalhas ? ' — esconder' : ' — ver')),
           e('span', {className: 'ml-auto text-slate-500'}, 'o robô precisa estar ligado no PC')),
 
-        fila === null ? e('p', {className: 'text-xs text-slate-500'}, 'Carregando...')
-        : !fila.length ? e('p', {className: 'text-xs text-slate-500'},
-            'Nenhuma mensagem ainda. Clique em "Conferir quais" pra ver quem receberia.')
-        : e('div', {className: 'space-y-1 max-h-64 overflow-y-auto'},
-            fila.slice(0, 20).map(function(t) {
-              var p = t.params || {};
-              var cor = t.status === 'feito' ? 'text-emerald-300'
-                : t.status === 'falhou' ? 'text-red-300' : 'text-amber-300';
-              return e('div', {key: t.id, className: 'flex flex-wrap items-center gap-2 text-[11px] border-t border-slate-700 pt-1'},
-                e('span', {className: 'px-1.5 rounded bg-slate-700 text-slate-200 font-bold'}, t.conta),
-                e('span', {className: 'text-white font-bold'}, p.nome || '—'),
-                e('span', {className: 'text-slate-400 flex-1 truncate'}, p.item_title || ''),
-                e('span', {className: cor},
-                  t.status === 'feito' ? 'enviada'
-                  : t.status === 'falhou' ? ((t.erro || 'falhou').slice(0, 40))
-                  : 'na fila'));
-            })));
+        verFalhas && falhas.length > 0 && e('div', {className: 'space-y-1 max-h-48 overflow-y-auto'},
+          falhas.slice(0, 20).map(function(t) {
+            var p = t.params || {};
+            return e('div', {key: t.id, className: 'flex flex-wrap items-center gap-2 text-[11px] border-t border-slate-700 pt-1'},
+              e('span', {className: 'px-1.5 rounded bg-slate-700 text-slate-200 font-bold'}, t.conta),
+              e('span', {className: 'text-white font-bold'}, p.nome || '—'),
+              e('span', {className: 'text-slate-400 flex-1 truncate'}, p.item_title || ''),
+              e('span', {className: 'text-red-300'}, (t.erro || 'falhou').slice(0, 40)));
+          })));
     }
 
-    var COLUNAS = {0: '', 1: '', 2: 'lg:grid-cols-2', 3: 'lg:grid-cols-3'};
 
-    // Um bloco por tipo, na ordem do que mais pesa. A mediação vem primeiro porque é a
-    // que o Mercado Livre decide — e perder mediação custa reputação.
-    var BLOCOS_RECLAMACAO = [
-      {titulo: '⚖️ Mediações', cor: 'text-red-300',
-       nota: 'o Mercado Livre está decidindo — a conversa aqui é com o assistente dele, não com o comprador',
-       filtro: function(r) { return r.tipo === 'mediations'; }},
-      {titulo: '↩️ Devoluções', cor: 'text-amber-300',
-       filtro: function(r) { return r.tipo === 'returns'; }},
-      {titulo: '✖️ Cancelamentos', cor: 'text-slate-300',
-       filtro: function(r) { return r.tipo === 'cancel_purchase' || r.tipo === 'cancel_sale'; }},
-      {titulo: '📦 Full', cor: 'text-slate-300',
-       filtro: function(r) { return r.tipo === 'fulfillment'; }},
+    // As abas de dentro da loja, com os mesmos nomes do painel do Mercado Livre.
+    var ABAS_POSVENDA = [
+      {id: 'reclamacoes', nome: 'Reclamações e mediações',
+       conta: function(d) { return d.recl.length; }},
+      {id: 'mensagens', nome: 'Mensagens',
+       conta: function(d) { return d.esperando.length; }},
+      {id: 'devolucoes', nome: 'Devoluções',
+       conta: function(d) { return d.recl.filter(function(r) { return r.tipo === 'returns'; }).length; }},
     ];
+
+    // PAINEL DE RECLAMAÇÕES — "Próximas a serem atendidas" e "Atendidas", como no ML.
+    //
+    // A divisão não é cosmética: na mediação o Mercado Livre já assumiu e a Letícia só
+    // espera o desfecho; nas outras ainda dá pra agir. Separar diz o que fazer com cada
+    // uma sem precisar abrir.
+    function PainelReclamacoes(props) {
+      var lista = props.so
+        ? props.recl.filter(function(r) { return r.tipo === props.so; })
+        : props.recl;
+      var emMediacao = lista.filter(function(r) { return r.tipo === 'mediations'; });
+      var resto = lista.filter(function(r) { return r.tipo !== 'mediations'; });
+
+      if (!lista.length) {
+        return e('p', {className: 'text-xs text-emerald-300 py-6'},
+          props.so ? '🎉 Nenhuma devolução aberta nesta loja.'
+                   : '🎉 Nenhuma reclamação aberta nesta loja.');
+      }
+      return e('div', {className: 'grid gap-4 items-start lg:grid-cols-2'},
+        resto.length > 0 && e(CaixaReclamacao, {
+          titulo: 'Próximas a serem atendidas', itens: resto,
+          nota: 'ainda dá pra agir nestas'}),
+        emMediacao.length > 0 && e(CaixaReclamacao, {
+          titulo: 'Em mediação', itens: emMediacao,
+          nota: 'o Mercado Livre assumiu — aqui a conversa é com o assistente dele, não com o comprador'}));
+    }
+
+    function CaixaReclamacao(props) {
+      return e('div', {className: 'bg-slate-800 border border-slate-700 rounded-xl p-4'},
+        e('div', {className: 'flex items-baseline gap-2'},
+          e('h4', {className: 'text-sm font-bold text-white'}, props.titulo),
+          e('span', {className: 'text-xs text-slate-500'}, props.itens.length)),
+        props.nota && e('p', {className: 'text-[11px] text-slate-500 mt-0.5 mb-2'}, props.nota),
+        e('div', {className: 'space-y-2'},
+          props.itens.map(function(r) { return e(CartaoReclamacao, {key: r.claim_id, r: r}); })));
+    }
+
+    // PAINEL DE MENSAGENS — quem espera primeiro, sempre.
+    function PainelMensagens(props) {
+      return e('div', {className: 'grid gap-4 items-start lg:grid-cols-3'},
+        e(ColunaConversas, {titulo: '🔔 Esperando resposta', cor: 'text-amber-300',
+          itens: props.esperando, vazio: 'Ninguém esperando.', onMudou: props.onMudou}),
+        e(ColunaConversas, {titulo: '💬 Abertas', cor: 'text-slate-300',
+          itens: props.abertas, vazio: 'Nenhuma.', onMudou: props.onMudou}),
+        e(ColunaConversas, {titulo: '🔒 Fechadas', cor: 'text-slate-500',
+          itens: props.fechadas, vazio: 'Nenhuma.', onMudou: props.onMudou}));
+    }
 
     // Uma coluna de conversas. As três são iguais, só muda o título e a lista — e a
     // contagem no título é o que ela olha pra saber onde está o trabalho.
@@ -852,70 +893,82 @@
     // quando não há nada a fazer, âmbar quando precisa de alguém. O Matheus mandou um
     // print com um bloco amarelo e um azul, mas era só exemplo de organização: "não se
     // apega as cores, mantém as nossas cores padrões".
-    function BlocoTopo(props) {
+    //
+    // "PARA ATENDER" — o card de resumo do painel do Mercado Livre, uma loja cada.
+    // Número grande, e embaixo as duas filas que formam esse número. O ponto vermelho
+    // ao lado do nome é o mesmo sinal que o ML usa: tem coisa esperando aqui.
+    function CardParaAtender(props) {
+      var l = props.l;
+      var total = l.esperando + l.reclamacoes;
+      return e('button', {onClick: props.onAbrir,
+        className: 'w-full text-left bg-slate-800 border border-slate-700 hover:border-slate-500 '
+          + 'rounded-xl p-4 transition-colors'},
+        e('div', {className: 'flex items-center gap-2'},
+          e('span', {className: 'text-sm font-black text-white'}, l.conta),
+          total > 0 && e('span', {className: 'w-2 h-2 rounded-full bg-red-500'}),
+          l.categoria && e('span', {className: 'text-[10px] text-slate-500 truncate'},
+            'MercadoLíder ' + l.categoria.charAt(0).toUpperCase() + l.categoria.slice(1)),
+          e('span', {className: 'ml-auto text-slate-500 text-xs'}, '›')),
+
+        e('div', {className: 'mt-2 mb-3'},
+          e('div', {className: 'text-3xl font-black ' + (total ? 'text-amber-300' : 'text-slate-600')}, total),
+          e('div', {className: 'text-[11px] text-slate-500'},
+            total ? 'para atender' : 'nada para atender')),
+
+        e('div', {className: 'space-y-1 border-t border-slate-700 pt-2'},
+          e(LinhaFila, {rotulo: 'Mensagens não lidas', n: l.esperando}),
+          e(LinhaFila, {rotulo: 'Reclamações e mediações', n: l.reclamacoes,
+            detalhe: l.mediacoes ? l.mediacoes + ' em mediação' : null})));
+    }
+
+    // Uma linha "o que é · quantos". Zerado fica cinza e discreto: o olho tem que cair
+    // no que tem número.
+    function LinhaFila(props) {
+      return e('div', {className: 'flex items-center gap-2 text-xs'},
+        e('span', {className: props.n ? 'text-slate-200' : 'text-slate-500'}, props.rotulo),
+        props.detalhe && e('span', {className: 'text-[10px] text-red-300'}, '· ' + props.detalhe),
+        e('span', {className: 'ml-auto font-bold ' + (props.n ? 'text-amber-300' : 'text-slate-600')},
+          props.n));
+    }
+
+    // "VARIÁVEIS SOBRE SUAS VENDAS" — as métricas, no formato do painel: a taxa, quantas
+    // vendas são, o teto e o recado. Só reclamações e mediações: ele disse que envios
+    // incorretos e canceladas não interessam nesta tela.
+    function CardMetricas(props) {
+      var l = props.l;
+      var ok = l.taxa == null || l.taxa <= l.limite;
       return e('div', {className: 'bg-slate-800 border border-slate-700 rounded-xl p-4'},
-        e('div', {className: 'flex items-baseline gap-2 mb-3'},
-          e('span', {className: 'text-3xl font-black ' + (props.total ? 'text-amber-300' : 'text-slate-600')},
-            props.total),
-          e('div', {},
-            e('div', {className: 'text-sm font-bold text-white'}, props.titulo),
-            e('div', {className: 'text-[11px] text-slate-500'}, props.legenda))),
-        e('div', {className: 'space-y-1'}, props.linhas));
-    }
+        e('div', {className: 'text-sm font-black text-white mb-3'}, l.conta),
 
-    // 🔔 QUEM ESTÁ ESPERANDO RESPOSTA
-    //
-    // A pergunta mais urgente da tela. A janela de conversa com o comprador fecha
-    // sozinha por silêncio — e depois que vira reclamação, a Letícia não fala mais com
-    // ele. Deixar passar aqui custa reputação lá na frente.
-    function BlocoEsperando(props) {
-      return e(BlocoTopo, {
-        total: props.total,
-        titulo: '🔔 Esperando resposta',
-        legenda: props.total ? 'compradores aguardando você' : 'ninguém aguardando',
-        linhas: props.lojas.map(function(l) {
-          return e('button', {key: l.conta, onClick: function() { props.onAbrir(l.conta); },
-            className: 'w-full flex items-center gap-2 text-xs px-2 py-1.5 rounded hover:bg-slate-700 text-left'},
-            e('span', {className: 'px-1.5 rounded bg-slate-700 text-slate-200 font-bold'}, l.conta),
-            e('span', {className: 'font-bold ' + (l.esperando ? 'text-amber-300' : 'text-slate-500')},
-              l.esperando + ' esperando'),
-            e('span', {className: 'ml-auto text-slate-500'}, l.conversas + ' conversas'),
-            e('span', {className: 'text-slate-500'}, '→'));
-        })});
-    }
+        e('div', {className: 'pb-3 border-b border-slate-700'},
+          e('div', {className: 'flex items-baseline gap-2'},
+            e('span', {className: 'text-xs text-slate-400'}, 'Reclamações'),
+            e('span', {className: ok ? 'text-emerald-400 text-xs' : 'text-red-400 text-xs'}, ok ? '●' : '▲'),
+            e('span', {className: 'text-xl font-black ' + (ok ? 'text-white' : 'text-red-300')},
+              l.taxa == null ? '—' : (l.taxa * 100).toFixed(2).replace('.', ',') + '%')),
+          e('div', {className: 'text-[11px] text-slate-500'},
+            l.reclamacoesNoPeriodo != null
+              ? 'São ' + l.reclamacoesNoPeriodo + ' das suas vendas'
+              : 'nos últimos 60 dias'),
+          e('div', {className: 'text-[11px] ' + (ok ? 'text-emerald-400' : 'text-red-300')},
+            l.limite == null ? ''
+              : ok ? 'Abaixo de ' + (l.limite * 100).toFixed(1).replace('.', ',') + '% permitido'
+                   : 'ACIMA do limite de ' + (l.limite * 100).toFixed(1).replace('.', ',') + '%')),
 
-    // ⚖️ RECLAMAÇÕES E MEDIAÇÕES
-    //
-    // Da reputação do ML aparece SÓ a taxa de reclamações: é a única métrica desta tela
-    // que ele acompanha. "Envios incorretos" e "canceladas por você" saíram em
-    // 14/10/2026 a pedido dele — ocupavam metade do card e ninguém olhava.
-    //
-    // A mediação vem destacada porque é a que o Mercado Livre decide: perder mediação
-    // bate na reputação e não tem recurso depois.
-    function BlocoReclamacoes(props) {
-      return e(BlocoTopo, {
-        total: props.total,
-        titulo: '⚖️ Reclamações abertas',
-        legenda: props.mediacoes
-          ? props.mediacoes + ' em mediação — o ML está decidindo'
-          : 'nenhuma em mediação',
-        linhas: props.lojas.map(function(l) {
-          // Verde enquanto estiver abaixo do teto do ML (1%); vermelho quando passar.
-          var ok = l.taxa == null || l.taxa <= l.limite;
-          return e('button', {key: l.conta, onClick: function() { props.onAbrir(l.conta); },
-            className: 'w-full flex items-center gap-2 text-xs px-2 py-1.5 rounded hover:bg-slate-700 text-left'},
-            e('span', {className: 'px-1.5 rounded bg-slate-700 text-slate-200 font-bold'}, l.conta),
-            e('span', {className: 'font-bold ' + (l.reclamacoes ? 'text-amber-300' : 'text-slate-500')},
-              l.reclamacoes + ' aberta' + (l.reclamacoes === 1 ? '' : 's')),
-            l.mediacoes > 0 && e('span', {className: 'text-red-300'}, '· ' + l.mediacoes + ' em mediação'),
-            e('span', {className: 'ml-auto flex items-center gap-1'},
-              e('span', {className: ok ? 'text-emerald-400' : 'text-red-400'}, ok ? '●' : '▲'),
-              e('span', {className: 'font-bold ' + (ok ? 'text-white' : 'text-red-300')},
-                l.taxa == null ? '—' : (l.taxa * 100).toFixed(2).replace('.', ',') + '%'),
-              e('span', {className: 'text-slate-500'},
-                l.limite == null ? '' : 'de ' + (l.limite * 100).toFixed(1).replace('.', ',') + '%')),
-            e('span', {className: 'text-slate-500'}, '→'));
-        })});
+        e('div', {className: 'pt-3'},
+          e('div', {className: 'flex items-baseline gap-2'},
+            e('span', {className: 'text-xs text-slate-400'}, 'Mediações'),
+            e('span', {className: l.mediacoes ? 'text-amber-400 text-xs' : 'text-emerald-400 text-xs'},
+              l.mediacoes ? '▲' : '●'),
+            e('span', {className: 'text-xl font-black ' + (l.mediacoes ? 'text-amber-300' : 'text-white')},
+              l.mediacoes)),
+          // A taxa oficial de mediação o ML não entrega pela API — só claims, envios e
+          // cancelamentos. Mostrar a contagem real é honesto; inventar taxa, não.
+          e('div', {className: 'text-[11px] text-slate-500'}, 'em aberto agora'),
+          e('div', {className: 'text-[11px] text-slate-600'}, 'o ML não dá a taxa pela API')),
+
+        e('div', {className: 'text-[11px] text-slate-600 mt-3 pt-2 border-t border-slate-700'},
+          (l.vendas || 0) + ' vendas nos últimos 60 dias'));
     }
 
     // Os motivos vêm do ML em inglês. Em português dá pra decidir o que fazer — e dois
@@ -8289,6 +8342,15 @@
                 ),
                 rotinas.map(linhaDaRotina)
               ),
+
+              // 3b. O ROBÔ DA MENSAGEM DE APLICAÇÃO
+              //
+              // Morava na aba Pós-venda, com o histórico de tudo que já saiu. O Matheus
+              // mandou tirar de lá em 14/10/2026: "esse histórico de mensagens
+              // automáticas enviadas pelo robô é até desnecessário ficar aparecendo —
+              // deixa o botão do robô, inclusive pode ser na aba do próprio robô".
+              // Aqui é o lugar dele: é rotina de robô, igual às de cima.
+              e(RoboMensagem),
 
               // 4. PROMOÇÕES, POR ÚLTIMO E COMO UM BOTÃO SÓ
               //
