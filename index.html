@@ -587,27 +587,61 @@
 
       function daLoja(lista, c) { return (lista || []).filter(function(x) { return x.conta === c; }); }
 
-      // Tela 1: um card por loja. Ele pediu assim — a lista única das 3 juntas ficou confusa.
+      // Tela 1 — DOIS CARDS NO TOPO, O ROBÔ EMBAIXO (refeita em 14/10/2026)
+      //
+      // Três versões anteriores foram rejeitadas. O que ele pediu desta vez, com prints
+      // na mão:
+      //   · dois blocos em destaque, um âmbar e um azul: quem espera resposta e as
+      //     reclamações. São as duas perguntas que ele faz ao abrir a tela.
+      //   · da reputação, SÓ reclamações e mediações. "Envios incorretos" e "canceladas
+      //     por você" não interessam aqui — estavam ocupando metade do card à toa.
+      //   · a lista do robô de mensagens vai pro rodapé: é acompanhamento, não decisão.
+      //
+      // As três lojas ficam DENTRO de cada bloco, uma linha cada. Antes era o contrário
+      // (um card por loja, com tudo dentro) e obrigava a comparar três caixas pra
+      // responder "onde tem gente esperando?".
       if (!loja) {
-        return e('div', {className: 'space-y-4 max-w-5xl'},
+        var lojas = ['KMP', 'ERP', 'LTS'].map(function(c) {
+          var msgs = daLoja(conversas, c);
+          var recl = daLoja(reclamacoes, c);
+          var rep = (reputacao || []).filter(function(x) { return x.conta === c; })[0];
+          var claims = rep && (rep.indicadores || []).filter(function(i) { return i.id === 'claims'; })[0];
+          return {
+            conta: c,
+            esperando: msgs.filter(function(x) { return x.esperando; }).length,
+            conversas: msgs.length,
+            reclamacoes: recl.length,
+            mediacoes: recl.filter(function(x) { return x.tipo === 'mediations'; }).length,
+            categoria: rep && rep.categoria,
+            vendas: rep && rep.vendas,
+            taxa: claims && claims.taxa,
+            limite: claims && claims.limite,
+          };
+        });
+        var totalEsperando = lojas.reduce(function(s, l) { return s + l.esperando; }, 0);
+        var totalReclamacoes = lojas.reduce(function(s, l) { return s + l.reclamacoes; }, 0);
+        var totalMediacoes = lojas.reduce(function(s, l) { return s + l.mediacoes; }, 0);
+
+        return e('div', {className: 'space-y-4 max-w-6xl'},
           e('div', {className: 'flex flex-wrap items-center gap-3'},
             e('h2', {className: 'text-lg font-bold'}, '💬 Pós-venda'),
             e('button', {onClick: atualizar, disabled: !!ocupado,
               className: 'ml-auto px-3 py-1.5 rounded-lg text-xs font-bold ' + (ocupado ? 'bg-slate-700 text-slate-400' : 'bg-blue-700 hover:bg-blue-600 text-white')},
               ocupado || '🔄 Atualizar')),
           recado && e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200'}, recado),
-          e(RoboMensagem),
-          e('div', {className: 'grid gap-4 md:grid-cols-3'},
-            ['KMP', 'ERP', 'LTS'].map(function(c) {
-              var msgs = daLoja(conversas, c);
-              var esperando = msgs.filter(function(x) { return x.esperando; }).length;
-              var recl = daLoja(reclamacoes, c);
-              var mediacoes = recl.filter(function(x) { return x.tipo === 'mediations'; }).length;
-              var rep = (reputacao || []).filter(function(x) { return x.conta === c; })[0];
-              return e(CardLoja, {key: c, conta: c, esperando: esperando, mensagens: msgs.length,
-                reclamacoes: recl.length, mediacoes: mediacoes, rep: rep,
-                onAbrir: function() { setLoja(c); }});
-            })));
+
+          e('div', {},
+            e(Secao, {titulo: 'Precisa de você',
+              descricao: 'o que não pode esperar: comprador aguardando resposta e reclamação em aberto nas 3 lojas'}),
+            e('div', {className: 'grid gap-4 lg:grid-cols-2 items-start'},
+              e(BlocoEsperando, {lojas: lojas, total: totalEsperando, onAbrir: setLoja}),
+              e(BlocoReclamacoes, {lojas: lojas, total: totalReclamacoes,
+                mediacoes: totalMediacoes, onAbrir: setLoja}))),
+
+          e('div', {},
+            e(Secao, {titulo: 'Automático',
+              descricao: 'o que o robô faz sozinho — você só acompanha'}),
+            e(RoboMensagem)));
       }
 
       // Tela 2: dentro da loja, as mensagens e as reclamações dela.
@@ -631,37 +665,39 @@
             ocupado || '🔄 Atualizar')),
         recado && e('div', {className: 'bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200'}, recado),
 
+        // CONVERSAS PRIMEIRO. Aqui ela ainda fala com o comprador — é a única janela que
+        // existe, e ela fecha sozinha por silêncio. Reclamação já aberta é com o
+        // assistente do ML, então pode esperar a rolagem.
+        e('div', {},
+          e(Secao, {titulo: 'Conversas', contagem: msgs.length,
+            descricao: 'a única janela em que dá pra falar com o comprador — depois que vira reclamação, quem responde é o assistente do Mercado Livre'}),
+          e('div', {className: 'grid gap-4 items-start lg:grid-cols-3'},
+            e(ColunaConversas, {titulo: '🔔 Esperando resposta', cor: 'text-amber-300',
+              itens: esperando, vazio: 'Ninguém esperando.', onMudou: carregar}),
+            e(ColunaConversas, {titulo: '💬 Abertas', cor: 'text-slate-300',
+              itens: abertas, vazio: 'Nenhuma.', onMudou: carregar}),
+            e(ColunaConversas, {titulo: '🔒 Fechadas', cor: 'text-slate-500',
+              itens: fechadas, vazio: 'Nenhuma.', onMudou: carregar}))),
+
         // Cada tipo é um trabalho diferente: na mediação ela não fala mais com o
         // comprador e espera encerrar; na devolução ainda dá pra agir. Lado a lado dá
         // pra bater o olho e ver o todo sem rolar a tela.
         // Classe inteira, não montada na mão: o Tailwind do CDN não enxerga
         // 'lg:grid-cols-' + n e a coluna simplesmente não sairia.
-        e('div', {className: 'grid gap-4 items-start ' + COLUNAS[Math.min(3, blocosComItem.length)]},
-          blocosComItem.map(function(b) {
-            return e('div', {key: b.titulo, className: 'bg-slate-900 bg-opacity-50 rounded-xl p-3'},
-              e('h3', {className: 'text-sm font-bold mb-1 ' + b.cor}, b.titulo + ' (' + b.itens.length + ')'),
-              b.nota && e('p', {className: 'text-[11px] text-slate-500 mb-2'}, b.nota),
-              b.itens.map(function(r) { return e(CartaoReclamacao, {key: r.claim_id, r: r}); }));
-          })),
-
-        // Daqui pra baixo é outro assunto: aqui ela ainda fala com o comprador.
-        e('div', {className: 'border-t border-slate-700 pt-4 mt-2 grid gap-4 items-start lg:grid-cols-3'},
-          e('div', {className: 'bg-slate-900 bg-opacity-50 rounded-xl p-3'},
-            e('h3', {className: 'text-sm font-bold text-emerald-300 mb-2'}, '🔔 Esperando resposta (' + esperando.length + ')'),
-            !esperando.length ? e('p', {className: 'text-xs text-slate-500'}, 'Ninguém esperando.')
-              : esperando.map(function(c) { return e(CartaoConversa, {key: c.pack_id, c: c, onMudou: carregar}); })),
-          e('div', {className: 'bg-slate-900 bg-opacity-50 rounded-xl p-3'},
-            e('h3', {className: 'text-sm font-bold text-slate-300 mb-2'}, '💬 Conversas abertas (' + abertas.length + ')'),
-            !abertas.length ? e('p', {className: 'text-xs text-slate-500'}, 'Nenhuma.')
-              : abertas.map(function(c) { return e(CartaoConversa, {key: c.pack_id, c: c, onMudou: carregar}); })),
-          e('div', {className: 'bg-slate-900 bg-opacity-50 rounded-xl p-3'},
-            e('h3', {className: 'text-sm font-bold text-slate-500 mb-2'}, '🔒 Fechadas (' + fechadas.length + ')'),
-            !fechadas.length ? e('p', {className: 'text-xs text-slate-500'}, 'Nenhuma.')
-              : fechadas.map(function(c) { return e(CartaoConversa, {key: c.pack_id, c: c, onMudou: carregar}); }))));
+        e('div', {},
+          e(Secao, {titulo: 'Reclamações', contagem: recl.length,
+            descricao: 'separadas por tipo, porque o trabalho de cada uma é diferente'}),
+          !blocosComItem.length
+            ? e('p', {className: 'text-xs text-emerald-300'}, '🎉 Nenhuma reclamação aberta nesta loja.')
+            : e('div', {className: 'grid gap-4 items-start ' + COLUNAS[Math.min(3, blocosComItem.length)]},
+                blocosComItem.map(function(b) {
+                  return e('div', {key: b.titulo, className: 'bg-slate-800 border border-slate-700 rounded-xl p-3'},
+                    e('h4', {className: 'text-sm font-bold mb-1 ' + b.cor}, b.titulo + ' (' + b.itens.length + ')'),
+                    b.nota && e('p', {className: 'text-[11px] text-slate-500 mb-2'}, b.nota),
+                    b.itens.map(function(r) { return e(CartaoReclamacao, {key: r.claim_id, r: r}); }));
+                }))));
     }
 
-    // Os mesmos nomes que o ML usa no painel dele, pra conferir lado a lado.
-    var NOME_INDICADOR = {claims: 'Reclamações', envios: 'Envios incorretos', cancel: 'Canceladas por você'};
 
     // ── ROBÔ DA MENSAGEM DE APLICAÇÃO ────────────────────────────────────────────
     //
@@ -714,26 +750,34 @@
       var falhas = (fila || []).filter(function(t) { return t.status === 'falhou'; });
 
       return e('div', {className: 'bg-slate-800 border border-slate-700 rounded-xl p-4 space-y-3'},
-        e('div', {className: 'flex flex-wrap items-center gap-2'},
-          e('h3', {className: 'text-sm font-bold text-white'}, '🤖 Confirmação de aplicação'),
-          e('span', {className: 'text-[11px] text-slate-400'}, 'pede veículo / ano / motor nas vendas que não são Full'),
-          e('button', {onClick: function() { procurar(true); }, disabled: !!ocupado,
-            className: 'ml-auto px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-700 hover:bg-slate-600 text-slate-200'},
-            'Conferir quais'),
-          e('button', {onClick: function() {
-              if (!confirm('Colocar na fila do robô as mensagens de confirmação de aplicação?\n\nO robô envia pelo painel, uma por vez. Pedido Full e quem já tem conversa ficam de fora.')) return;
-              procurar(false);
-            }, disabled: !!ocupado,
-            className: 'px-3 py-1.5 rounded-lg text-xs font-bold ' + (ocupado ? 'bg-slate-700 text-slate-400' : 'bg-emerald-700 hover:bg-emerald-600 text-white')},
-            ocupado || 'Mandar pro robô')),
+        e('div', {className: 'flex flex-wrap items-start gap-2'},
+          e('div', {className: 'flex-1 min-w-[16rem]'},
+            e('div', {className: 'flex flex-wrap items-center gap-2'},
+              e(Etiqueta, {cor: 'bg-amber-900 text-amber-200'}, 'Mercado Livre'),
+              e(Etiqueta, {cor: 'bg-blue-900 text-blue-200'}, 'Automático'),
+              e(Etiqueta, {cor: pendentes.length ? 'bg-amber-900 text-amber-200' : 'bg-slate-700 text-slate-300'},
+                pendentes.length ? pendentes.length + ' na fila' : 'em dia')),
+            e('h4', {className: 'text-sm font-bold text-white mt-1.5'}, 'Confirmação de aplicação'),
+            e('p', {className: 'text-[11px] text-slate-400'},
+              'Pede veículo / ano / motor assim que o pagamento é confirmado, nas vendas que não são Full. '
+              + 'É o que evita a devolução por "não serve no meu carro".')),
+          e('div', {className: 'flex items-center gap-2'},
+            e('button', {onClick: function() { procurar(true); }, disabled: !!ocupado,
+              className: 'px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-700 hover:bg-slate-600 text-slate-200'},
+              'Conferir quais'),
+            e('button', {onClick: function() {
+                if (!confirm('Colocar na fila do robô as mensagens de confirmação de aplicação?\n\nO robô envia pelo painel, uma por vez. Pedido Full e quem já tem conversa ficam de fora.')) return;
+                procurar(false);
+              }, disabled: !!ocupado,
+              className: 'px-3 py-1.5 rounded-lg text-xs font-bold ' + (ocupado ? 'bg-slate-700 text-slate-400' : 'bg-emerald-700 hover:bg-emerald-600 text-white')},
+              ocupado || 'Mandar pro robô'))),
 
         recado && e('div', {className: 'text-xs text-slate-200 bg-slate-900 rounded px-2 py-1'}, recado),
 
-        e('div', {className: 'flex flex-wrap gap-4 text-xs'},
-          e('span', {className: pendentes.length ? 'text-amber-300 font-bold' : 'text-slate-500'},
-            '⏳ ' + pendentes.length + ' na fila'),
+        e('div', {className: 'flex flex-wrap gap-4 text-xs border-t border-slate-700 pt-2'},
           e('span', {className: 'text-emerald-300'}, '✓ ' + feitas.length + ' enviadas'),
-          falhas.length > 0 && e('span', {className: 'text-red-300'}, '⚠ ' + falhas.length + ' falharam')),
+          falhas.length > 0 && e('span', {className: 'text-red-300'}, '⚠ ' + falhas.length + ' falharam'),
+          e('span', {className: 'ml-auto text-slate-500'}, 'o robô precisa estar ligado no PC')),
 
         fila === null ? e('p', {className: 'text-xs text-slate-500'}, 'Carregando...')
         : !fila.length ? e('p', {className: 'text-xs text-slate-500'},
@@ -751,11 +795,7 @@
                   t.status === 'feito' ? 'enviada'
                   : t.status === 'falhou' ? ((t.erro || 'falhou').slice(0, 40))
                   : 'na fila'));
-            })),
-
-        e('p', {className: 'text-[11px] text-slate-500'},
-          'O robô precisa estar ligado no PC. A mensagem sai pelo painel do Mercado Livre, ' +
-          'porque a API não deixa o vendedor começar conversa.'));
+            })));
     }
 
     var COLUNAS = {0: '', 1: '', 2: 'lg:grid-cols-2', 3: 'lg:grid-cols-3'};
@@ -774,40 +814,105 @@
        filtro: function(r) { return r.tipo === 'fulfillment'; }},
     ];
 
-    function CardLoja(props) {
-      var rep = props.rep;
-      return e('div', {onClick: props.onAbrir,
-        className: 'bg-slate-800 border border-slate-700 hover:border-blue-500 rounded-xl p-4 space-y-3 cursor-pointer transition-colors'},
-        e('div', {className: 'flex items-center gap-2'},
-          e('span', {className: 'text-base font-black text-white'}, props.conta),
-          rep && rep.categoria && e('span', {className: 'text-xs px-2 py-0.5 rounded bg-emerald-800 text-emerald-200 font-bold'},
-            'MercadoLíder ' + rep.categoria.charAt(0).toUpperCase() + rep.categoria.slice(1))),
+    // Uma coluna de conversas. As três são iguais, só muda o título e a lista — e a
+    // contagem no título é o que ela olha pra saber onde está o trabalho.
+    function ColunaConversas(props) {
+      return e('div', {className: 'bg-slate-800 border border-slate-700 rounded-xl p-3'},
+        e('h4', {className: 'text-sm font-bold mb-2 ' + props.cor},
+          props.titulo + ' (' + props.itens.length + ')'),
+        !props.itens.length ? e('p', {className: 'text-xs text-slate-500'}, props.vazio)
+          : props.itens.map(function(c) {
+              return e(CartaoConversa, {key: c.pack_id, c: c, onMudou: props.onMudou});
+            }));
+    }
 
-        rep && e('div', {className: 'space-y-1'},
-          rep.indicadores.map(function(i) {
-            // Verde enquanto estiver abaixo do teto do ML; vermelho quando passar.
-            var ok = i.taxa <= i.limite;
-            return e('div', {key: i.id, className: 'flex items-center gap-2 text-xs'},
+    // Cabeçalho de seção: nome, uma linha explicando, e um fio separando do conteúdo.
+    // Organização inspirada na referência que o Matheus mandou em 14/10/2026 — a tela
+    // tinha cards soltos sem dizer o que era cada parte.
+    function Secao(props) {
+      return e('div', {className: 'mt-6 first:mt-0'},
+        e('div', {className: 'flex items-baseline gap-2'},
+          e('h3', {className: 'text-sm font-bold text-white'}, props.titulo),
+          props.contagem != null && e('span', {className: 'text-xs text-slate-500'}, '(' + props.contagem + ')'),
+          props.acao),
+        props.descricao && e('p', {className: 'text-[11px] text-slate-500 mt-0.5'}, props.descricao),
+        e('div', {className: 'border-b border-slate-700 mt-2 mb-3'}));
+    }
+
+    // Etiqueta pequena, no estilo da referência: fundo fraco, texto forte, canto redondo.
+    function Etiqueta(props) {
+      return e('span', {className: 'text-[10px] px-1.5 py-0.5 rounded font-bold ' + props.cor}, props.children);
+    }
+
+    // O miolo dos dois blocos é o mesmo: um número grande em cima e uma linha por loja
+    // embaixo. Só muda a cor e o que a linha diz. Escrever duas vezes só daria chance
+    // de os dois saírem diferentes sem querer.
+    function BlocoTopo(props) {
+      return e('div', {className: 'bg-slate-800 border rounded-xl p-4 ' + props.borda},
+        e('div', {className: 'flex items-baseline gap-2 mb-3'},
+          e('span', {className: 'text-3xl font-black ' + (props.total ? props.corNumero : 'text-slate-600')},
+            props.total),
+          e('div', {},
+            e('div', {className: 'text-sm font-bold ' + props.corTitulo}, props.titulo),
+            e('div', {className: 'text-[11px] text-slate-500'}, props.legenda))),
+        e('div', {className: 'space-y-1'}, props.linhas));
+    }
+
+    // 🔔 QUEM ESTÁ ESPERANDO RESPOSTA
+    //
+    // A pergunta mais urgente da tela. A janela de conversa com o comprador fecha
+    // sozinha por silêncio — e depois que vira reclamação, a Letícia não fala mais com
+    // ele. Deixar passar aqui custa reputação lá na frente.
+    function BlocoEsperando(props) {
+      return e(BlocoTopo, {
+        total: props.total, borda: 'border-amber-600',
+        corNumero: 'text-amber-300', corTitulo: 'text-amber-300',
+        titulo: '🔔 Esperando resposta',
+        legenda: props.total ? 'compradores aguardando você' : 'ninguém aguardando',
+        linhas: props.lojas.map(function(l) {
+          return e('button', {key: l.conta, onClick: function() { props.onAbrir(l.conta); },
+            className: 'w-full flex items-center gap-2 text-xs px-2 py-1.5 rounded hover:bg-slate-700 text-left'},
+            e('span', {className: 'px-1.5 rounded bg-slate-700 text-slate-200 font-bold'}, l.conta),
+            e('span', {className: 'font-bold ' + (l.esperando ? 'text-amber-300' : 'text-slate-500')},
+              l.esperando + (l.esperando === 1 ? ' esperando' : ' esperando')),
+            e('span', {className: 'ml-auto text-slate-500'}, l.conversas + ' conversas'),
+            e('span', {className: 'text-blue-400'}, '→'));
+        })});
+    }
+
+    // ⚖️ RECLAMAÇÕES E MEDIAÇÕES
+    //
+    // Da reputação do ML aparece SÓ a taxa de reclamações: é a única métrica desta tela
+    // que ele acompanha. "Envios incorretos" e "canceladas por você" saíram em
+    // 14/10/2026 a pedido dele — ocupavam metade do card e ninguém olhava.
+    //
+    // A mediação vem destacada porque é a que o Mercado Livre decide: perder mediação
+    // bate na reputação e não tem recurso depois.
+    function BlocoReclamacoes(props) {
+      return e(BlocoTopo, {
+        total: props.total, borda: 'border-blue-600',
+        corNumero: 'text-blue-300', corTitulo: 'text-blue-300',
+        titulo: '⚖️ Reclamações abertas',
+        legenda: props.mediacoes
+          ? props.mediacoes + ' em mediação — o ML está decidindo'
+          : 'nenhuma em mediação',
+        linhas: props.lojas.map(function(l) {
+          // Verde enquanto estiver abaixo do teto do ML (1%); vermelho quando passar.
+          var ok = l.taxa == null || l.taxa <= l.limite;
+          return e('button', {key: l.conta, onClick: function() { props.onAbrir(l.conta); },
+            className: 'w-full flex items-center gap-2 text-xs px-2 py-1.5 rounded hover:bg-slate-700 text-left'},
+            e('span', {className: 'px-1.5 rounded bg-slate-700 text-slate-200 font-bold'}, l.conta),
+            e('span', {className: 'font-bold ' + (l.reclamacoes ? 'text-blue-300' : 'text-slate-500')},
+              l.reclamacoes + ' aberta' + (l.reclamacoes === 1 ? '' : 's')),
+            l.mediacoes > 0 && e('span', {className: 'text-red-300'}, '· ' + l.mediacoes + ' em mediação'),
+            e('span', {className: 'ml-auto flex items-center gap-1'},
               e('span', {className: ok ? 'text-emerald-400' : 'text-red-400'}, ok ? '●' : '▲'),
-              e('span', {className: 'text-slate-300 flex-1'}, NOME_INDICADOR[i.id] || i.id),
               e('span', {className: 'font-bold ' + (ok ? 'text-white' : 'text-red-300')},
-                (i.taxa * 100).toFixed(2).replace('.', ',') + '%'),
-              e('span', {className: 'text-slate-500'}, 'de ' + (i.limite * 100).toFixed(1).replace('.', ',') + '%'));
-          }),
-          e('div', {className: 'text-[11px] text-slate-500 pt-1'},
-            (rep.vendas || 0) + ' vendas nos últimos 60 dias')),
-
-        e('div', {className: 'border-t border-slate-700 pt-2 space-y-1 text-xs'},
-          e('div', {className: 'flex items-center gap-2'},
-            e('span', {className: props.esperando ? 'text-emerald-300 font-bold' : 'text-slate-500'},
-              '🔔 ' + props.esperando + ' esperando resposta'),
-            e('span', {className: 'ml-auto text-slate-500'}, props.mensagens + ' conversas')),
-          e('div', {className: 'flex items-center gap-2'},
-            e('span', {className: props.reclamacoes ? 'text-amber-300 font-bold' : 'text-slate-500'},
-              '⚖️ ' + props.reclamacoes + ' reclamações'),
-            props.mediacoes > 0 && e('span', {className: 'ml-auto text-red-300'}, props.mediacoes + ' em mediação'))),
-
-        e('div', {className: 'text-[11px] text-blue-400'}, 'abrir →'));
+                l.taxa == null ? '—' : (l.taxa * 100).toFixed(2).replace('.', ',') + '%'),
+              e('span', {className: 'text-slate-500'},
+                l.limite == null ? '' : 'de ' + (l.limite * 100).toFixed(1).replace('.', ',') + '%')),
+            e('span', {className: 'text-blue-400'}, '→'));
+        })});
     }
 
     // Os motivos vêm do ML em inglês. Em português dá pra decidir o que fazer — e dois
