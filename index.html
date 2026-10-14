@@ -753,8 +753,8 @@
         e('div', {className: 'flex flex-wrap items-start gap-2'},
           e('div', {className: 'flex-1 min-w-[16rem]'},
             e('div', {className: 'flex flex-wrap items-center gap-2'},
-              e(Etiqueta, {cor: 'bg-amber-900 text-amber-200'}, 'Mercado Livre'),
-              e(Etiqueta, {cor: 'bg-blue-900 text-blue-200'}, 'Automático'),
+              e(Etiqueta, {cor: 'bg-slate-700 text-slate-300'}, 'Mercado Livre'),
+              e(Etiqueta, {cor: 'bg-slate-700 text-slate-300'}, 'Automático'),
               e(Etiqueta, {cor: pendentes.length ? 'bg-amber-900 text-amber-200' : 'bg-slate-700 text-slate-300'},
                 pendentes.length ? pendentes.length + ' na fila' : 'em dia')),
             e('h4', {className: 'text-sm font-bold text-white mt-1.5'}, 'Confirmação de aplicação'),
@@ -847,13 +847,18 @@
     // O miolo dos dois blocos é o mesmo: um número grande em cima e uma linha por loja
     // embaixo. Só muda a cor e o que a linha diz. Escrever duas vezes só daria chance
     // de os dois saírem diferentes sem querer.
+    //
+    // Cor é ESTADO, não enfeite — é assim no resto do sistema e aqui não muda: cinza
+    // quando não há nada a fazer, âmbar quando precisa de alguém. O Matheus mandou um
+    // print com um bloco amarelo e um azul, mas era só exemplo de organização: "não se
+    // apega as cores, mantém as nossas cores padrões".
     function BlocoTopo(props) {
-      return e('div', {className: 'bg-slate-800 border rounded-xl p-4 ' + props.borda},
+      return e('div', {className: 'bg-slate-800 border border-slate-700 rounded-xl p-4'},
         e('div', {className: 'flex items-baseline gap-2 mb-3'},
-          e('span', {className: 'text-3xl font-black ' + (props.total ? props.corNumero : 'text-slate-600')},
+          e('span', {className: 'text-3xl font-black ' + (props.total ? 'text-amber-300' : 'text-slate-600')},
             props.total),
           e('div', {},
-            e('div', {className: 'text-sm font-bold ' + props.corTitulo}, props.titulo),
+            e('div', {className: 'text-sm font-bold text-white'}, props.titulo),
             e('div', {className: 'text-[11px] text-slate-500'}, props.legenda))),
         e('div', {className: 'space-y-1'}, props.linhas));
     }
@@ -865,8 +870,7 @@
     // ele. Deixar passar aqui custa reputação lá na frente.
     function BlocoEsperando(props) {
       return e(BlocoTopo, {
-        total: props.total, borda: 'border-amber-600',
-        corNumero: 'text-amber-300', corTitulo: 'text-amber-300',
+        total: props.total,
         titulo: '🔔 Esperando resposta',
         legenda: props.total ? 'compradores aguardando você' : 'ninguém aguardando',
         linhas: props.lojas.map(function(l) {
@@ -874,9 +878,9 @@
             className: 'w-full flex items-center gap-2 text-xs px-2 py-1.5 rounded hover:bg-slate-700 text-left'},
             e('span', {className: 'px-1.5 rounded bg-slate-700 text-slate-200 font-bold'}, l.conta),
             e('span', {className: 'font-bold ' + (l.esperando ? 'text-amber-300' : 'text-slate-500')},
-              l.esperando + (l.esperando === 1 ? ' esperando' : ' esperando')),
+              l.esperando + ' esperando'),
             e('span', {className: 'ml-auto text-slate-500'}, l.conversas + ' conversas'),
-            e('span', {className: 'text-blue-400'}, '→'));
+            e('span', {className: 'text-slate-500'}, '→'));
         })});
     }
 
@@ -890,8 +894,7 @@
     // bate na reputação e não tem recurso depois.
     function BlocoReclamacoes(props) {
       return e(BlocoTopo, {
-        total: props.total, borda: 'border-blue-600',
-        corNumero: 'text-blue-300', corTitulo: 'text-blue-300',
+        total: props.total,
         titulo: '⚖️ Reclamações abertas',
         legenda: props.mediacoes
           ? props.mediacoes + ' em mediação — o ML está decidindo'
@@ -902,7 +905,7 @@
           return e('button', {key: l.conta, onClick: function() { props.onAbrir(l.conta); },
             className: 'w-full flex items-center gap-2 text-xs px-2 py-1.5 rounded hover:bg-slate-700 text-left'},
             e('span', {className: 'px-1.5 rounded bg-slate-700 text-slate-200 font-bold'}, l.conta),
-            e('span', {className: 'font-bold ' + (l.reclamacoes ? 'text-blue-300' : 'text-slate-500')},
+            e('span', {className: 'font-bold ' + (l.reclamacoes ? 'text-amber-300' : 'text-slate-500')},
               l.reclamacoes + ' aberta' + (l.reclamacoes === 1 ? '' : 's')),
             l.mediacoes > 0 && e('span', {className: 'text-red-300'}, '· ' + l.mediacoes + ' em mediação'),
             e('span', {className: 'ml-auto flex items-center gap-1'},
@@ -911,7 +914,7 @@
                 l.taxa == null ? '—' : (l.taxa * 100).toFixed(2).replace('.', ',') + '%'),
               e('span', {className: 'text-slate-500'},
                 l.limite == null ? '' : 'de ' + (l.limite * 100).toFixed(1).replace('.', ',') + '%')),
-            e('span', {className: 'text-blue-400'}, '→'));
+            e('span', {className: 'text-slate-500'}, '→'));
         })});
     }
 
