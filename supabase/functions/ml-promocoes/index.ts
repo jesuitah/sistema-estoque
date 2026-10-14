@@ -52,7 +52,52 @@ async function listar(conta: string | null, promocaoId: string | null) {
   const { data } = await sb.from('ml_promocoes_itens')
     .select('*').eq('conta', conta).eq('promocao_id', promocaoId)
     .order('status').order('title');
-  return { itens: data ?? [] };
+  const itens = data ?? [];
+
+  // SÓ APARECE O QUE DÁ PRA VENDER (decidido pelo Matheus em 14/10/2026)
+  //
+  // Pôr um anúncio PAUSADO numa promoção faz o Mercado Livre REATIVAR o anúncio. Com a
+  // campanha de outubro (cerca de mil ativações em três dias) isso deixou 247 anúncios
+  // ativos de peça que não temos, anunciando 1.704 unidades inexistentes. Medido: dos
+  // pausados que entraram em promoção depois, 90,8% voltaram a ficar ativos; dos que não
+  // entraram, 10,7%.
+  //
+  // Esperar a peça chegar pra só então promover é inviável na operação dele. Então a
+  // trava é aqui: quem não tem peça nem aparece na lista, ninguém põe em campanha, e o
+  // ML não tem o que reativar.
+  //
+  // Quem JÁ ESTÁ na promoção continua aparecendo mesmo sem lastro — é ele que precisa
+  // ver pra tirar. Sumir com um anúncio que está dentro da campanha seria esconder
+  // problema, não resolver.
+  // De página em página: cada conta tem mais de mil anúncios e o Supabase corta em 1000
+  // por consulta. Sem isto, o que sobra da primeira página cairia no "não sei" e a trava
+  // deixaria passar justamente o fim da lista.
+  const porItem = new Map<string, any>();
+  for (let de = 0; ; de += 1000) {
+    const { data: pagina, error } = await sb.from('ml_anuncios_lastro')
+      .select('item_id, tem_lastro, status, faltando').eq('conta', conta)
+      .range(de, de + 999);
+    if (error || !pagina) break;
+    for (const l of pagina) porItem.set(l.item_id, l);
+    if (pagina.length < 1000) break;
+  }
+
+  const visiveis = itens.filter((i: any) => {
+    if (i.status === 'started') return true;            // já está dentro: mostra sempre
+    const l = porItem.get(i.item_id);
+    if (!l) return true;                                // sem resposta, não esconde nada
+    return l.status === 'active' && l.tem_lastro;
+  });
+
+  // Diz quantos foram escondidos e por quê — trava silenciosa vira "sumiu meu anúncio".
+  const escondidos = itens.length - visiveis.length;
+  return {
+    itens: visiveis,
+    escondidos,
+    motivo_escondidos: escondidos
+      ? 'anúncios pausados ou sem a peça em estoque não entram em promoção'
+      : null,
+  };
 }
 
 // Traduz o erro cru do Mercado Livre para algo que diga o que fazer.

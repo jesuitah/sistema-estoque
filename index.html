@@ -3811,6 +3811,12 @@
       var promoCarregandoState = useState(false);
       var promoCarregando = promoCarregandoState[0];
       var setPromoCarregando = promoCarregandoState[1];
+
+      // Quantos anúncios a lista deixou de fora por não ter peça — some da lista, mas
+      // não some da tela: trava silenciosa vira "sumiu meu anúncio".
+      var promoEscondidosState = useState(0);
+      var promoEscondidos = promoEscondidosState[0];
+      var setPromoEscondidos = promoEscondidosState[1];
       var promoAtivandoState = useState(false);
       var promoAtivando = promoAtivandoState[0];
       var setPromoAtivando = promoAtivandoState[1];
@@ -4682,17 +4688,59 @@
         // Carrega TODAS as promoções da loja, não só a aberta: cada anúncio mostra a
         // lista inteira dele, pra você comparar antes de decidir. Vem em páginas
         // porque o Supabase devolve no máximo 1000 linhas por vez, e a KMP tem 2.300.
-        (function carregarTudo(inicio, acumulado) {
-          supabase.from('ml_promocoes_itens').select('*')
-            .eq('conta', p.conta).eq('parcial', false).order('item_id').range(inicio, inicio + 999)
+        // SÓ APARECE O QUE DÁ PRA VENDER (decidido pelo Matheus em 14/10/2026)
+        //
+        // Pôr um anúncio PAUSADO numa promoção faz o Mercado Livre REATIVAR o anúncio.
+        // Com a campanha de outubro (cerca de mil ativações em três dias) isso deixou
+        // 247 anúncios ativos de peça que não temos, anunciando 1.704 unidades que não
+        // existem. Medido: dos pausados que entraram em promoção depois, 90,8% voltaram
+        // a ficar ativos; dos que não entraram, 10,7%.
+        //
+        // Esperar a peça chegar pra promover é inviável na operação. Então a trava é
+        // aqui: quem não tem peça não aparece, ninguém põe em campanha, e o ML não tem
+        // o que reativar. Quem JÁ ESTÁ na promoção continua aparecendo — é o que ele
+        // precisa ver pra tirar.
+        //
+        // A conta de quem tem peça é da view ml_anuncios_lastro, que abre o SKU de kit
+        // ("KIT: A + B") e responde por anúncio.
+        (function carregarLastro(inicio, mapa) {
+          supabase.from('ml_anuncios_lastro').select('item_id, tem_lastro, status, faltando')
+            .eq('conta', p.conta).order('item_id').range(inicio, inicio + 999)
             .then(function(r) {
-              if (r.error || !r.data) { setPromoCarregando(false); return; }
-              var tudo = acumulado.concat(r.data);
-              if (r.data.length === 1000) { carregarTudo(inicio + 1000, tudo); return; }
-              setPromoCarregando(false);
-              setPromoItens(tudo);
+              if (!r.error && r.data) {
+                r.data.forEach(function(l) { mapa[l.item_id] = l; });
+                if (r.data.length === 1000) { carregarLastro(inicio + 1000, mapa); return; }
+              }
+              carregarItens(mapa);
             });
-        })(0, []);
+        })(0, {});
+
+        function carregarItens(lastro) {
+          (function carregarTudo(inicio, acumulado) {
+            supabase.from('ml_promocoes_itens').select('*')
+              .eq('conta', p.conta).eq('parcial', false).order('item_id').range(inicio, inicio + 999)
+              .then(function(r) {
+                if (r.error || !r.data) { setPromoCarregando(false); return; }
+                var tudo = acumulado.concat(r.data);
+                if (r.data.length === 1000) { carregarTudo(inicio + 1000, tudo); return; }
+                setPromoCarregando(false);
+
+                // Conta ANÚNCIO, não linha: cada anúncio aparece uma vez por promoção
+                // da loja, então somar linhas dava "285 fora" quando eram 100 anúncios.
+                var escondidos = {};
+                var visiveis = tudo.filter(function(i) {
+                  if (i.status === 'started') return true;   // já está dentro: mostra
+                  var l = lastro[i.item_id];
+                  if (!l) return true;                       // sem resposta, não esconde
+                  if (l.status === 'active' && l.tem_lastro) return true;
+                  escondidos[i.item_id] = true;
+                  return false;
+                });
+                setPromoEscondidos(Object.keys(escondidos).length);
+                setPromoItens(visiveis);
+              });
+          })(0, []);
+        }
         // Aqui havia uma segunda consulta, montando "em quais outras promoções este
         // anúncio já está". Ela alimentava o aviso "+3 outras promoções", que foi
         // removido a pedido do Matheus — e continuou rodando a cada abertura de
@@ -7783,6 +7831,13 @@
                       }))
                   )
                 ),
+
+                // Avisa o que ficou de fora. Sem isto, "cadê o anúncio que eu sei que
+                // existe?" vira caça ao fantasma — e a trava parece defeito.
+                promoEscondidos > 0 && e('div', {
+                  className: 'mb-2 text-[11px] text-slate-400 bg-slate-900 border border-slate-700 rounded px-2 py-1'},
+                  '🔒 ' + promoEscondidos + ' anúncio(s) fora da lista: estão pausados ou sem a peça '
+                  + 'em estoque. Promover um anúncio pausado faz o Mercado Livre reativar ele.'),
 
                 promoCarregando
                   ? e('div', {className: 'text-sm text-slate-400 py-6 text-center'}, 'carregando anúncios...')
