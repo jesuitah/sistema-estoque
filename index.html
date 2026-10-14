@@ -825,7 +825,11 @@
           props.so ? '🎉 Nenhuma devolução aberta nesta loja.'
                    : '🎉 Nenhuma reclamação aberta nesta loja.');
       }
-      return e('div', {className: 'grid gap-4 items-start lg:grid-cols-2'},
+      // Uma caixa embaixo da outra, cada uma na largura inteira, e os cartões lado a
+      // lado dentro dela. Em coluna, a tela ficava com metade vazia e as reclamações
+      // espremidas num corredor estreito — era o caso da KMP, com 12 mediações e nenhum
+      // outro tipo aberto.
+      return e('div', {className: 'space-y-4'},
         resto.length > 0 && e(CaixaReclamacao, {
           titulo: 'Próximas a serem atendidas', itens: resto,
           nota: 'ainda dá pra agir nestas'}),
@@ -839,8 +843,8 @@
         e('div', {className: 'flex items-baseline gap-2'},
           e('h4', {className: 'text-sm font-bold text-white'}, props.titulo),
           e('span', {className: 'text-xs text-slate-500'}, props.itens.length)),
-        props.nota && e('p', {className: 'text-[11px] text-slate-500 mt-0.5 mb-2'}, props.nota),
-        e('div', {className: 'space-y-2'},
+        props.nota && e('p', {className: 'text-[11px] text-slate-500 mt-0.5 mb-3'}, props.nota),
+        e('div', {className: 'grid gap-3 items-start xl:grid-cols-2'},
           props.itens.map(function(r) { return e(CartaoReclamacao, {key: r.claim_id, r: r}); })));
     }
 
