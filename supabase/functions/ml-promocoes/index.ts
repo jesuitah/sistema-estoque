@@ -204,6 +204,24 @@ async function ativar(corpo: {
     .select('*').eq('conta', conta).eq('promocao_id', promocao_id).in('item_id', itens);
   const porItem = new Map((cache ?? []).map((c) => [c.item_id, c]));
 
+  // SEM A PEÇA, NÃO ENTRA NA PROMOÇÃO. Pedido do Matheus em 14/10/2026:
+  // "se por ventura eu for ativar promoção nesse anúncio que não tem, simplesmente
+  // não funciona".
+  //
+  // A lista da aba já esconde esses anúncios, mas a lista vem do catálogo, que é
+  // sincronizado de 3 em 3 horas. Esta checagem é a garantia: roda no ato, contra o
+  // estoque, que é dado nosso e está sempre atual.
+  //
+  // Barra por FALTA DE PEÇA, não por estar pausado. O status do catálogo pode estar
+  // velho e barraria um anúncio que já voltou a vender; o estoque, não. E anúncio
+  // pausado QUE TEM a peça pode entrar — promover reativa ele, o que é bom.
+  //
+  // Quem está no Full passa: a peça está no galpão do Mercado Livre, não aqui.
+  const { data: lastro } = await sb.from('ml_anuncios_lastro')
+    .select('item_id, tem_lastro, faltando').eq('conta', conta).in('item_id', itens);
+  const semPeca = new Map((lastro ?? []).filter((l: any) => !l.tem_lastro)
+    .map((l: any) => [l.item_id, l.faltando]));
+
   const ativados: unknown[] = [];
   const recusados: unknown[] = [];
 
@@ -218,6 +236,15 @@ async function ativar(corpo: {
 
     const info = porItem.get(itemId);
     if (!info) { recusados.push({ item_id: itemId, motivo: 'não está no cache — refaça a varredura' }); continue; }
+
+    if (semPeca.has(itemId)) {
+      recusados.push({
+        item_id: itemId, title: info.title,
+        motivo: 'não temos a peça aqui (' + semPeca.get(itemId) + ') — promover reativaria '
+          + 'o anúncio e ele venderia o que não existe',
+      });
+      continue;
+    }
 
     const payload: Record<string, unknown> = { promotion_id: promocao_id, promotion_type: promocao_tipo };
 
