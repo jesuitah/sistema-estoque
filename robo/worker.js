@@ -38,7 +38,14 @@ const SUPABASE_KEY = process.env.SUPABASE_KEY || lerChaveDoSite();
 const PAINEL = 'https://vendedores.mercadolivre.com.br/anuncios/lista/space_management';
 const ENDPOINT = 'https://vendedores.mercadolivre.com.br/stock-management/space-management/api/actions';
 
-const INTERVALO_FILA_MS = 3000;    // de quanto em quanto tempo olha a fila
+// De quanto em quanto tempo olha a fila.
+//
+// Era 3 segundos: 28.800 perguntas por dia, quase todas respondendo "não tem nada".
+// Junto com o relógio da tela, foi o que estourou a cota de tráfego do Supabase em
+// 16/10/2026 e deixou as 3 lojas sem sistema. O Matheus escolheu 1 minuto: a tarefa
+// demora no máximo um minuto a mais pra começar, e ninguém nota isso numa fila que
+// leva 20 a 30 segundos por item.
+const INTERVALO_FILA_MS = 60000;   // de quanto em quanto tempo olha a fila
 const PAUSA_ENTRE_TAREFAS_MS = 1500;
 const VALIDADE_CSRF_MS = 20 * 60 * 1000; // o código de segurança vale pra sessão toda
 const OCIOSO_ATE_FECHAR_MS = 90 * 1000;  // sem tarefa por 1min30, fecha o navegador
