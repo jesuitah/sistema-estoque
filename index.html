@@ -5963,8 +5963,45 @@
         // Agora: 15s enquanto há tarefa rodando (continua acompanhando o robô de perto),
         // 2 minutos parado, e NADA enquanto a aba está em segundo plano. Ninguém está
         // olhando uma tela escondida — quando ela volta, a primeira batida já atualiza.
+        // E TAMBÉM SE CALA QUANDO NINGUÉM ESTÁ MEXENDO.
+        //
+        // Esconder a aba atrás de outra janela não é o único jeito de ninguém estar
+        // olhando: o PC fica ligado a noite toda por causa do robô (que é um programa
+        // à parte e não precisa do site aberto), e a tela esquecida aberta ficava
+        // perguntando "o robô está trabalhando?" de 2 em 2 minutos até de madrugada.
+        // Medido em 19/10/2026: 200 consultas por hora às 3 da manhã, com a empresa
+        // fechada.
+        //
+        // Passados 10 minutos sem mouse, teclado ou rolagem, ela para. Encostou,
+        // volta na hora e já atualiza — é o que `acordar` faz.
+        var OCIOSO_MS = 10 * 60 * 1000;
+        window._ultimoToque = Date.now();
+        function acordar() {
+          var dormia = Date.now() - window._ultimoToque > OCIOSO_MS;
+          window._ultimoToque = Date.now();
+          // Voltou de um período parado: atualiza já, sem esperar a próxima batida.
+          //
+          // Marca a checagem como FEITA AGORA, não zera. Zerando, a batida seguinte
+          // (até 4s depois) achava que estava atrasada e repetia tudo — no teste as 14
+          // consultas saíram duas vezes seguidas.
+          if (dormia && !document.hidden) {
+            window._roboUltimaChecagem = Date.now();
+            carregarStatusRobo();
+            carregarUltimasExecucoes();
+          }
+        }
+        var EVENTOS_DE_VIDA = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'wheel'];
+        EVENTOS_DE_VIDA.forEach(function(ev) {
+          window.addEventListener(ev, acordar, {passive: true});
+        });
+        // Trazer a janela de volta conta como presença, mesmo sem mexer em nada.
+        document.addEventListener('visibilitychange', function() {
+          if (!document.hidden) acordar();
+        });
+
         var relogioRobo = setInterval(function() {
           if (document.hidden) return;
+          if (Date.now() - window._ultimoToque > OCIOSO_MS) return;   // ninguém por perto
           var trabalhando = window._roboEmAndamento > 0;
           var agoraMs = Date.now();
           var espera = trabalhando ? 15000 : 120000;
@@ -6003,7 +6040,10 @@
           .on('postgres_changes', {event: '*', schema: 'public', table: 'kanban_etiquetas'}, recarregarKanbanDebounced)
           .on('postgres_changes', {event: '*', schema: 'public', table: 'kanban_cartao_etiquetas'}, recarregarKanbanDebounced)
           .subscribe();
-        return function() { subscription.unsubscribe(); kanbanSub.unsubscribe(); clearInterval(relogioRobo); };
+        return function() {
+          subscription.unsubscribe(); kanbanSub.unsubscribe(); clearInterval(relogioRobo);
+          EVENTOS_DE_VIDA.forEach(function(ev) { window.removeEventListener(ev, acordar); });
+        };
       }, []);
 
       function adicionarSKU() {
