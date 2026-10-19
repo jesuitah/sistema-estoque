@@ -27,8 +27,7 @@ const FAIXAS = [5, 150, 700, 999999];
 const TIPO = 'gold_pro';   // todos os anúncios das 3 lojas são Premium
 
 function conectar() {
-  const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
-  const chave = html.match(/supabaseKey\s*=\s*['"]([^'"]+)['"]/)[1];
+  const chave = require('./chave').chaveDoSupabase();
   return createClient('https://pylkufhziohxvwbbaued.supabase.co', chave);
 }
 

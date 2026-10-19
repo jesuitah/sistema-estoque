@@ -42,8 +42,7 @@ const TABELAS = [
 const IGNORAR = ['node_modules', 'sessoes', 'prints', '.git', '.claude', '.tokens.json', 'package-lock.json'];
 
 function conectar() {
-  const html = fs.readFileSync(path.join(RAIZ, 'index.html'), 'utf8');
-  const chave = html.match(/supabaseKey\s*=\s*['"]([^'"]+)['"]/)[1];
+  const chave = require('./chave').chaveDoSupabase();
   return createClient('https://pylkufhziohxvwbbaued.supabase.co', chave);
 }
 

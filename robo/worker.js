@@ -66,15 +66,10 @@ const BATIDA_MS = 60000;           // sinal de vida
 // do IP e da sessão de sempre.
 const VERSAO = '1.0';
 
-// A chave pública do Supabase já está no index.html do site — reaproveitamos daqui
-// pra não duplicar credencial em dois lugares.
+// A chave vem de robo/chave.js: a de serviço deste PC se existir, senão a pública do
+// site. Ver o porquê lá — é o que permite trancar a `ml_tokens` sem parar o robô.
 function lerChaveDoSite() {
-  try {
-    const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
-    const m = html.match(/supabaseKey\s*=\s*['"]([^'"]+)['"]/);
-    if (m) return m[1];
-  } catch (_e) { /* cai no erro abaixo */ }
-  throw new Error('Não achei a chave do Supabase no index.html. Defina SUPABASE_KEY no ambiente.');
+  return require('./chave').chaveDoSupabase();
 }
 
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);

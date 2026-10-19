@@ -34,10 +34,7 @@ const EXECUTAR = process.argv.includes('--executar');
 const CONTAS = ['KMP', 'ERP', 'LTS'];
 
 function lerChaveDoSite() {
-  const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
-  const m = html.match(/supabaseKey\s*=\s*['"]([^'"]+)['"]/);
-  if (m) return m[1];
-  throw new Error('não achei a chave do Supabase no index.html');
+  return require('./chave').chaveDoSupabase();
 }
 
 const espera = (ms) => new Promise((r) => setTimeout(r, ms));

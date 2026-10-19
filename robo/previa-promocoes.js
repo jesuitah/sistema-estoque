@@ -18,8 +18,7 @@ const MINHAS = ['SELLER_CAMPAIGN'];
 const COM_BENEFICIO = ['SMART', 'UNHEALTHY_STOCK', 'PRICE_MATCHING', 'BANK'];
 
 function conectar() {
-  const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
-  const chave = html.match(/supabaseKey\s*=\s*['"]([^'"]+)['"]/)[1];
+  const chave = require('./chave').chaveDoSupabase();
   return createClient('https://pylkufhziohxvwbbaued.supabase.co', chave);
 }
 

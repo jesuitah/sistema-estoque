@@ -14,3 +14,6 @@ robo/.tokens.json
 .bloco-historico.tmp
 robo/lista.json
 robo/logs/
+
+# Chave de SERVIÇO do Supabase — só neste PC, NUNCA versionar
+robo/.chave-servico

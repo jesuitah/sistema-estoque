@@ -18,8 +18,7 @@ const { createClient } = require('@supabase/supabase-js');
 const EXECUTAR = process.argv.includes('--executar');
 
 function conectar() {
-  const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
-  const chave = html.match(/supabaseKey\s*=\s*['"]([^'"]+)['"]/)[1];
+  const chave = require('./chave').chaveDoSupabase();
   return createClient('https://pylkufhziohxvwbbaued.supabase.co', chave);
 }
 

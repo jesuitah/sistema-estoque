@@ -23,8 +23,7 @@ const { createClient } = require('@supabase/supabase-js');
 const URL_BASE = 'https://pylkufhziohxvwbbaued.supabase.co';
 
 function chaveDoSite() {
-  const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
-  return html.match(/supabaseKey\s*=\s*['"]([^'"]+)['"]/)[1];
+  return require('./chave').chaveDoSupabase();
 }
 
 const moeda = (v) => v == null ? '—' : 'R$ ' + Number(v).toFixed(2).replace('.', ',');
