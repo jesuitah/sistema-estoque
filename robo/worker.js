@@ -30,6 +30,7 @@ const { coletar: coletarFretes } = require('./coletar-fretes');
 const { calcular: calcularTarifas, atualizarFaixasDeFrete } = require('./calcular-tarifas');
 const { coletar: coletarFreteOficial } = require('./coletar-frete-oficial');
 const { vigiar } = require('./vigia');
+const { backupSemanalSePrecisar } = require('./backup-semanal');
 const { enviarMensagem } = require('./mensagem-aplicacao');
 
 const SUPABASE_URL = 'https://pylkufhziohxvwbbaued.supabase.co';
@@ -1327,6 +1328,20 @@ async function main() {
             if (n) log(`   flex: ${n} anúncio(s) pausado(s) ainda com Flex — enfileirados pra desligar`);
           } catch (erro) {
             log(`   varredura de flex falhou: ${mensagemAmigavel(erro)}`);
+          }
+
+          // BACKUP SEMANAL, toda segunda de manhã.
+          //
+          // Fica aqui, pendurado na patrulha de hora em hora, por dois motivos: a fila
+          // está vazia (não disputa com as tarefas) e, se o PC estiver desligado na
+          // segunda, a primeira passada depois de ligar já faz. Backup que depende de
+          // alguém lembrar não acontece — o botão manual da tela foi usado pela última
+          // vez em 8 de setembro, um mês e meio antes de eu ir conferir.
+          try {
+            const r = await backupSemanalSePrecisar((m) => log(m));
+            if (r) log(`   backup da semana guardado — ${r.total} linhas`);
+          } catch (erro) {
+            log(`   backup semanal falhou: ${mensagemAmigavel(erro)}`);
           }
 
           // Uma vez por dia, recataloga as promoções. Fica junto da patrulha porque
