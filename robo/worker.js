@@ -31,6 +31,7 @@ const { calcular: calcularTarifas, atualizarFaixasDeFrete } = require('./calcula
 const { coletar: coletarFreteOficial } = require('./coletar-frete-oficial');
 const { vigiar } = require('./vigia');
 const { backupSemanalSePrecisar } = require('./backup-semanal');
+const { rodar: patrulharSemEstoque } = require('./patrulha-sem-estoque');
 const { enviarMensagem } = require('./mensagem-aplicacao');
 
 const SUPABASE_URL = 'https://pylkufhziohxvwbbaued.supabase.co';
@@ -182,6 +183,10 @@ const VARREDURA_PROMO_MS = 24 * 60 * 60 * 1000;
 let ultimaVarreduraPromo = 0;
 // A rodada das 4h da manhã, que vai até o fim sem interromper. Uma por dia.
 let ultimaVarreduraMadrugada = 0;
+// Quando a patrulha do "ativo sem peça" rodou pela última vez. Começa em 0 para que a
+// primeira passada depois de ligar o robô já faça — se o PC passou dias desligado, é
+// justamente quando mais vale conferir.
+let ultimaPatrulhaSemEstoque = 0;
 
 // O robô conferindo a si mesmo. Grava o que encontra em robo_alertas e a tela mostra.
 const VIGIA_MS = 15 * 60 * 1000;
@@ -1342,6 +1347,30 @@ async function main() {
             if (r) log(`   backup da semana guardado — ${r.total} linhas`);
           } catch (erro) {
             log(`   backup semanal falhou: ${mensagemAmigavel(erro)}`);
+          }
+
+          // PATRULHA DO "ATIVO SEM PEÇA", A CADA 2 DIAS.
+          //
+          // Acha anúncio que está no ar sem a peça aqui. Não é Full: pausa, pela API
+          // oficial. É Full: deixa vendendo (a peça é do galpão do ML) e tira o Flex,
+          // que é entrega feita por nós, com peça daqui.
+          //
+          // DE 2 EM 2 DIAS porque custa tráfego: ela lê a tabela de anúncios e a de
+          // estoque. De hora em hora seriam 1,36 GB por mês — 27% da cota que nos
+          // derrubou em 16/10. Assim fica em 5 MB. E o problema não aparece de hora em
+          // hora: quando alguém dá baixa pela tela, o sistema já pausa na hora; isto
+          // aqui é a rede pro que escapa por outro caminho. Intervalo escolhido pelo
+          // Matheus em 22/10/2026.
+          try {
+            if (Date.now() - ultimaPatrulhaSemEstoque > 2 * 24 * 3600e3) {
+              ultimaPatrulhaSemEstoque = Date.now();
+              const r = await patrulharSemEstoque({ executar: true, log: (m) => log('   ' + m) });
+              if (r && (r.pausados || r.flexNaFila)) {
+                log(`   ativos sem peça: ${r.pausados} pausado(s), ${r.flexNaFila} Flex na fila`);
+              }
+            }
+          } catch (erro) {
+            log(`   patrulha de ativos sem peça falhou: ${mensagemAmigavel(erro)}`);
           }
 
           // Uma vez por dia, recataloga as promoções. Fica junto da patrulha porque

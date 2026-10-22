@@ -113,7 +113,7 @@ async function enfileirar(conta, tipo, params, criadoPor) {
   return !error;
 }
 
-(async () => {
+async function rodar({ executar = EXECUTAR, log = console.log } = {}) {
   const estoque = await tudo('estoque', 'marca, sku, unidades');
   const saldo = new Map(estoque.map((e) =>
     [(e.marca || '').toUpperCase() + '|' + (e.sku || '').toUpperCase(), e.unidades]));
@@ -124,9 +124,9 @@ async function enfileirar(conta, tipo, params, criadoPor) {
   for (const conta of CONTAS) {
     const { data: tk } = await sb.from('ml_tokens')
       .select('access_token, expires_at').eq('conta', conta).maybeSingle();
-    if (!tk) { console.log(`${conta}: sem token, pulei`); continue; }
+    if (!tk) { log(`${conta}: sem token, pulei`); continue; }
     if (new Date(tk.expires_at).getTime() < Date.now()) {
-      console.log(`${conta}: token vencido — ele se renova sozinho a cada 5 min, tente de novo`);
+      log(`${conta}: token vencido — ele se renova sozinho a cada 5 min, tente de novo`);
       continue;
     }
 
@@ -141,7 +141,7 @@ async function enfileirar(conta, tipo, params, criadoPor) {
       return comps.some((c) => saldo.get(c.marca + '|' + c.sku) === 0);
     }).map((a) => a.item_id);
 
-    if (!candidatos.length) { console.log(`${conta}: nada a conferir`); continue; }
+    if (!candidatos.length) { log(`${conta}: nada a conferir`); continue; }
 
     const noML = await lerNoML(candidatos, tk.access_token);
     const porId = new Map(anuncios.map((a) => [a.item_id, a]));
@@ -160,11 +160,11 @@ async function enfileirar(conta, tipo, params, criadoPor) {
       if (!m.full) pausar.push(base);
       else if (m.flex) desligarFlex.push(base);
     }
-    console.log(`${conta}: ${candidatos.length} conferidos no ML · ${ativos} ativos sem peça aqui`);
+    log(`${conta}: ${candidatos.length} conferidos no ML · ${ativos} ativos sem peça aqui`);
   }
 
-  console.log(`\nPAUSAR (não é Full):        ${pausar.length}`);
-  console.log(`DESLIGAR FLEX (é Full):     ${desligarFlex.length}`);
+  log(`\nPAUSAR (não é Full):        ${pausar.length}`);
+  log(`DESLIGAR FLEX (é Full):     ${desligarFlex.length}`);
 
   const cab = ['acao', 'conta', 'item_id', 'titulo', 'anunciadas', 'preco', 'sku', 'faltando'];
   const linhas = [
@@ -173,23 +173,66 @@ async function enfileirar(conta, tipo, params, criadoPor) {
   ].map((l) => cab.map((c) => String(l[c] ?? '').replace(/;/g, ',')).join(';'));
   const destino = path.join(__dirname, '..', 'ativos-sem-estoque.csv');
   fs.writeFileSync(destino, '﻿' + [cab.join(';')].concat(linhas).join('\r\n'), 'utf8');
-  console.log(`relatório: ${destino}`);
+  log(`relatório: ${destino}`);
 
-  if (!EXECUTAR) {
-    console.log('\n(só conferi — rode com --executar pra mandar pro robô)');
+  if (!executar) {
+    log('\n(só conferi — rode com --executar pra mandar pro robô)');
     return;
   }
 
+  // PAUSAR É PELA API OFICIAL, NÃO PELO ROBÔ.
+  //
+  // A primeira versão enfileirava `pausar_anuncio` pro robô — e o robô não tem esse
+  // executor: as 13 tarefas de 22/10/2026 teriam morrido com "tipo de tarefa
+  // desconhecido". Só não morreram porque fui conferir antes de deixar rodar.
+  //
+  // Pausar o ML aceita por API (PUT status=paused), então não há motivo pra passar
+  // pelo navegador. A Edge Function ml-pausar-lote já faz isso com a regra certa:
+  // anúncio comum pausa, anúncio no Full NÃO pausa (a peça é do galpão do ML) e só
+  // perde o Flex. O Flex continua sendo tarefa do robô, porque esse o ML recusa
+  // por API ("shipping.tags is not modifiable").
   let n = 0;
-  for (const x of pausar) {
-    if (await enfileirar(x.conta, 'pausar_anuncio',
-      { item_id: x.item_id, title: x.titulo, motivo: 'sem a peça: ' + x.faltando },
-      'patrulha-sem-estoque')) n++;
+  if (pausar.length) {
+    const r = await fetch(`${SUPABASE_URL}/functions/v1/ml-pausar-lote`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${SUPABASE_KEY}`, apikey: SUPABASE_KEY,
+        'Content-Type': 'application/json' },
+      body: JSON.stringify({ itens: pausar.map((x) => ({ conta: x.conta, item_id: x.item_id })) }),
+    });
+    const j = await r.json().catch(() => ({}));
+    n = (j.pausados || []).length;
+    // O ML freia quem manda muitos de uma vez (local_rate_limited). Uma segunda
+    // tentativa, depois de um respiro, resolveu os que sobraram no teste real.
+    const sobraram = (j.recusados || []).filter((x) => /rate_limited/i.test(x.motivo || ''));
+    if (sobraram.length) {
+      await espera(20000);
+      const r2 = await fetch(`${SUPABASE_URL}/functions/v1/ml-pausar-lote`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${SUPABASE_KEY}`, apikey: SUPABASE_KEY,
+          'Content-Type': 'application/json' },
+        body: JSON.stringify({ itens: sobraram.map((x) => ({ conta: x.conta, item_id: x.item_id })) }),
+      });
+      const j2 = await r2.json().catch(() => ({}));
+      n += (j2.pausados || []).length;
+    }
+    for (const x of (j.recusados || [])) {
+      if (!/rate_limited/i.test(x.motivo || '')) log(`  ! não pausou ${x.item_id}: ${x.motivo}`);
+    }
   }
   let f = 0;
   for (const x of desligarFlex) {
     if (await enfileirar(x.conta, 'desligar_flex',
       { item_id: x.item_id, title: x.titulo }, 'patrulha-sem-estoque')) f++;
   }
-  console.log(`\nenfileiradas: ${n} pausa(s) · ${f} desligar Flex`);
-})().catch((e) => { console.error('parou:', e.message); process.exit(1); });
+  log(`\n${n} anúncio(s) pausado(s) · ${f} desligar Flex na fila do robô`);
+  return { pausados: n, flexNaFila: f, destino };
+}
+
+module.exports = { rodar };
+
+if (require.main === module) {
+  rodar().then(
+    () => { process.exitCode = 0; },
+    (e) => { console.error('parou:', e.message); process.exitCode = 1; },
+  );
+}
